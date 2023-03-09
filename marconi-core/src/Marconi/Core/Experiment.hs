@@ -27,6 +27,12 @@ What's include in this module:
    - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
    - A coordinator for indexers, that can be exposed as an itdexer itself
 
+
+  In this module @desc@ is the descriptor of an indexer,
+  it's usually an uninhabited type used to define the corresponding type families.
+  The idea behind @desc@ is that you may want to provide different indexer for the same descriptor,
+  or to provide an indexer implementation that works for different descriptors.
+
 -}
 module Marconi.Core.Experiment where
 
