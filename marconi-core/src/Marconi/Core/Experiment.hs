@@ -209,15 +209,12 @@ instance
             else pure $ pure ix -- if there are still event in memory, no need to rewind the database
           Nothing -> pure Nothing
       where
-        rewindInStore :: Rewindable index desc m =>
-          index desc -> MaybeT m (index desc)
+        rewindInStore :: Rewindable index desc m => index desc -> MaybeT m (index desc)
         rewindInStore = MaybeT . rewind p
 
 instance
-    ( Monad m
-    , ResumableResult InMemory desc (Result query) m
-    , Queryable store desc query m
-    ) => Queryable (MixedIndexer InMemory store) desc query m where
+    ( Monad m , ResumableResult InMemory desc (Result query) m , Queryable store desc query m) =>
+    Queryable (MixedIndexer InMemory store) desc query m where
 
     query valid q indexer = do
         res <- query valid q $ indexer ^. inDatabase
@@ -262,13 +259,13 @@ startRunner chan tokens (Runner ix isRollback extractEvent tracer) = do
     chan' <- STM.atomically $ STM.dupTChan chan
     input <- STM.atomically $ STM.readTChan chan'
     forever $ do
-        lockCoordinator
+        unlockCoordinator
         rollBackPoint <- isRollback input
         maybe (handleInsert input) handleRollback rollBackPoint
 
     where
 
-      lockCoordinator = Con.signalQSemN tokens 1
+      unlockCoordinator = Con.signalQSemN tokens 1
 
       indexEvent p e = do
           indexer <- STM.atomically $ STM.takeTMVar ix
@@ -326,13 +323,12 @@ runnerSyncPoints (r:rs) = do
 start :: Ord point => [Runner input point] -> IO (Coordinator input point)
 start runners' = do
     let nb = length runners'
-    tokens' <- STM.newQSemN 0
+    tokens' <- STM.newQSemN 0 -- starts empty, will be filled when the runners will start
     channel' <- STM.newBroadcastTChanIO
     startRunners channel' tokens'
     pure $ Coordinator Nothing runners' tokens' channel' nb
     where
-        startRunners channel' tokens' =
-            traverse_ (startRunner channel' tokens') runners'
+        startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
 
 -- A coordinator step (send an input, wait for an ack of every runner that it's processed)
 step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
@@ -342,7 +338,7 @@ step getPoint coordinator input = do
     where
       waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
       dispatchNewInput = STM.atomically $ STM.writeTChan (coordinator ^. channel) input
-      setLastSync c =  c & lastSync ?~ getPoint input
+      setLastSync c = c & lastSync ?~ getPoint input
 
 
 -- A coordinator can be seen as an indexer
@@ -357,8 +353,8 @@ makeLenses 'CoordinatorIndex
 instance IsIndex CoordinatorIndex desc IO where
 
     insert point event = coordinator $ \x -> step (const point) x event
-    lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
 
+    lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
 
 instance Rewindable CoordinatorIndex desc IO where
 
