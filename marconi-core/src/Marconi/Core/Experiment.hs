@@ -24,7 +24,7 @@
 What's include in this module:
 
    - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
-   - A full in-memory indexer, an indexer that compose it with a SQL layer for persistence
+   - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
    - A coordinator for indexers, that can be exposed as an itdexer itself
 
 -}
@@ -33,12 +33,13 @@ module Marconi.Core.Experiment where
 import Control.Concurrent (QSemN)
 import Control.Concurrent qualified as Con
 import Control.Lens (makeLenses, view, (%~), (&), (<<.~), (?~), (^.))
-import Control.Monad (forever)
+import Control.Monad (forever, guard)
 import Control.Tracer (Tracer, traceWith)
 
 import Control.Concurrent qualified as STM
 import Control.Concurrent.STM (TChan, TMVar)
 import Control.Concurrent.STM qualified as STM
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
@@ -49,7 +50,7 @@ import Database.SQLite.Simple qualified as SQL
 type family Point desc
 -- |
 -- A an element that you want to capture from a given input. A given point in time will always correspond to an event.
--- A consequence if a point in time can be associated with no event, wrap a `Maybe` type, if several events need to be
+-- As a consequence if a point in time can be associated with no event, wrap a `Maybe` type, if several events need to be
 -- associated to the same point in time, wrap a `List`.
 type family Event desc
 data family Result query
@@ -71,7 +72,7 @@ class Monad m => IsIndex indexer desc m where
 -- | The indexer can answer a Query to produce the corresponding result
 class Queryable indexer desc query m where
 
-    -- | Query an indexer for the given validity interval
+    -- | Query an indexer at a given point in time
     query :: Point desc -> query -> indexer desc -> m (Result query)
 
 
@@ -356,6 +357,7 @@ instance IsIndex CoordinatorIndex desc IO where
 
     lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
 
+-- | To rewind a coordinator, we try and rewind all the runners.
 instance Rewindable CoordinatorIndex desc IO where
 
     rewind p = runMaybeT . coordinator rewindRunners
@@ -363,7 +365,10 @@ instance Rewindable CoordinatorIndex desc IO where
             rewindRunners ::
                 Coordinator (Event desc) (Point desc) ->
                 MaybeT IO (Coordinator (Event desc) (Point desc))
-            rewindRunners = runners $ traverse $ MaybeT . rewindRunner
+            rewindRunners c = do
+                availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
+                guard $ p `elem` availableSyncs -- we start by checking if the given point is a valid sync point
+                runners (traverse $ MaybeT . rewindRunner) c
 
             rewindRunner ::
                 Runner (Event desc) (Point desc) ->
@@ -372,6 +377,7 @@ instance Rewindable CoordinatorIndex desc IO where
                 indexer <- STM.atomically $ STM.takeTMVar runnerState
                 res <- rewind p indexer
                 maybe
+                    -- the Nothing case should not happen as we check that the sync point is a valid one
                     (STM.atomically (STM.putTMVar runnerState indexer) $> Nothing)
                     ((Just r <$) . STM.atomically . STM.putTMVar runnerState)
                     res
