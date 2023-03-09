@@ -1,0 +1,365 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- | This module implements a method to ingest a sequence of &quot;Data.Binary&quot;</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- encoded records using bounded memory. Minimal example:</span><span>
+</span><span id="line-3"></span><span class="hs-comment">--</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- &gt; {-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- &gt;</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- &gt; import Data.Function ((&amp;))</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- &gt; import qualified Data.ByteString.Streaming as Q</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- &gt; import Streaming</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- &gt; import Streaming.Binary</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- &gt; import qualified Streaming.Prelude as S</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- &gt;</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- &gt; -- Interpret all bytes on stdin as a sequence of integers.</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- &gt; -- Print them on-the-fly on stdout.</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- &gt; main = Q.getContents &amp; decoded @Int &amp; S.print</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-pragma">{-# LANGUAGE BangPatterns #-}</span><span>
+</span><span id="line-17"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase #-}</span><span>
+</span><span id="line-18"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Streaming.Binary</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Streaming.Binary.html#decode"><span class="hs-identifier">decode</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streaming.Binary.html#decodeWith"><span class="hs-identifier">decodeWith</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streaming.Binary.html#decoded"><span class="hs-identifier">decoded</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streaming.Binary.html#decodedWith"><span class="hs-identifier">decodedWith</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier">Data.Binary.Get</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Binary</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier">Data.Binary</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier">Binary</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier">Data.ByteString.Streaming</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Q</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier">Data.ByteString.Streaming</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Int</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Int64</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier">Streaming</span></a></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier">Streaming.Prelude</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span id="local-6989586621679044041"><span id="local-6989586621679044042"><span id="local-6989586621679044043"><span class="annot"><a href="Streaming.Binary.html#decode"><span class="hs-identifier hs-type">decode</span></a></span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044043"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044042"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044042"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044041"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679044042"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044042"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044041"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int64</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044043"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-34"></span><span id="decode"><span class="annot"><span class="annottext">decode :: ByteString m r -&gt; m (ByteString m r, Int64, Either String a)
+</span><a href="Streaming.Binary.html#decode"><span class="hs-identifier hs-var hs-var">decode</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Get a
+-&gt; ByteString m r -&gt; m (ByteString m r, Int64, Either String a)
+forall (m :: * -&gt; *) a r.
+Monad m =&gt;
+Get a
+-&gt; ByteString m r -&gt; m (ByteString m r, Int64, Either String a)
+</span><a href="Streaming.Binary.html#decodeWith"><span class="hs-identifier hs-var">decodeWith</span></a></span><span> </span><span class="annot"><span class="annottext">Get a
+forall t. Binary t =&gt; Get t
+</span><a href="../../../../binary/html/src"><span class="hs-identifier hs-var">get</span></a></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span id="local-6989586621679044093"><span id="local-6989586621679044094"><span id="local-6989586621679044095"><span class="annot"><a href="Streaming.Binary.html#decodeWith"><span class="hs-identifier hs-type">decodeWith</span></a></span><span>
+</span><span id="line-37"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044095"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-38"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Get</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044094"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-39"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044095"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044093"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-40"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679044095"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044095"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044093"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int64</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044094"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-41"></span><span id="decodeWith"><span class="annot"><span class="annottext">decodeWith :: Get a
+-&gt; ByteString m r -&gt; m (ByteString m r, Int64, Either String a)
+</span><a href="Streaming.Binary.html#decodeWith"><span class="hs-identifier hs-var hs-var">decodeWith</span></a></span></span><span> </span><span id="local-6989586621679044039"><span class="annot"><span class="annottext">Get a
+</span><a href="#local-6989586621679044039"><span class="hs-identifier hs-var">getter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder a
+-&gt; ByteString m r
+-&gt; m (ByteString m r, Int64, Either String a)
+forall (m :: * -&gt; *) b a.
+Monad m =&gt;
+Int64
+-&gt; Decoder b
+-&gt; ByteStream m a
+-&gt; m (ByteStream m a, Int64, Either String b)
+</span><a href="#local-6989586621679044038"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Get a -&gt; Decoder a
+forall a. Get a -&gt; Decoder a
+</span><a href="../../../../binary/html/src"><span class="hs-identifier hs-var">Binary.runGetIncremental</span></a></span><span> </span><span class="annot"><span class="annottext">Get a
+</span><a href="#local-6989586621679044039"><span class="hs-identifier hs-var">getter</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-43"></span><span>    </span><span id="local-6989586621679044038"><span class="annot"><span class="annottext">go :: Int64
+-&gt; Decoder b
+-&gt; ByteStream m a
+-&gt; m (ByteStream m a, Int64, Either String b)
+</span><a href="#local-6989586621679044038"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679044036"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044036"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Fail</span></a></span><span> </span><span id="local-6989586621679044034"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044034"><span class="hs-identifier hs-var">leftover</span></a></span></span><span> </span><span id="local-6989586621679044033"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044033"><span class="hs-identifier hs-var">nconsumed</span></a></span></span><span> </span><span id="local-6989586621679044032"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679044032"><span class="hs-identifier hs-var">err</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679044031"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044031"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-44"></span><span>        </span><span class="annot"><span class="annottext">(ByteStream m a, Int64, Either String b)
+-&gt; m (ByteStream m a, Int64, Either String b)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteStream m ()
+forall (m :: * -&gt; *). ByteString -&gt; ByteStream m ()
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.chunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044034"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m () -&gt; ByteStream m a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044031"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044036"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int64 -&gt; Int64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044033"><span class="hs-identifier hs-var">nconsumed</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String -&gt; Either String b
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679044032"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-45"></span><span>    </span><span class="annot"><a href="#local-6989586621679044038"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679044028"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044028"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Done</span></a></span><span> </span><span id="local-6989586621679044026"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044026"><span class="hs-identifier hs-var">leftover</span></a></span></span><span> </span><span id="local-6989586621679044025"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044025"><span class="hs-identifier hs-var">nconsumed</span></a></span></span><span> </span><span id="local-6989586621679044024"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679044024"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679044023"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044023"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-46"></span><span>        </span><span class="annot"><span class="annottext">(ByteStream m a, Int64, Either String b)
+-&gt; m (ByteStream m a, Int64, Either String b)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteStream m ()
+forall (m :: * -&gt; *). ByteString -&gt; ByteStream m ()
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.chunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044026"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m () -&gt; ByteStream m a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044023"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044028"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int64 -&gt; Int64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044025"><span class="hs-identifier hs-var">nconsumed</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b -&gt; Either String b
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679044024"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>    </span><span class="annot"><a href="#local-6989586621679044038"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679044022"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044022"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Partial</span></a></span><span> </span><span id="local-6989586621679044020"><span class="annot"><span class="annottext">Maybe ByteString -&gt; Decoder b
+</span><a href="#local-6989586621679044020"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679044019"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044019"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-48"></span><span>      </span><span class="annot"><span class="annottext">ByteStream m a -&gt; m (Either a (ByteString, ByteStream m a))
+forall (m :: * -&gt; *) r.
+Monad m =&gt;
+ByteStream m r -&gt; m (Either r (ByteString, ByteStream m r))
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.nextChunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044019"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">m (Either a (ByteString, ByteStream m a))
+-&gt; (Either a (ByteString, ByteStream m a)
+    -&gt; m (ByteStream m a, Int64, Either String b))
+-&gt; m (ByteStream m a, Int64, Either String b)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-49"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679044017"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679044017"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder b
+-&gt; ByteStream m a
+-&gt; m (ByteStream m a, Int64, Either String b)
+</span><a href="#local-6989586621679044038"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044022"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Decoder b
+</span><a href="#local-6989586621679044020"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679044017"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679044016"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044016"><span class="hs-identifier hs-var">bs</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679044015"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044015"><span class="hs-identifier hs-var">p'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder b
+-&gt; ByteStream m a
+-&gt; m (ByteStream m a, Int64, Either String b)
+</span><a href="#local-6989586621679044038"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044022"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Decoder b
+</span><a href="#local-6989586621679044020"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044016"><span class="hs-identifier hs-var">bs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044015"><span class="hs-identifier hs-var">p'</span></a></span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span id="local-6989586621679044012"><span id="local-6989586621679044013"><span id="local-6989586621679044014"><span class="annot"><a href="Streaming.Binary.html#decoded"><span class="hs-identifier hs-type">decoded</span></a></span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044014"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044013"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044013"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044012"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">Stream</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">Of</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044014"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679044013"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044013"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044012"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int64</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044012"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-57"></span><span id="decoded"><span class="annot"><span class="annottext">decoded :: ByteString m r
+-&gt; Stream (Of a) m (ByteString m r, Int64, Either String r)
+</span><a href="Streaming.Binary.html#decoded"><span class="hs-identifier hs-var hs-var">decoded</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Get a
+-&gt; ByteString m r
+-&gt; Stream (Of a) m (ByteString m r, Int64, Either String r)
+forall (m :: * -&gt; *) a r.
+Monad m =&gt;
+Get a
+-&gt; ByteString m r
+-&gt; Stream (Of a) m (ByteString m r, Int64, Either String r)
+</span><a href="Streaming.Binary.html#decodedWith"><span class="hs-identifier hs-var">decodedWith</span></a></span><span> </span><span class="annot"><span class="annottext">Get a
+forall t. Binary t =&gt; Get t
+</span><a href="../../../../binary/html/src"><span class="hs-identifier hs-var">get</span></a></span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span id="local-6989586621679044060"><span id="local-6989586621679044061"><span id="local-6989586621679044062"><span class="annot"><a href="Streaming.Binary.html#decodedWith"><span class="hs-identifier hs-type">decodedWith</span></a></span><span>
+</span><span id="line-60"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044062"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-61"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Get</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044061"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044062"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044060"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">Stream</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">Of</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044061"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679044062"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044062"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044060"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int64</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679044060"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-64"></span><span id="decodedWith"><span class="annot"><span class="annottext">decodedWith :: Get a
+-&gt; ByteString m r
+-&gt; Stream (Of a) m (ByteString m r, Int64, Either String r)
+</span><a href="Streaming.Binary.html#decodedWith"><span class="hs-identifier hs-var hs-var">decodedWith</span></a></span></span><span> </span><span id="local-6989586621679044011"><span class="annot"><span class="annottext">Get a
+</span><a href="#local-6989586621679044011"><span class="hs-identifier hs-var">getter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder a
+-&gt; ByteString m r
+-&gt; Stream (Of a) m (ByteString m r, Int64, Either String r)
+forall (m :: * -&gt; *) a.
+Monad m =&gt;
+Int64
+-&gt; Decoder a
+-&gt; ByteStream m a
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+</span><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Decoder a
+</span><a href="#local-6989586621679044009"><span class="hs-identifier hs-var">decoder0</span></a></span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-66"></span><span>    </span><span id="local-6989586621679044009"><span class="annot"><span class="annottext">decoder0 :: Decoder a
+</span><a href="#local-6989586621679044009"><span class="hs-identifier hs-var hs-var">decoder0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Get a -&gt; Decoder a
+forall a. Get a -&gt; Decoder a
+</span><a href="../../../../binary/html/src"><span class="hs-identifier hs-var">Binary.runGetIncremental</span></a></span><span> </span><span class="annot"><span class="annottext">Get a
+</span><a href="#local-6989586621679044011"><span class="hs-identifier hs-var">getter</span></a></span><span>
+</span><span id="line-67"></span><span>    </span><span id="local-6989586621679044010"><span class="annot"><span class="annottext">go :: Int64
+-&gt; Decoder a
+-&gt; ByteStream m a
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+</span><a href="#local-6989586621679044010"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679044008"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044008"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Fail</span></a></span><span> </span><span id="local-6989586621679044007"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044007"><span class="hs-identifier hs-var">leftover</span></a></span></span><span> </span><span id="local-6989586621679044006"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044006"><span class="hs-identifier hs-var">nconsumed</span></a></span></span><span> </span><span id="local-6989586621679044005"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679044005"><span class="hs-identifier hs-var">err</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679044004"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044004"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-68"></span><span>        </span><span class="annot"><span class="annottext">(ByteStream m a, Int64, Either String a)
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteStream m ()
+forall (m :: * -&gt; *). ByteString -&gt; ByteStream m ()
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.chunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679044007"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m () -&gt; ByteStream m a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044004"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044008"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int64 -&gt; Int64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044006"><span class="hs-identifier hs-var">nconsumed</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String -&gt; Either String a
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679044005"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>    </span><span class="annot"><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679044003"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044003"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Done</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;&quot;</span></span><span> </span><span id="local-6989586621679044002"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044002"><span class="hs-identifier hs-var">nconsumed</span></a></span></span><span> </span><span id="local-6989586621679044001"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679044001"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679044000"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044000"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-70"></span><span>        </span><span class="annot"><span class="annottext">a -&gt; Stream (Of a) m ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; Stream (Of a) m ()
+</span><a href="../../../../streaming/html/src"><span class="hs-identifier hs-var">S.yield</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679044001"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-71"></span><span>        </span><span class="annot"><span class="annottext">m (Either a (ByteString, ByteStream m a))
+-&gt; Stream (Of a) m (Either a (ByteString, ByteStream m a))
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteStream m a -&gt; m (Either a (ByteString, ByteStream m a))
+forall (m :: * -&gt; *) r.
+Monad m =&gt;
+ByteStream m r -&gt; m (Either r (ByteString, ByteStream m r))
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.nextChunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679044000"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Stream (Of a) m (Either a (ByteString, ByteStream m a))
+-&gt; (Either a (ByteString, ByteStream m a)
+    -&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a))
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-72"></span><span>          </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679043997"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043997"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(ByteStream m a, Int64, Either String a)
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043997"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044003"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int64 -&gt; Int64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044002"><span class="hs-identifier hs-var">nconsumed</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a -&gt; Either String a
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043997"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>          </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679043996"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679043996"><span class="hs-identifier hs-var">bs</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679043995"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043995"><span class="hs-identifier hs-var">p'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-74"></span><span>            </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder a
+-&gt; ByteStream m a
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+</span><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044003"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int64 -&gt; Int64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679044002"><span class="hs-identifier hs-var">nconsumed</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Decoder a
+</span><a href="#local-6989586621679044009"><span class="hs-identifier hs-var">decoder0</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteStream m ()
+forall (m :: * -&gt; *). ByteString -&gt; ByteStream m ()
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.chunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679043996"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m () -&gt; ByteStream m a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043995"><span class="hs-identifier hs-var">p'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679043994"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043994"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Done</span></a></span><span> </span><span id="local-6989586621679043993"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679043993"><span class="hs-identifier hs-var">leftover</span></a></span></span><span> </span><span id="local-6989586621679043992"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043992"><span class="hs-identifier hs-var">nconsumed</span></a></span></span><span> </span><span id="local-6989586621679043991"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043991"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679043990"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043990"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-76"></span><span>        </span><span class="annot"><span class="annottext">a -&gt; Stream (Of a) m ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; Stream (Of a) m ()
+</span><a href="../../../../streaming/html/src"><span class="hs-identifier hs-var">S.yield</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043991"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder a
+-&gt; ByteStream m a
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+</span><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043994"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int64 -&gt; Int64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043992"><span class="hs-identifier hs-var">nconsumed</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Decoder a
+</span><a href="#local-6989586621679044009"><span class="hs-identifier hs-var">decoder0</span></a></span><span> </span><span class="annot"><span class="annottext">Decoder a -&gt; ByteString -&gt; Decoder a
+forall a. Decoder a -&gt; ByteString -&gt; Decoder a
+</span><a href="../../../../binary/html/src"><span class="hs-operator hs-var">`Binary.pushChunk`</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679043993"><span class="hs-identifier hs-var">leftover</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043990"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-78"></span><span>    </span><span class="annot"><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679043988"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043988"><span class="hs-identifier hs-var">total</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../binary/html/src"><span class="hs-identifier hs-type">Binary.Partial</span></a></span><span> </span><span id="local-6989586621679043987"><span class="annot"><span class="annottext">Maybe ByteString -&gt; Decoder a
+</span><a href="#local-6989586621679043987"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679043986"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043986"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-79"></span><span>      </span><span class="annot"><span class="annottext">m (Either a (ByteString, ByteStream m a))
+-&gt; Stream (Of a) m (Either a (ByteString, ByteStream m a))
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteStream m a -&gt; m (Either a (ByteString, ByteStream m a))
+forall (m :: * -&gt; *) r.
+Monad m =&gt;
+ByteStream m r -&gt; m (Either r (ByteString, ByteStream m r))
+</span><a href="../../../../streaming-bytestring/html/src"><span class="hs-identifier hs-var">Q.nextChunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043986"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Stream (Of a) m (Either a (ByteString, ByteStream m a))
+-&gt; (Either a (ByteString, ByteStream m a)
+    -&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a))
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-80"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679043985"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043985"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder a
+-&gt; ByteStream m a
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+</span><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043988"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Decoder a
+</span><a href="#local-6989586621679043987"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; ByteStream m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679043985"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-81"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679043984"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679043984"><span class="hs-identifier hs-var">bs</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679043983"><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043983"><span class="hs-identifier hs-var">p'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int64
+-&gt; Decoder a
+-&gt; ByteStream m a
+-&gt; Stream (Of a) m (ByteStream m a, Int64, Either String a)
+</span><a href="#local-6989586621679044010"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679043988"><span class="hs-identifier hs-var">total</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Decoder a
+</span><a href="#local-6989586621679043987"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679043984"><span class="hs-identifier hs-var">bs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteStream m a
+</span><a href="#local-6989586621679043983"><span class="hs-identifier hs-var">p'</span></a></span><span>
+</span><span id="line-82"></span></pre></body></html>

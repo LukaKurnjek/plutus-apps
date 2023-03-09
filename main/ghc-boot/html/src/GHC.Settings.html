@@ -1,0 +1,348 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- Note [Settings file]</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- ~~~~~~~~~~~~~~~~~~~~</span><span>
+</span><span id="line-3"></span><span class="hs-comment">--</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- GHC has a file, `${top_dir}/settings`, which is the main source of run-time</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- configuration. ghc-pkg needs just a little bit of it: the target platform CPU</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- arch and OS. It uses that to figure out what subdirectory of `~/.ghc` is</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- associated with the current version/target.</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- This module has just enough code to read key value pairs from the settings</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- file, and read the target platform from those pairs.</span><span>
+</span><span id="line-11"></span><span class="hs-comment">--</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- The  &quot;0&quot; suffix is because the caller will partially apply it, and that will</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- in turn be used a few more times.</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">GHC.Settings</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-comment">-- See Note [Why do we import Prelude here?]</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="GHC.BaseDir.html"><span class="hs-identifier">GHC.BaseDir</span></a></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="GHC.Platform.html"><span class="hs-identifier">GHC.Platform</span></a></span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Char</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">isSpace</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- parts of settings file</span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="annot"><a href="GHC.Settings.html#getTargetPlatform"><span class="hs-identifier hs-type">getTargetPlatform</span></a></span><span>
+</span><span id="line-29"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="GHC.Settings.html#RawSettings"><span class="hs-identifier hs-type">RawSettings</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="GHC.Platform.html#Platform"><span class="hs-identifier hs-type">Platform</span></a></span><span>
+</span><span id="line-30"></span><span id="getTargetPlatform"><span class="annot"><span class="annottext">getTargetPlatform :: FilePath -&gt; RawSettings -&gt; Either FilePath Platform
+</span><a href="GHC.Settings.html#getTargetPlatform"><span class="hs-identifier hs-var hs-var">getTargetPlatform</span></a></span></span><span> </span><span id="local-6989586621679057941"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057941"><span class="hs-identifier hs-var">settingsFile</span></a></span></span><span> </span><span id="local-6989586621679057940"><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057940"><span class="hs-identifier hs-var">mySettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-keyword">let</span><span>
+</span><span id="line-32"></span><span>    </span><span id="local-6989586621679057939"><span class="annot"><span class="annottext">getBooleanSetting :: FilePath -&gt; Either FilePath Bool
+</span><a href="#local-6989586621679057939"><span class="hs-identifier hs-var hs-var">getBooleanSetting</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath Bool
+</span><a href="GHC.Settings.html#getBooleanSetting0"><span class="hs-identifier hs-var">getBooleanSetting0</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057941"><span class="hs-identifier hs-var">settingsFile</span></a></span><span> </span><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057940"><span class="hs-identifier hs-var">mySettings</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span id="local-6989586621679057972"><span class="annot"><a href="#local-6989586621679057937"><span class="hs-identifier hs-type">readSetting</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057972"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Read</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057972"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057972"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-34"></span><span>    </span><span id="local-6989586621679057937"><span class="annot"><span class="annottext">readSetting :: FilePath -&gt; Either FilePath a
+</span><a href="#local-6989586621679057937"><span class="hs-identifier hs-var hs-var">readSetting</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath a
+forall a.
+(Show a, Read a) =&gt;
+FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath a
+</span><a href="GHC.Settings.html#readSetting0"><span class="hs-identifier hs-var">readSetting0</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057941"><span class="hs-identifier hs-var">settingsFile</span></a></span><span> </span><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057940"><span class="hs-identifier hs-var">mySettings</span></a></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span>  </span><span id="local-6989586621679057935"><span class="annot"><span class="annottext">Arch
+</span><a href="#local-6989586621679057935"><span class="hs-identifier hs-var">targetArch</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Arch
+forall a. (Show a, Read a) =&gt; FilePath -&gt; Either FilePath a
+</span><a href="#local-6989586621679057937"><span class="hs-identifier hs-var">readSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;target arch&quot;</span></span><span>
+</span><span id="line-37"></span><span>  </span><span id="local-6989586621679057934"><span class="annot"><span class="annottext">OS
+</span><a href="#local-6989586621679057934"><span class="hs-identifier hs-var">targetOS</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath OS
+forall a. (Show a, Read a) =&gt; FilePath -&gt; Either FilePath a
+</span><a href="#local-6989586621679057937"><span class="hs-identifier hs-var">readSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;target os&quot;</span></span><span>
+</span><span id="line-38"></span><span>  </span><span id="local-6989586621679057933"><span class="annot"><span class="annottext">PlatformWordSize
+</span><a href="#local-6989586621679057933"><span class="hs-identifier hs-var">targetWordSize</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath PlatformWordSize
+forall a. (Show a, Read a) =&gt; FilePath -&gt; Either FilePath a
+</span><a href="#local-6989586621679057937"><span class="hs-identifier hs-var">readSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;target word size&quot;</span></span><span>
+</span><span id="line-39"></span><span>  </span><span id="local-6989586621679057932"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057932"><span class="hs-identifier hs-var">targetUnregisterised</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Bool
+</span><a href="#local-6989586621679057939"><span class="hs-identifier hs-var">getBooleanSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Unregisterised&quot;</span></span><span>
+</span><span id="line-40"></span><span>  </span><span id="local-6989586621679057931"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057931"><span class="hs-identifier hs-var">targetHasGnuNonexecStack</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Bool
+</span><a href="#local-6989586621679057939"><span class="hs-identifier hs-var">getBooleanSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;target has GNU nonexec stack&quot;</span></span><span>
+</span><span id="line-41"></span><span>  </span><span id="local-6989586621679057930"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057930"><span class="hs-identifier hs-var">targetHasIdentDirective</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Bool
+</span><a href="#local-6989586621679057939"><span class="hs-identifier hs-var">getBooleanSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;target has .ident directive&quot;</span></span><span>
+</span><span id="line-42"></span><span>  </span><span id="local-6989586621679057929"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057929"><span class="hs-identifier hs-var">targetHasSubsectionsViaSymbols</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Bool
+</span><a href="#local-6989586621679057939"><span class="hs-identifier hs-var">getBooleanSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;target has subsections via symbols&quot;</span></span><span>
+</span><span id="line-43"></span><span>  </span><span id="local-6989586621679057928"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057928"><span class="hs-identifier hs-var">crossCompiling</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Bool
+</span><a href="#local-6989586621679057939"><span class="hs-identifier hs-var">getBooleanSetting</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;cross compiling&quot;</span></span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span>  </span><span class="annot"><span class="annottext">Platform -&gt; Either FilePath Platform
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Platform -&gt; Either FilePath Platform)
+-&gt; Platform -&gt; Either FilePath Platform
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Platform :: PlatformMini
+-&gt; PlatformWordSize
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; Platform
+</span><a href="GHC.Platform.html#Platform"><span class="hs-identifier hs-type">Platform</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">platformMini :: PlatformMini
+</span><a href="GHC.Platform.html#platformMini"><span class="hs-identifier hs-var">platformMini</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">PlatformMini :: Arch -&gt; OS -&gt; PlatformMini
+</span><a href="GHC.Platform.html#PlatformMini"><span class="hs-identifier hs-type">PlatformMini</span></a></span><span>
+</span><span id="line-47"></span><span>      </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">platformMini_arch :: Arch
+</span><a href="GHC.Platform.html#platformMini_arch"><span class="hs-identifier hs-var">platformMini_arch</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Arch
+</span><a href="#local-6989586621679057935"><span class="hs-identifier hs-var">targetArch</span></a></span><span>
+</span><span id="line-48"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformMini_os :: OS
+</span><a href="GHC.Platform.html#platformMini_os"><span class="hs-identifier hs-var">platformMini_os</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">OS
+</span><a href="#local-6989586621679057934"><span class="hs-identifier hs-var">targetOS</span></a></span><span>
+</span><span id="line-49"></span><span>      </span><span class="hs-special">}</span><span>
+</span><span id="line-50"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformWordSize :: PlatformWordSize
+</span><a href="GHC.Platform.html#platformWordSize"><span class="hs-identifier hs-var">platformWordSize</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">PlatformWordSize
+</span><a href="#local-6989586621679057933"><span class="hs-identifier hs-var">targetWordSize</span></a></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformUnregisterised :: Bool
+</span><a href="GHC.Platform.html#platformUnregisterised"><span class="hs-identifier hs-var">platformUnregisterised</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057932"><span class="hs-identifier hs-var">targetUnregisterised</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformHasGnuNonexecStack :: Bool
+</span><a href="GHC.Platform.html#platformHasGnuNonexecStack"><span class="hs-identifier hs-var">platformHasGnuNonexecStack</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057931"><span class="hs-identifier hs-var">targetHasGnuNonexecStack</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformHasIdentDirective :: Bool
+</span><a href="GHC.Platform.html#platformHasIdentDirective"><span class="hs-identifier hs-var">platformHasIdentDirective</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057930"><span class="hs-identifier hs-var">targetHasIdentDirective</span></a></span><span>
+</span><span id="line-54"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformHasSubsectionsViaSymbols :: Bool
+</span><a href="GHC.Platform.html#platformHasSubsectionsViaSymbols"><span class="hs-identifier hs-var">platformHasSubsectionsViaSymbols</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057929"><span class="hs-identifier hs-var">targetHasSubsectionsViaSymbols</span></a></span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">platformIsCrossCompiling :: Bool
+</span><a href="GHC.Platform.html#platformIsCrossCompiling"><span class="hs-identifier hs-var">platformIsCrossCompiling</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679057928"><span class="hs-identifier hs-var">crossCompiling</span></a></span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- settings file helpers</span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span class="hs-keyword">type</span><span> </span><span id="RawSettings"><span class="annot"><a href="GHC.Settings.html#RawSettings"><span class="hs-identifier hs-var">RawSettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- | See Note [Settings file] for &quot;0&quot; suffix</span><span>
+</span><span id="line-64"></span><span class="annot"><a href="GHC.Settings.html#getSetting0"><span class="hs-identifier hs-type">getSetting0</span></a></span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="GHC.Settings.html#RawSettings"><span class="hs-identifier hs-type">RawSettings</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-66"></span><span id="getSetting0"><span class="annot"><span class="annottext">getSetting0 :: FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath FilePath
+</span><a href="GHC.Settings.html#getSetting0"><span class="hs-identifier hs-var hs-var">getSetting0</span></a></span></span><span> </span><span id="local-6989586621679057915"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057915"><span class="hs-identifier hs-var">settingsFile</span></a></span></span><span> </span><span id="local-6989586621679057914"><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057914"><span class="hs-identifier hs-var">mySettings</span></a></span></span><span> </span><span id="local-6989586621679057913"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057913"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; RawSettings -&gt; Maybe FilePath
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.lookup</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057913"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057914"><span class="hs-identifier hs-var">mySettings</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-67"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679057911"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057911"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath FilePath
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057911"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-68"></span><span>  </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath FilePath
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Either FilePath FilePath)
+-&gt; FilePath -&gt; Either FilePath FilePath
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;No entry for &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057913"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot; in &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057915"><span class="hs-identifier hs-var">settingsFile</span></a></span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- | See Note [Settings file] for &quot;0&quot; suffix</span><span>
+</span><span id="line-71"></span><span class="annot"><a href="GHC.Settings.html#getFilePathSetting0"><span class="hs-identifier hs-type">getFilePathSetting0</span></a></span><span>
+</span><span id="line-72"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="GHC.Settings.html#RawSettings"><span class="hs-identifier hs-type">RawSettings</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-73"></span><span id="getFilePathSetting0"><span class="annot"><span class="annottext">getFilePathSetting0 :: FilePath
+-&gt; FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath FilePath
+</span><a href="GHC.Settings.html#getFilePathSetting0"><span class="hs-identifier hs-var hs-var">getFilePathSetting0</span></a></span></span><span> </span><span id="local-6989586621679057908"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057908"><span class="hs-identifier hs-var">top_dir</span></a></span></span><span> </span><span id="local-6989586621679057907"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057907"><span class="hs-identifier hs-var">settingsFile</span></a></span></span><span> </span><span id="local-6989586621679057906"><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057906"><span class="hs-identifier hs-var">mySettings</span></a></span></span><span> </span><span id="local-6989586621679057905"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057905"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-74"></span><span>  </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="GHC.BaseDir.html#expandTopDir"><span class="hs-identifier hs-var">expandTopDir</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057908"><span class="hs-identifier hs-var">top_dir</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; FilePath)
+-&gt; Either FilePath FilePath -&gt; Either FilePath FilePath
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath FilePath
+</span><a href="GHC.Settings.html#getSetting0"><span class="hs-identifier hs-var">getSetting0</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057907"><span class="hs-identifier hs-var">settingsFile</span></a></span><span> </span><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057906"><span class="hs-identifier hs-var">mySettings</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057905"><span class="hs-identifier hs-var">key</span></a></span><span>
+</span><span id="line-75"></span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- | See Note [Settings file] for &quot;0&quot; suffix</span><span>
+</span><span id="line-77"></span><span class="annot"><a href="GHC.Settings.html#getBooleanSetting0"><span class="hs-identifier hs-type">getBooleanSetting0</span></a></span><span>
+</span><span id="line-78"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="GHC.Settings.html#RawSettings"><span class="hs-identifier hs-type">RawSettings</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-79"></span><span id="getBooleanSetting0"><span class="annot"><span class="annottext">getBooleanSetting0 :: FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath Bool
+</span><a href="GHC.Settings.html#getBooleanSetting0"><span class="hs-identifier hs-var hs-var">getBooleanSetting0</span></a></span></span><span> </span><span id="local-6989586621679057902"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057902"><span class="hs-identifier hs-var">settingsFile</span></a></span></span><span> </span><span id="local-6989586621679057901"><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057901"><span class="hs-identifier hs-var">mySettings</span></a></span></span><span> </span><span id="local-6989586621679057900"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057900"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-80"></span><span>  </span><span id="local-6989586621679057899"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057899"><span class="hs-identifier hs-var">rawValue</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath FilePath
+</span><a href="GHC.Settings.html#getSetting0"><span class="hs-identifier hs-var">getSetting0</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057902"><span class="hs-identifier hs-var">settingsFile</span></a></span><span> </span><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057901"><span class="hs-identifier hs-var">mySettings</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057900"><span class="hs-identifier hs-var">key</span></a></span><span>
+</span><span id="line-81"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057899"><span class="hs-identifier hs-var">rawValue</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-82"></span><span>    </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;YES&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Either FilePath Bool
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-83"></span><span>    </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NO&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Either FilePath Bool
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span id="local-6989586621679057898"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057898"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath Bool
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Either FilePath Bool)
+-&gt; FilePath -&gt; Either FilePath Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Bad value for &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057900"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;: &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057898"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-85"></span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- | See Note [Settings file] for &quot;0&quot; suffix</span><span>
+</span><span id="line-87"></span><span id="local-6989586621679057974"><span class="annot"><a href="GHC.Settings.html#readSetting0"><span class="hs-identifier hs-type">readSetting0</span></a></span><span>
+</span><span id="line-88"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057974"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Read</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057974"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="GHC.Settings.html#RawSettings"><span class="hs-identifier hs-type">RawSettings</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057974"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-89"></span><span id="readSetting0"><span class="annot"><span class="annottext">readSetting0 :: FilePath -&gt; RawSettings -&gt; FilePath -&gt; Either FilePath a
+</span><a href="GHC.Settings.html#readSetting0"><span class="hs-identifier hs-var hs-var">readSetting0</span></a></span></span><span> </span><span id="local-6989586621679057897"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057897"><span class="hs-identifier hs-var">settingsFile</span></a></span></span><span> </span><span id="local-6989586621679057896"><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057896"><span class="hs-identifier hs-var">mySettings</span></a></span></span><span> </span><span id="local-6989586621679057895"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057895"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; RawSettings -&gt; Maybe FilePath
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.lookup</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057895"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">RawSettings
+</span><a href="#local-6989586621679057896"><span class="hs-identifier hs-var">mySettings</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-90"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679057894"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057894"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe a
+forall a. Read a =&gt; FilePath -&gt; Maybe a
+</span><a href="GHC.Settings.html#maybeRead"><span class="hs-identifier hs-var">maybeRead</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057894"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-91"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679057892"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679057892"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; Either FilePath a
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679057892"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-92"></span><span>    </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath a
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Either FilePath a) -&gt; FilePath -&gt; Either FilePath a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Failed to read &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057895"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot; value &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057894"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-93"></span><span>  </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath a
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Either FilePath a) -&gt; FilePath -&gt; Either FilePath a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;No entry for &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057895"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot; in &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. Show a =&gt; a -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057897"><span class="hs-identifier hs-var">settingsFile</span></a></span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-96"></span><span class="hs-comment">-- read helpers</span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span id="local-6989586621679057952"><span class="annot"><a href="GHC.Settings.html#maybeRead"><span class="hs-identifier hs-type">maybeRead</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Read</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057952"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057952"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-99"></span><span id="maybeRead"><span class="annot"><span class="annottext">maybeRead :: FilePath -&gt; Maybe a
+</span><a href="GHC.Settings.html#maybeRead"><span class="hs-identifier hs-var hs-var">maybeRead</span></a></span></span><span> </span><span id="local-6989586621679057891"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057891"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ReadS a
+forall a. Read a =&gt; ReadS a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">reads</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057891"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-special">[</span><span class="hs-special">(</span><span id="local-6989586621679057889"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679057889"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;&quot;</span></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679057889"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-101"></span><span>  </span><span class="annot"><span class="annottext">[(a, FilePath)]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span id="local-6989586621679057888"><span class="annot"><a href="GHC.Settings.html#maybeReadFuzzy"><span class="hs-identifier hs-type">maybeReadFuzzy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Read</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057888"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679057888"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-104"></span><span id="maybeReadFuzzy"><span class="annot"><span class="annottext">maybeReadFuzzy :: FilePath -&gt; Maybe a
+</span><a href="GHC.Settings.html#maybeReadFuzzy"><span class="hs-identifier hs-var hs-var">maybeReadFuzzy</span></a></span></span><span> </span><span id="local-6989586621679057886"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057886"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ReadS a
+forall a. Read a =&gt; ReadS a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">reads</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057886"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-105"></span><span>  </span><span class="hs-special">[</span><span class="hs-special">(</span><span id="local-6989586621679057885"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679057885"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679057884"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057884"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; FilePath -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">all</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">isSpace</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679057884"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679057885"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-106"></span><span>  </span><span class="annot"><span class="annottext">[(a, FilePath)]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-107"></span></pre></body></html>

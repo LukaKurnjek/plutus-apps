@@ -1,0 +1,846 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP, ViewPatterns, DeriveDataTypeable, GeneralizedNewtypeDeriving #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Module:      Database.PostgreSQL.Simple.HStore.Implementation</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Copyright:   (c) 2013 Leon P Smith</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- License:     BSD3</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Maintainer:  Leon P Smith &lt;leon@melding-monads.com&gt;</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Stability:   experimental</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- This code has yet to be profiled and optimized.</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.PostgreSQL.Simple.HStore.Implementation</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-16"></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Applicative</span></a></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">Data.Attoparsec.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">P</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">Data.Attoparsec.ByteString.Char8</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">P</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">isSpace_w8</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Builder</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">byteString</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">char8</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BU</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Internal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">c2w</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">w2c</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Lazy</span></a></span><span>          </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BL</span></span><span class="hs-cpp">
+#if !MIN_VERSION_bytestring(0,10,0)
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-identifier">Data.ByteString.Lazy.Internal</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="hs-identifier">BL</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">foldrChunks</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span>               </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TS</span></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Encoding</span></a></span><span>      </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TS</span></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Encoding.Error</span></a></span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">UnicodeException</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Lazy</span></a></span><span>          </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TL</span></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Typeable</span></a></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Monoid</span></a></span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Monoid</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Semigroup</span></a></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.FromField.html"><span class="hs-identifier">Database.PostgreSQL.Simple.FromField</span></a></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.ToField.html"><span class="hs-identifier">Database.PostgreSQL.Simple.ToField</span></a></span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">class</span><span> </span><span id="ToHStore"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStore"><span class="hs-identifier hs-var">ToHStore</span></a></span></span><span> </span><span id="local-6989586621679133045"><span class="annot"><a href="#local-6989586621679133045"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-42"></span><span>   </span><span id="toHStore"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toHStore"><span class="hs-identifier hs-type">toHStore</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679133045"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- | Represents valid hstore syntax.</span><span>
+</span><span id="line-45"></span><span class="hs-keyword">data</span><span> </span><span id="HStoreBuilder"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-var">HStoreBuilder</span></a></span></span><span>
+</span><span id="line-46"></span><span>   </span><span class="hs-glyph">=</span><span> </span><span id="Empty"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span></span><span>
+</span><span id="line-47"></span><span>   </span><span class="hs-glyph">|</span><span> </span><span id="Comma"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-var">Comma</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-48"></span><span>     </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Typeable</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStore"><span class="hs-identifier hs-type">ToHStore</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>   </span><span id="local-6989586621679132943"><span class="annot"><span class="annottext">toHStore :: HStoreBuilder -&gt; HStoreBuilder
+</span><a href="#local-6989586621679132943"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStore</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder -&gt; HStoreBuilder
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toBuilder"><span class="hs-identifier hs-type">toBuilder</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-54"></span><span id="toBuilder"><span class="annot"><span class="annottext">toBuilder :: HStoreBuilder -&gt; Builder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toBuilder"><span class="hs-identifier hs-var hs-var">toBuilder</span></a></span></span><span> </span><span id="local-6989586621679132940"><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132940"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132940"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-55"></span><span>                </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-56"></span><span>                </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-type">Comma</span></a></span><span> </span><span id="local-6989586621679132939"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132939"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132939"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toLazyByteString"><span class="hs-identifier hs-type">toLazyByteString</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span>
+</span><span id="line-59"></span><span id="toLazyByteString"><span class="annot"><span class="annottext">toLazyByteString :: HStoreBuilder -&gt; ByteString
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toLazyByteString"><span class="hs-identifier hs-var hs-var">toLazyByteString</span></a></span></span><span> </span><span id="local-6989586621679132937"><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132937"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132937"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-60"></span><span>                       </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.empty</span></a></span><span>
+</span><span id="line-61"></span><span>                       </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-type">Comma</span></a></span><span> </span><span id="local-6989586621679132935"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132935"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BU.toLazyByteString</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132935"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679132929"><span id="local-6989586621679132931"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-64"></span><span>    </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span><span>   </span><span id="local-6989586621679132927"><span class="annot"><span class="annottext">&lt;&gt; :: HStoreBuilder -&gt; HStoreBuilder -&gt; HStoreBuilder
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;&gt;</span></a></span></span><span> </span><span id="local-6989586621679132926"><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132926"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132926"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-type">Comma</span></a></span><span> </span><span id="local-6989586621679132925"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132925"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span id="local-6989586621679132924"><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132924"><span class="hs-identifier hs-var">x</span></a></span></span><span>
+</span><span id="line-66"></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-var">Comma</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132925"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132924"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-67"></span><span>                               </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-68"></span><span>                               </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-type">Comma</span></a></span><span> </span><span id="local-6989586621679132923"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132923"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">char8</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">','</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132923"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679132917"><span id="local-6989586621679132919"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-71"></span><span>    </span><span id="local-6989586621679132915"><span class="annot"><span class="annottext">mempty :: HStoreBuilder
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span><span class="hs-cpp">
+#if !(MIN_VERSION_base(4,11,0))
+</span><span>    </span><span class="hs-identifier">mappend</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-operator">&lt;&gt;</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span>
+</span><span id="line-76"></span><span class="hs-keyword">class</span><span> </span><span id="ToHStoreText"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-var">ToHStoreText</span></a></span></span><span> </span><span id="local-6989586621679133033"><span class="annot"><a href="#local-6989586621679133033"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-77"></span><span>  </span><span id="toHStoreText"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toHStoreText"><span class="hs-identifier hs-type">toHStoreText</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679133033"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-type">HStoreText</span></a></span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- | Represents escape text, ready to be the key or value to a hstore value</span><span>
+</span><span id="line-80"></span><span class="hs-keyword">newtype</span><span> </span><span id="HStoreText"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-var">HStoreText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="HStoreText"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-var">HStoreText</span></a></span></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Typeable</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679132907"><span id="local-6989586621679132909"><span id="local-6989586621679132911"><span class="annot"><span class="annottext">b -&gt; HStoreText -&gt; HStoreText
+NonEmpty HStoreText -&gt; HStoreText
+HStoreText -&gt; HStoreText -&gt; HStoreText
+(HStoreText -&gt; HStoreText -&gt; HStoreText)
+-&gt; (NonEmpty HStoreText -&gt; HStoreText)
+-&gt; (forall b. Integral b =&gt; b -&gt; HStoreText -&gt; HStoreText)
+-&gt; Semigroup HStoreText
+forall b. Integral b =&gt; b -&gt; HStoreText -&gt; HStoreText
+forall a.
+(a -&gt; a -&gt; a)
+-&gt; (NonEmpty a -&gt; a)
+-&gt; (forall b. Integral b =&gt; b -&gt; a -&gt; a)
+-&gt; Semigroup a
+stimes :: b -&gt; HStoreText -&gt; HStoreText
+$cstimes :: forall b. Integral b =&gt; b -&gt; HStoreText -&gt; HStoreText
+sconcat :: NonEmpty HStoreText -&gt; HStoreText
+$csconcat :: NonEmpty HStoreText -&gt; HStoreText
+&lt;&gt; :: HStoreText -&gt; HStoreText -&gt; HStoreText
+$c&lt;&gt; :: HStoreText -&gt; HStoreText -&gt; HStoreText
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Semigroup</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679132900"><span id="local-6989586621679132902"><span id="local-6989586621679132904"><span class="annot"><span class="annottext">Semigroup HStoreText
+HStoreText
+Semigroup HStoreText
+-&gt; HStoreText
+-&gt; (HStoreText -&gt; HStoreText -&gt; HStoreText)
+-&gt; ([HStoreText] -&gt; HStoreText)
+-&gt; Monoid HStoreText
+[HStoreText] -&gt; HStoreText
+HStoreText -&gt; HStoreText -&gt; HStoreText
+forall a.
+Semigroup a -&gt; a -&gt; (a -&gt; a -&gt; a) -&gt; ([a] -&gt; a) -&gt; Monoid a
+mconcat :: [HStoreText] -&gt; HStoreText
+$cmconcat :: [HStoreText] -&gt; HStoreText
+mappend :: HStoreText -&gt; HStoreText -&gt; HStoreText
+$cmappend :: HStoreText -&gt; HStoreText -&gt; HStoreText
+mempty :: HStoreText
+$cmempty :: HStoreText
+$cp1Monoid :: Semigroup HStoreText
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Monoid</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-type">HStoreText</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-83"></span><span>  </span><span id="local-6989586621679132897"><span class="annot"><span class="annottext">toHStoreText :: HStoreText -&gt; HStoreText
+</span><a href="#local-6989586621679132897"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStoreText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreText -&gt; HStoreText
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- | Assumed to be UTF-8 encoded</span><span>
+</span><span id="line-86"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BS.ByteString</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-87"></span><span>  </span><span id="local-6989586621679132895"><span class="annot"><span class="annottext">toHStoreText :: ByteString -&gt; HStoreText
+</span><a href="#local-6989586621679132895"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStoreText</span></a></span></span><span> </span><span id="local-6989586621679132894"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132894"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; HStoreText
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-var">HStoreText</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Builder -&gt; Builder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#escapeAppend"><span class="hs-identifier hs-var">escapeAppend</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132894"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- | Assumed to be UTF-8 encoded</span><span>
+</span><span id="line-90"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-91"></span><span>  </span><span id="local-6989586621679132891"><span class="annot"><span class="annottext">toHStoreText :: ByteString -&gt; HStoreText
+</span><a href="#local-6989586621679132891"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStoreText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; HStoreText
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-var">HStoreText</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; HStoreText)
+-&gt; (ByteString -&gt; Builder) -&gt; ByteString -&gt; HStoreText
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Builder -&gt; Builder)
+-&gt; Builder -&gt; ByteString -&gt; Builder
+forall a. (ByteString -&gt; a -&gt; a) -&gt; a -&gt; ByteString -&gt; a
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.foldrChunks</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder -&gt; Builder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#escapeAppend"><span class="hs-identifier hs-var">escapeAppend</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">TS.Text</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-94"></span><span>  </span><span id="local-6989586621679132887"><span class="annot"><span class="annottext">toHStoreText :: Text -&gt; HStoreText
+</span><a href="#local-6989586621679132887"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStoreText</span></a></span></span><span> </span><span id="local-6989586621679132886"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132886"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; HStoreText
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-var">HStoreText</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Builder -&gt; Builder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#escapeAppend"><span class="hs-identifier hs-var">escapeAppend</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TS.encodeUtf8</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132886"><span class="hs-identifier hs-var">str</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span>
+</span><span id="line-96"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">TL.Text</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-97"></span><span>  </span><span id="local-6989586621679132883"><span class="annot"><span class="annottext">toHStoreText :: Text -&gt; HStoreText
+</span><a href="#local-6989586621679132883"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStoreText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; HStoreText
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-var">HStoreText</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; HStoreText) -&gt; (Text -&gt; Builder) -&gt; Text -&gt; HStoreText
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Builder -&gt; Builder) -&gt; Builder -&gt; Text -&gt; Builder
+forall a. (Text -&gt; a -&gt; a) -&gt; a -&gt; Text -&gt; a
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TL.foldrChunks</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Builder -&gt; Builder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#escapeAppend"><span class="hs-identifier hs-var">escapeAppend</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Builder -&gt; Builder)
+-&gt; (Text -&gt; ByteString) -&gt; Text -&gt; Builder -&gt; Builder
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TS.encodeUtf8</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#escapeAppend"><span class="hs-identifier hs-type">escapeAppend</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BS.ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-100"></span><span id="escapeAppend"><span class="annot"><span class="annottext">escapeAppend :: ByteString -&gt; Builder -&gt; Builder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#escapeAppend"><span class="hs-identifier hs-var hs-var">escapeAppend</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder -&gt; Builder
+</span><a href="#local-6989586621679132881"><span class="hs-identifier hs-var">loop</span></a></span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-102"></span><span>    </span><span id="local-6989586621679132881"><span class="annot"><span class="annottext">loop :: ByteString -&gt; Builder -&gt; Builder
+</span><a href="#local-6989586621679132881"><span class="hs-identifier hs-var hs-var">loop</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Word8 -&gt; Bool) -&gt; ByteString -&gt; (ByteString, ByteString)
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.break</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="#local-6989586621679132879"><span class="hs-identifier hs-var">quoteNeeded</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679132878"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132878"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679132877"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132877"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span id="local-6989586621679132876"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132876"><span class="hs-identifier hs-var">rest</span></a></span></span><span>
+</span><span id="line-103"></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132878"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span>
+</span><span id="line-104"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Maybe (Word8, ByteString)
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.uncons</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132877"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-105"></span><span>            </span><span class="annot"><span class="annottext">Maybe (Word8, ByteString)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>     </span><span class="hs-glyph">-&gt;</span><span>  </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132876"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-106"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679132874"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132874"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679132873"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132873"><span class="hs-identifier hs-var">d</span></a></span></span><span class="hs-special">)</span><span>  </span><span class="hs-glyph">-&gt;</span><span>  </span><span class="annot"><span class="annottext">Word8 -&gt; Builder
+</span><a href="#local-6989586621679132872"><span class="hs-identifier hs-var">quoteChar</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132874"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder -&gt; Builder
+</span><a href="#local-6989586621679132881"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132873"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132876"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-107"></span><span>
+</span><span id="line-108"></span><span>    </span><span id="local-6989586621679132879"><span class="annot"><span class="annottext">quoteNeeded :: Word8 -&gt; Bool
+</span><a href="#local-6989586621679132879"><span class="hs-identifier hs-var hs-var">quoteNeeded</span></a></span></span><span> </span><span id="local-6989586621679132871"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132871"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132871"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\&quot;'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132871"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span>
+</span><span id="line-109"></span><span>    </span><span id="local-6989586621679132872"><span class="annot"><span class="annottext">quoteChar :: Word8 -&gt; Builder
+</span><a href="#local-6989586621679132872"><span class="hs-identifier hs-var hs-var">quoteChar</span></a></span></span><span> </span><span id="local-6989586621679132869"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132869"><span class="hs-identifier hs-var">c</span></a></span></span><span>
+</span><span id="line-110"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132869"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\&quot;'</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;\\\&quot;&quot;</span></span><span>
+</span><span id="line-111"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;\\\\&quot;</span></span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span id="local-6989586621679133008"><span id="local-6989586621679133009"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#hstore"><span class="hs-identifier hs-type">hstore</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679133009"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStoreText"><span class="hs-identifier hs-type">ToHStoreText</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679133008"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679133009"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679133008"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span></span></span><span>
+</span><span id="line-114"></span><span id="hstore"><span class="annot"><span class="annottext">hstore :: a -&gt; b -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#hstore"><span class="hs-identifier hs-var hs-var">hstore</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; HStoreText
+forall a. ToHStoreText a =&gt; a -&gt; HStoreText
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toHStoreText"><span class="hs-identifier hs-var">toHStoreText</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-type">HStoreText</span></a></span><span> </span><span id="local-6989586621679132867"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132867"><span class="hs-identifier hs-var">key</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b -&gt; HStoreText
+forall a. ToHStoreText a =&gt; a -&gt; HStoreText
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toHStoreText"><span class="hs-identifier hs-var">toHStoreText</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreText"><span class="hs-identifier hs-type">HStoreText</span></a></span><span> </span><span id="local-6989586621679132866"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132866"><span class="hs-identifier hs-var">val</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-115"></span><span>    </span><span class="annot"><span class="annottext">Builder -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-var">Comma</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">char8</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132867"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;\&quot;=&gt;\&quot;&quot;</span></span><span>
+</span><span id="line-116"></span><span>              </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132866"><span class="hs-identifier hs-var">val</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">char8</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span class="hs-special">)</span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.ToField.html#ToField"><span class="hs-identifier hs-type">ToField</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreBuilder"><span class="hs-identifier hs-type">HStoreBuilder</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-119"></span><span>    </span><span id="local-6989586621679132863"><span class="annot"><span class="annottext">toField :: HStoreBuilder -&gt; Action
+</span><a href="Database.PostgreSQL.Simple.ToField.html#toField"><span class="hs-identifier hs-var hs-var hs-var hs-var">toField</span></a></span></span><span>  </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Empty"><span class="hs-identifier hs-var">Empty</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Action
+forall a. ToField a =&gt; a -&gt; Action
+</span><a href="Database.PostgreSQL.Simple.ToField.html#toField"><span class="hs-identifier hs-var">toField</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.empty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-120"></span><span>    </span><span class="annot"><a href="Database.PostgreSQL.Simple.ToField.html#toField"><span class="hs-identifier hs-var">toField</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#Comma"><span class="hs-identifier hs-type">Comma</span></a></span><span> </span><span id="local-6989586621679132860"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132860"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Action
+forall a. ToField a =&gt; a -&gt; Action
+</span><a href="Database.PostgreSQL.Simple.ToField.html#toField"><span class="hs-identifier hs-var">toField</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Builder -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BU.toLazyByteString</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621679132860"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span class="hs-keyword">newtype</span><span> </span><span id="HStoreList"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-var">HStoreList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="HStoreList"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-var">HStoreList</span></a></span></span><span> </span><span class="hs-special">{</span><span id="fromHStoreList"><span class="annot"><span class="annottext">HStoreList -&gt; [(Text, Text)]
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#fromHStoreList"><span class="hs-identifier hs-var hs-var">fromHStoreList</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">,</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Typeable</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679132852"><span id="local-6989586621679132854"><span id="local-6989586621679132856"><span class="annot"><span class="annottext">Int -&gt; HStoreList -&gt; ShowS
+[HStoreList] -&gt; ShowS
+HStoreList -&gt; String
+(Int -&gt; HStoreList -&gt; ShowS)
+-&gt; (HStoreList -&gt; String)
+-&gt; ([HStoreList] -&gt; ShowS)
+-&gt; Show HStoreList
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [HStoreList] -&gt; ShowS
+$cshowList :: [HStoreList] -&gt; ShowS
+show :: HStoreList -&gt; String
+$cshow :: HStoreList -&gt; String
+showsPrec :: Int -&gt; HStoreList -&gt; ShowS
+$cshowsPrec :: Int -&gt; HStoreList -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span class="hs-comment">-- | hstore</span><span>
+</span><span id="line-125"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStore"><span class="hs-identifier hs-type">ToHStore</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-126"></span><span>    </span><span id="local-6989586621679132849"><span class="annot"><span class="annottext">toHStore :: HStoreList -&gt; HStoreBuilder
+</span><a href="#local-6989586621679132849"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStore</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span> </span><span id="local-6989586621679132848"><span class="annot"><span class="annottext">[(Text, Text)]
+</span><a href="#local-6989586621679132848"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[HStoreBuilder] -&gt; HStoreBuilder
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mconcat</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">((Text, Text) -&gt; HStoreBuilder)
+-&gt; [(Text, Text)] -&gt; [HStoreBuilder]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Text -&gt; Text -&gt; HStoreBuilder) -&gt; (Text, Text) -&gt; HStoreBuilder
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; HStoreBuilder
+forall a b.
+(ToHStoreText a, ToHStoreText b) =&gt;
+a -&gt; b -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#hstore"><span class="hs-identifier hs-var">hstore</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(Text, Text)]
+</span><a href="#local-6989586621679132848"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-127"></span><span>
+</span><span id="line-128"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.ToField.html#ToField"><span class="hs-identifier hs-type">ToField</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-129"></span><span>    </span><span id="local-6989586621679132845"><span class="annot"><span class="annottext">toField :: HStoreList -&gt; Action
+</span><a href="#local-6989586621679132845"><span class="hs-identifier hs-var hs-var hs-var hs-var">toField</span></a></span></span><span> </span><span id="local-6989586621679132844"><span class="annot"><span class="annottext">HStoreList
+</span><a href="#local-6989586621679132844"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder -&gt; Action
+forall a. ToField a =&gt; a -&gt; Action
+</span><a href="Database.PostgreSQL.Simple.ToField.html#toField"><span class="hs-identifier hs-var">toField</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HStoreList -&gt; HStoreBuilder
+forall a. ToHStore a =&gt; a -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toHStore"><span class="hs-identifier hs-var">toHStore</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreList
+</span><a href="#local-6989586621679132844"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span>
+</span><span id="line-131"></span><span class="hs-comment">-- | hstore</span><span>
+</span><span id="line-132"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.FromField.html#FromField"><span class="hs-identifier hs-type">FromField</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-133"></span><span>    </span><span id="local-6989586621679132841"><span class="annot"><span class="annottext">fromField :: FieldParser HStoreList
+</span><a href="Database.PostgreSQL.Simple.FromField.html#fromField"><span class="hs-identifier hs-var hs-var hs-var hs-var">fromField</span></a></span></span><span> </span><span id="local-6989586621679132839"><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132839"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679132838"><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679132838"><span class="hs-identifier hs-var">mdat</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-134"></span><span>      </span><span id="local-6989586621679132837"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132837"><span class="hs-identifier hs-var">typ</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Field -&gt; Conversion ByteString
+</span><a href="Database.PostgreSQL.Simple.FromField.html#typename"><span class="hs-identifier hs-var">typename</span></a></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132839"><span class="hs-identifier hs-var">f</span></a></span><span>
+</span><span id="line-135"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132837"><span class="hs-identifier hs-var">typ</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;hstore&quot;</span></span><span>
+</span><span id="line-136"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError)
+-&gt; Field -&gt; String -&gt; Conversion HStoreList
+forall a err.
+(Typeable a, Exception err) =&gt;
+(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; err)
+-&gt; Field -&gt; String -&gt; Conversion a
+</span><a href="Database.PostgreSQL.Simple.FromField.html#returnError"><span class="hs-identifier hs-var">returnError</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError
+</span><a href="Database.PostgreSQL.Simple.FromField.html#Incompatible"><span class="hs-identifier hs-var">Incompatible</span></a></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132839"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-137"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679132838"><span class="hs-identifier hs-var">mdat</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-138"></span><span>               </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError)
+-&gt; Field -&gt; String -&gt; Conversion HStoreList
+forall a err.
+(Typeable a, Exception err) =&gt;
+(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; err)
+-&gt; Field -&gt; String -&gt; Conversion a
+</span><a href="Database.PostgreSQL.Simple.FromField.html#returnError"><span class="hs-identifier hs-var">returnError</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError
+</span><a href="Database.PostgreSQL.Simple.FromField.html#UnexpectedNull"><span class="hs-identifier hs-var">UnexpectedNull</span></a></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132839"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-139"></span><span>               </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679132831"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132831"><span class="hs-identifier hs-var">dat</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-140"></span><span>                   </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException HStoreList)
+-&gt; ByteString -&gt; Either String (Either UnicodeException HStoreList)
+forall a. Parser a -&gt; ByteString -&gt; Either String a
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.parseOnly</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser (Either UnicodeException HStoreList)
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStore"><span class="hs-identifier hs-var">parseHStore</span></a></span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException HStoreList)
+-&gt; Parser ByteString ()
+-&gt; Parser (Either UnicodeException HStoreList)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*</span></a></span><span> </span><span class="annot"><span class="annottext">Parser ByteString ()
+forall t. Chunk t =&gt; Parser t ()
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.endOfInput</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132831"><span class="hs-identifier hs-var">dat</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-141"></span><span>                     </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679132826"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679132826"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-142"></span><span>                         </span><span class="annot"><span class="annottext">(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError)
+-&gt; Field -&gt; String -&gt; Conversion HStoreList
+forall a err.
+(Typeable a, Exception err) =&gt;
+(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; err)
+-&gt; Field -&gt; String -&gt; Conversion a
+</span><a href="Database.PostgreSQL.Simple.FromField.html#returnError"><span class="hs-identifier hs-var">returnError</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError
+</span><a href="Database.PostgreSQL.Simple.FromField.html#ConversionFailed"><span class="hs-identifier hs-var">ConversionFailed</span></a></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132839"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679132826"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-143"></span><span>                     </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679132824"><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132824"><span class="hs-identifier hs-var">err</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-144"></span><span>                         </span><span class="annot"><span class="annottext">(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError)
+-&gt; Field -&gt; String -&gt; Conversion HStoreList
+forall a err.
+(Typeable a, Exception err) =&gt;
+(String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; err)
+-&gt; Field -&gt; String -&gt; Conversion a
+</span><a href="Database.PostgreSQL.Simple.FromField.html#returnError"><span class="hs-identifier hs-var">returnError</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe Oid -&gt; String -&gt; String -&gt; String -&gt; ResultError
+</span><a href="Database.PostgreSQL.Simple.FromField.html#ConversionFailed"><span class="hs-identifier hs-var">ConversionFailed</span></a></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132839"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;unicode exception&quot;</span></span><span> </span><span class="annot"><span class="annottext">Conversion HStoreList
+-&gt; Conversion HStoreList -&gt; Conversion HStoreList
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span>
+</span><span id="line-145"></span><span>                           </span><span class="annot"><span class="annottext">UnicodeException -&gt; Conversion HStoreList
+forall err a. Exception err =&gt; err -&gt; Conversion a
+</span><a href="Database.PostgreSQL.Simple.Internal.html#conversionError"><span class="hs-identifier hs-var">conversionError</span></a></span><span> </span><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132824"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-146"></span><span>                     </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679132821"><span class="annot"><span class="annottext">HStoreList
+</span><a href="#local-6989586621679132821"><span class="hs-identifier hs-var">val</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-147"></span><span>                         </span><span class="annot"><span class="annottext">HStoreList -&gt; Conversion HStoreList
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreList
+</span><a href="#local-6989586621679132821"><span class="hs-identifier hs-var">val</span></a></span><span>
+</span><span id="line-148"></span><span>
+</span><span id="line-149"></span><span class="hs-keyword">newtype</span><span> </span><span id="HStoreMap"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-var">HStoreMap</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="HStoreMap"><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-var">HStoreMap</span></a></span></span><span> </span><span class="hs-special">{</span><span id="fromHStoreMap"><span class="annot"><span class="annottext">HStoreMap -&gt; Map Text Text
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#fromHStoreMap"><span class="hs-identifier hs-var hs-var">fromHStoreMap</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679132815"><span id="local-6989586621679132817"><span class="annot"><span class="annottext">HStoreMap -&gt; HStoreMap -&gt; Bool
+(HStoreMap -&gt; HStoreMap -&gt; Bool)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; Bool) -&gt; Eq HStoreMap
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: HStoreMap -&gt; HStoreMap -&gt; Bool
+$c/= :: HStoreMap -&gt; HStoreMap -&gt; Bool
+== :: HStoreMap -&gt; HStoreMap -&gt; Bool
+$c== :: HStoreMap -&gt; HStoreMap -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679132799"><span id="local-6989586621679132801"><span id="local-6989586621679132803"><span id="local-6989586621679132805"><span id="local-6989586621679132807"><span id="local-6989586621679132809"><span id="local-6989586621679132811"><span class="annot"><span class="annottext">Eq HStoreMap
+Eq HStoreMap
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; Ordering)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; Bool)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; Bool)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; Bool)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; Bool)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; HStoreMap)
+-&gt; (HStoreMap -&gt; HStoreMap -&gt; HStoreMap)
+-&gt; Ord HStoreMap
+HStoreMap -&gt; HStoreMap -&gt; Bool
+HStoreMap -&gt; HStoreMap -&gt; Ordering
+HStoreMap -&gt; HStoreMap -&gt; HStoreMap
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+min :: HStoreMap -&gt; HStoreMap -&gt; HStoreMap
+$cmin :: HStoreMap -&gt; HStoreMap -&gt; HStoreMap
+max :: HStoreMap -&gt; HStoreMap -&gt; HStoreMap
+$cmax :: HStoreMap -&gt; HStoreMap -&gt; HStoreMap
+&gt;= :: HStoreMap -&gt; HStoreMap -&gt; Bool
+$c&gt;= :: HStoreMap -&gt; HStoreMap -&gt; Bool
+&gt; :: HStoreMap -&gt; HStoreMap -&gt; Bool
+$c&gt; :: HStoreMap -&gt; HStoreMap -&gt; Bool
+&lt;= :: HStoreMap -&gt; HStoreMap -&gt; Bool
+$c&lt;= :: HStoreMap -&gt; HStoreMap -&gt; Bool
+&lt; :: HStoreMap -&gt; HStoreMap -&gt; Bool
+$c&lt; :: HStoreMap -&gt; HStoreMap -&gt; Bool
+compare :: HStoreMap -&gt; HStoreMap -&gt; Ordering
+$ccompare :: HStoreMap -&gt; HStoreMap -&gt; Ordering
+$cp1Ord :: Eq HStoreMap
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></a></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Typeable</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679132792"><span id="local-6989586621679132794"><span id="local-6989586621679132796"><span class="annot"><span class="annottext">Int -&gt; HStoreMap -&gt; ShowS
+[HStoreMap] -&gt; ShowS
+HStoreMap -&gt; String
+(Int -&gt; HStoreMap -&gt; ShowS)
+-&gt; (HStoreMap -&gt; String)
+-&gt; ([HStoreMap] -&gt; ShowS)
+-&gt; Show HStoreMap
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [HStoreMap] -&gt; ShowS
+$cshowList :: [HStoreMap] -&gt; ShowS
+show :: HStoreMap -&gt; String
+$cshow :: HStoreMap -&gt; String
+showsPrec :: Int -&gt; HStoreMap -&gt; ShowS
+$cshowsPrec :: Int -&gt; HStoreMap -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>
+</span><span id="line-151"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#ToHStore"><span class="hs-identifier hs-type">ToHStore</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-type">HStoreMap</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-152"></span><span>    </span><span id="local-6989586621679132790"><span class="annot"><span class="annottext">toHStore :: HStoreMap -&gt; HStoreBuilder
+</span><a href="#local-6989586621679132790"><span class="hs-identifier hs-var hs-var hs-var hs-var">toHStore</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-type">HStoreMap</span></a></span><span> </span><span id="local-6989586621679132789"><span class="annot"><span class="annottext">Map Text Text
+</span><a href="#local-6989586621679132789"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Text -&gt; HStoreBuilder -&gt; HStoreBuilder)
+-&gt; HStoreBuilder -&gt; Map Text Text -&gt; HStoreBuilder
+forall k a b. (k -&gt; a -&gt; b -&gt; b) -&gt; b -&gt; Map k a -&gt; b
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.foldrWithKey</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; HStoreBuilder -&gt; HStoreBuilder
+forall a b.
+(ToHStoreText a, ToHStoreText b) =&gt;
+a -&gt; b -&gt; HStoreBuilder -&gt; HStoreBuilder
+</span><a href="#local-6989586621679132787"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span> </span><span class="annot"><span class="annottext">Map Text Text
+</span><a href="#local-6989586621679132789"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-153"></span><span>      </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679132787"><span class="annot"><span class="annottext">f :: a -&gt; b -&gt; HStoreBuilder -&gt; HStoreBuilder
+</span><a href="#local-6989586621679132787"><span class="hs-identifier hs-var hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679132786"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679132786"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679132785"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679132785"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span id="local-6989586621679132784"><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132784"><span class="hs-identifier hs-var">xs'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; b -&gt; HStoreBuilder
+forall a b.
+(ToHStoreText a, ToHStoreText b) =&gt;
+a -&gt; b -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#hstore"><span class="hs-identifier hs-var">hstore</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679132786"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679132785"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreBuilder -&gt; HStoreBuilder -&gt; HStoreBuilder
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreBuilder
+</span><a href="#local-6989586621679132784"><span class="hs-identifier hs-var">xs'</span></a></span><span>
+</span><span id="line-154"></span><span>
+</span><span id="line-155"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.ToField.html#ToField"><span class="hs-identifier hs-type">ToField</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-type">HStoreMap</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-156"></span><span>    </span><span id="local-6989586621679132782"><span class="annot"><span class="annottext">toField :: HStoreMap -&gt; Action
+</span><a href="#local-6989586621679132782"><span class="hs-identifier hs-var hs-var hs-var hs-var">toField</span></a></span></span><span> </span><span id="local-6989586621679132781"><span class="annot"><span class="annottext">HStoreMap
+</span><a href="#local-6989586621679132781"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreBuilder -&gt; Action
+forall a. ToField a =&gt; a -&gt; Action
+</span><a href="Database.PostgreSQL.Simple.ToField.html#toField"><span class="hs-identifier hs-var">toField</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HStoreMap -&gt; HStoreBuilder
+forall a. ToHStore a =&gt; a -&gt; HStoreBuilder
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#toHStore"><span class="hs-identifier hs-var">toHStore</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreMap
+</span><a href="#local-6989586621679132781"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.FromField.html#FromField"><span class="hs-identifier hs-type">FromField</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-type">HStoreMap</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-159"></span><span>    </span><span id="local-6989586621679132779"><span class="annot"><span class="annottext">fromField :: FieldParser HStoreMap
+</span><a href="#local-6989586621679132779"><span class="hs-identifier hs-var hs-var hs-var hs-var">fromField</span></a></span></span><span> </span><span id="local-6989586621679132778"><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132778"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679132777"><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679132777"><span class="hs-identifier hs-var">mdat</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HStoreList -&gt; HStoreMap
+</span><a href="#local-6989586621679132776"><span class="hs-identifier hs-var">convert</span></a></span><span> </span><span class="annot"><span class="annottext">(HStoreList -&gt; HStoreMap)
+-&gt; Conversion HStoreList -&gt; Conversion HStoreMap
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FieldParser HStoreList
+forall a. FromField a =&gt; FieldParser a
+</span><a href="Database.PostgreSQL.Simple.FromField.html#fromField"><span class="hs-identifier hs-var">fromField</span></a></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679132778"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679132777"><span class="hs-identifier hs-var">mdat</span></a></span><span>
+</span><span id="line-160"></span><span>      </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679132776"><span class="annot"><span class="annottext">convert :: HStoreList -&gt; HStoreMap
+</span><a href="#local-6989586621679132776"><span class="hs-identifier hs-var hs-var">convert</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span> </span><span id="local-6989586621679132774"><span class="annot"><span class="annottext">[(Text, Text)]
+</span><a href="#local-6989586621679132774"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map Text Text -&gt; HStoreMap
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreMap"><span class="hs-identifier hs-var">HStoreMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[(Text, Text)] -&gt; Map Text Text
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.fromList</span></a></span><span> </span><span class="annot"><span class="annottext">[(Text, Text)]
+</span><a href="#local-6989586621679132774"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-161"></span><span>
+</span><span id="line-162"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreList"><span class="hs-identifier hs-type">parseHStoreList</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BS.ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span>
+</span><span id="line-163"></span><span id="parseHStoreList"><span class="annot"><span class="annottext">parseHStoreList :: ByteString -&gt; Either String HStoreList
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreList"><span class="hs-identifier hs-var hs-var">parseHStoreList</span></a></span></span><span> </span><span id="local-6989586621679132771"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132771"><span class="hs-identifier hs-var">dat</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-164"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException HStoreList)
+-&gt; ByteString -&gt; Either String (Either UnicodeException HStoreList)
+forall a. Parser a -&gt; ByteString -&gt; Either String a
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.parseOnly</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser (Either UnicodeException HStoreList)
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStore"><span class="hs-identifier hs-var">parseHStore</span></a></span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException HStoreList)
+-&gt; Parser ByteString ()
+-&gt; Parser (Either UnicodeException HStoreList)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*</span></a></span><span> </span><span class="annot"><span class="annottext">Parser ByteString ()
+forall t. Chunk t =&gt; Parser t ()
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.endOfInput</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679132771"><span class="hs-identifier hs-var">dat</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-165"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679132770"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679132770"><span class="hs-identifier hs-var">err</span></a></span></span><span>          </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; Either String HStoreList
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ShowS
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679132770"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-166"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679132768"><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132768"><span class="hs-identifier hs-var">err</span></a></span></span><span class="hs-special">)</span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; Either String HStoreList
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UnicodeException -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132768"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-167"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679132767"><span class="annot"><span class="annottext">HStoreList
+</span><a href="#local-6989586621679132767"><span class="hs-identifier hs-var">val</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">HStoreList -&gt; Either String HStoreList
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">HStoreList
+</span><a href="#local-6989586621679132767"><span class="hs-identifier hs-var">val</span></a></span><span>
+</span><span id="line-168"></span><span>
+</span><span id="line-169"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStore"><span class="hs-identifier hs-type">parseHStore</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">P.Parser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">UnicodeException</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-type">HStoreList</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-170"></span><span id="parseHStore"><span class="annot"><span class="annottext">parseHStore :: Parser (Either UnicodeException HStoreList)
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStore"><span class="hs-identifier hs-var hs-var">parseHStore</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-171"></span><span>    </span><span id="local-6989586621679132766"><span class="annot"><span class="annottext">[Either UnicodeException (Text, Text)]
+</span><a href="#local-6989586621679132766"><span class="hs-identifier hs-var">kvs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Parser ByteString (Either UnicodeException (Text, Text))
+-&gt; Parser ByteString Word8
+-&gt; Parser ByteString [Either UnicodeException (Text, Text)]
+forall (m :: * -&gt; *) a s. MonadPlus m =&gt; m a -&gt; m s -&gt; m [a]
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.sepBy'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser ByteString ()
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#skipWhiteSpace"><span class="hs-identifier hs-var">skipWhiteSpace</span></a></span><span> </span><span class="annot"><span class="annottext">Parser ByteString ()
+-&gt; Parser ByteString (Either UnicodeException (Text, Text))
+-&gt; Parser ByteString (Either UnicodeException (Text, Text))
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Parser ByteString (Either UnicodeException (Text, Text))
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreKeyVal"><span class="hs-identifier hs-var">parseHStoreKeyVal</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-172"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser ByteString ()
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#skipWhiteSpace"><span class="hs-identifier hs-var">skipWhiteSpace</span></a></span><span> </span><span class="annot"><span class="annottext">Parser ByteString ()
+-&gt; Parser ByteString Word8 -&gt; Parser ByteString Word8
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Parser ByteString Word8
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.word8</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">','</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>    </span><span class="annot"><span class="annottext">Either UnicodeException HStoreList
+-&gt; Parser (Either UnicodeException HStoreList)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Either UnicodeException HStoreList
+ -&gt; Parser (Either UnicodeException HStoreList))
+-&gt; Either UnicodeException HStoreList
+-&gt; Parser (Either UnicodeException HStoreList)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[(Text, Text)] -&gt; HStoreList
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#HStoreList"><span class="hs-identifier hs-var">HStoreList</span></a></span><span> </span><span class="annot"><span class="annottext">([(Text, Text)] -&gt; HStoreList)
+-&gt; Either UnicodeException [(Text, Text)]
+-&gt; Either UnicodeException HStoreList
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Either UnicodeException (Text, Text)]
+-&gt; Either UnicodeException [(Text, Text)]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a.
+(Traversable t, Monad m) =&gt;
+t (m a) -&gt; m (t a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sequence</span></a></span><span> </span><span class="annot"><span class="annottext">[Either UnicodeException (Text, Text)]
+</span><a href="#local-6989586621679132766"><span class="hs-identifier hs-var">kvs</span></a></span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreKeyVal"><span class="hs-identifier hs-type">parseHStoreKeyVal</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">P.Parser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">UnicodeException</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">,</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-176"></span><span id="parseHStoreKeyVal"><span class="annot"><span class="annottext">parseHStoreKeyVal :: Parser ByteString (Either UnicodeException (Text, Text))
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreKeyVal"><span class="hs-identifier hs-var hs-var">parseHStoreKeyVal</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-177"></span><span>  </span><span id="local-6989586621679132760"><span class="annot"><span class="annottext">Either UnicodeException Text
+</span><a href="#local-6989586621679132760"><span class="hs-identifier hs-var">mkey</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException Text)
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreText"><span class="hs-identifier hs-var">parseHStoreText</span></a></span><span>
+</span><span id="line-178"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException Text
+</span><a href="#local-6989586621679132760"><span class="hs-identifier hs-var">mkey</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-179"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679132758"><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132758"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException (Text, Text)
+-&gt; Parser ByteString (Either UnicodeException (Text, Text))
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UnicodeException -&gt; Either UnicodeException (Text, Text)
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132758"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-180"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679132757"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132757"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-181"></span><span>      </span><span class="annot"><span class="annottext">Parser ByteString ()
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#skipWhiteSpace"><span class="hs-identifier hs-var">skipWhiteSpace</span></a></span><span>
+</span><span id="line-182"></span><span>      </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Parser ByteString
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.string</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;=&gt;&quot;</span></span><span>
+</span><span id="line-183"></span><span>      </span><span class="annot"><span class="annottext">Parser ByteString ()
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#skipWhiteSpace"><span class="hs-identifier hs-var">skipWhiteSpace</span></a></span><span>
+</span><span id="line-184"></span><span>      </span><span id="local-6989586621679132755"><span class="annot"><span class="annottext">Either UnicodeException Text
+</span><a href="#local-6989586621679132755"><span class="hs-identifier hs-var">mval</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException Text)
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreText"><span class="hs-identifier hs-var">parseHStoreText</span></a></span><span>
+</span><span id="line-185"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException Text
+</span><a href="#local-6989586621679132755"><span class="hs-identifier hs-var">mval</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-186"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span>  </span><span id="local-6989586621679132754"><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132754"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException (Text, Text)
+-&gt; Parser ByteString (Either UnicodeException (Text, Text))
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UnicodeException -&gt; Either UnicodeException (Text, Text)
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132754"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679132753"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132753"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException (Text, Text)
+-&gt; Parser ByteString (Either UnicodeException (Text, Text))
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Text, Text) -&gt; Either UnicodeException (Text, Text)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132757"><span class="hs-identifier hs-var">key</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132753"><span class="hs-identifier hs-var">val</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-188"></span><span>
+</span><span id="line-189"></span><span>
+</span><span id="line-190"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#skipWhiteSpace"><span class="hs-identifier hs-type">skipWhiteSpace</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">P.Parser</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-191"></span><span id="skipWhiteSpace"><span class="annot"><span class="annottext">skipWhiteSpace :: Parser ByteString ()
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#skipWhiteSpace"><span class="hs-identifier hs-var hs-var">skipWhiteSpace</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Word8 -&gt; Bool) -&gt; Parser ByteString ()
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.skipWhile</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.isSpace_w8</span></a></span><span>
+</span><span id="line-192"></span><span>
+</span><span id="line-193"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreText"><span class="hs-identifier hs-type">parseHStoreText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">P.Parser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">UnicodeException</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-194"></span><span id="parseHStoreText"><span class="annot"><span class="annottext">parseHStoreText :: Parser (Either UnicodeException Text)
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreText"><span class="hs-identifier hs-var hs-var">parseHStoreText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-195"></span><span>  </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Parser ByteString Word8
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.word8</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span class="hs-special">)</span><span>
+</span><span id="line-196"></span><span>  </span><span id="local-6989586621679132751"><span class="annot"><span class="annottext">Either UnicodeException [Text]
+</span><a href="#local-6989586621679132751"><span class="hs-identifier hs-var">mtexts</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">([Text] -&gt; [Text]) -&gt; Parser (Either UnicodeException [Text])
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreTexts"><span class="hs-identifier hs-var">parseHStoreTexts</span></a></span><span> </span><span class="annot"><span class="annottext">[Text] -&gt; [Text]
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-197"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException [Text]
+</span><a href="#local-6989586621679132751"><span class="hs-identifier hs-var">mtexts</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-198"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span>  </span><span id="local-6989586621679132749"><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132749"><span class="hs-identifier hs-var">err</span></a></span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException Text
+-&gt; Parser (Either UnicodeException Text)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UnicodeException -&gt; Either UnicodeException Text
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132749"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-199"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679132748"><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679132748"><span class="hs-identifier hs-var">texts</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-200"></span><span>                     </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Parser ByteString Word8
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.word8</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span class="hs-special">)</span><span>
+</span><span id="line-201"></span><span>                     </span><span class="annot"><span class="annottext">Either UnicodeException Text
+-&gt; Parser (Either UnicodeException Text)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Either UnicodeException Text
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Text] -&gt; Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TS.concat</span></a></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679132748"><span class="hs-identifier hs-var">texts</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-202"></span><span>
+</span><span id="line-203"></span><span class="annot"><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreTexts"><span class="hs-identifier hs-type">parseHStoreTexts</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-204"></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">P.Parser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">UnicodeException</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-205"></span><span id="parseHStoreTexts"><span class="annot"><span class="annottext">parseHStoreTexts :: ([Text] -&gt; [Text]) -&gt; Parser (Either UnicodeException [Text])
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreTexts"><span class="hs-identifier hs-var hs-var">parseHStoreTexts</span></a></span></span><span> </span><span id="local-6989586621679132746"><span class="annot"><span class="annottext">[Text] -&gt; [Text]
+</span><a href="#local-6989586621679132746"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-206"></span><span>  </span><span id="local-6989586621679132745"><span class="annot"><span class="annottext">Either UnicodeException Text
+</span><a href="#local-6989586621679132745"><span class="hs-identifier hs-var">mchunk</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Either UnicodeException Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TS.decodeUtf8'</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Either UnicodeException Text)
+-&gt; Parser ByteString -&gt; Parser (Either UnicodeException Text)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(Word8 -&gt; Bool) -&gt; Parser ByteString
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.takeWhile</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; (Word8 -&gt; Bool) -&gt; Word8 -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="#local-6989586621679132741"><span class="hs-identifier hs-var">isSpecialChar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-207"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException Text
+</span><a href="#local-6989586621679132745"><span class="hs-identifier hs-var">mchunk</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-208"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679132740"><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132740"><span class="hs-identifier hs-var">err</span></a></span></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either UnicodeException [Text]
+-&gt; Parser (Either UnicodeException [Text])
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UnicodeException -&gt; Either UnicodeException [Text]
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">UnicodeException
+</span><a href="#local-6989586621679132740"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-209"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679132739"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132739"><span class="hs-identifier hs-var">chunk</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-210"></span><span>        </span><span class="hs-special">(</span><span class="hs-keyword">do</span><span>
+</span><span id="line-211"></span><span>          </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Parser ByteString Word8
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.word8</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span class="hs-special">)</span><span>
+</span><span id="line-212"></span><span>          </span><span id="local-6989586621679132738"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132738"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TS.singleton</span></a></span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Text) -&gt; (Word8 -&gt; Char) -&gt; Word8 -&gt; Text
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Char
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">w2c</span></a></span><span> </span><span class="annot"><span class="annottext">(Word8 -&gt; Text)
+-&gt; Parser ByteString Word8 -&gt; Parser ByteString Text
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(Word8 -&gt; Bool) -&gt; Parser ByteString Word8
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">P.satisfy</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="#local-6989586621679132741"><span class="hs-identifier hs-var">isSpecialChar</span></a></span><span>
+</span><span id="line-213"></span><span>          </span><span class="annot"><span class="annottext">([Text] -&gt; [Text]) -&gt; Parser (Either UnicodeException [Text])
+</span><a href="Database.PostgreSQL.Simple.HStore.Implementation.html#parseHStoreTexts"><span class="hs-identifier hs-var">parseHStoreTexts</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Text] -&gt; [Text]
+</span><a href="#local-6989586621679132746"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">([Text] -&gt; [Text]) -&gt; ([Text] -&gt; [Text]) -&gt; [Text] -&gt; [Text]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132739"><span class="hs-identifier hs-var">chunk</span></a></span><span class="annot"><span class="annottext">Text -&gt; [Text] -&gt; [Text]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([Text] -&gt; [Text]) -&gt; ([Text] -&gt; [Text]) -&gt; [Text] -&gt; [Text]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132738"><span class="hs-identifier hs-var">c</span></a></span><span class="annot"><span class="annottext">Text -&gt; [Text] -&gt; [Text]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-214"></span><span>        </span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Parser (Either UnicodeException [Text])
+-&gt; Parser (Either UnicodeException [Text])
+-&gt; Parser (Either UnicodeException [Text])
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Either UnicodeException [Text]
+-&gt; Parser (Either UnicodeException [Text])
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Text] -&gt; Either UnicodeException [Text]
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Text] -&gt; [Text]
+</span><a href="#local-6989586621679132746"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679132739"><span class="hs-identifier hs-var">chunk</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-215"></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-216"></span><span>   </span><span id="local-6989586621679132741"><span class="annot"><span class="annottext">isSpecialChar :: Word8 -&gt; Bool
+</span><a href="#local-6989586621679132741"><span class="hs-identifier hs-var hs-var">isSpecialChar</span></a></span></span><span> </span><span id="local-6989586621679132735"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132735"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132735"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679132735"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">c2w</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span>
+</span><span id="line-217"></span></pre></body></html>

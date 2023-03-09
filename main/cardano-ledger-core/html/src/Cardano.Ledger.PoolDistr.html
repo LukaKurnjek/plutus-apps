@@ -1,0 +1,384 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE DerivingVia #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE GeneralizedNewtypeDeriving #-}</span><span>
+</span><span id="line-8"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses #-}</span><span>
+</span><span id="line-9"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-10"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-11"></span><span class="hs-pragma">{-# OPTIONS_GHC -Wno-redundant-constraints #-}</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- | The stake distribution, aggregated by stake pool (as opposed to stake credential),</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- plays a primary role in Cardano's proof of stake network.</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- Together with the VRF checks, the stake distribution determines leader election.</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- The leader election is the precisely the part of the ledger that is</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- determined by Ouroboros (Praos and Genesis), our consensus mechanism.</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- See Section 16, &quot;Leader Value Calculation&quot;, of the</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- &lt;https://hydra.iohk.io/job/Cardano/cardano-ledger/shelleyLedgerSpec/latest/download-by-type/doc-pdf/ledger-spec formal specification&gt;.</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Ledger.PoolDistr</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-binary/html/src"><span class="hs-identifier">Cardano.Binary</span></a></span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-binary/html/src"><span class="hs-identifier">FromCBOR</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-binary/html/src"><span class="hs-identifier">fromCBOR</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="../../../../cardano-binary/html/src"><span class="hs-identifier">ToCBOR</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-25"></span><span>    </span><span class="annot"><a href="../../../../cborg/html/src"><span class="hs-identifier">encodeListLen</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-26"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Cardano.Ledger.Crypto.html"><span class="hs-identifier">Cardano.Ledger.Crypto</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CC</span></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Ledger.Keys.html"><span class="hs-identifier">Cardano.Ledger.Keys</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Keys.html#Hash"><span class="hs-identifier">Hash</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Ledger.Keys.html#KeyHash"><span class="hs-identifier">KeyHash</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Ledger.Keys.html#KeyRole"><span class="hs-identifier">KeyRole</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Ledger.Keys.html#VerKeyVRF"><span class="hs-identifier">VerKeyVRF</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Ledger.Serialization.html"><span class="hs-identifier">Cardano.Ledger.Serialization</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-data/html/src"><span class="hs-identifier">decodeRecordNamed</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">Control.DeepSeq</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">NFData</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">Control.SetAlgebra</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">BaseRep</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">MapR</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">Embed</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">Exp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">Base</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier">HasExp</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Generics</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../nothunks/html/src"><span class="hs-identifier">NoThunks.Class</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../nothunks/html/src"><span class="hs-identifier">NoThunks</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- | The 'IndividualPoolStake' contains all the stake controlled</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- by a single stake pool (the combination of owners and delegates)</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- for a given epoch, and also the hash of the stake pool's</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- registered VRF key.</span><span>
+</span><span id="line-40"></span><span class="hs-comment">--</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- When a stake pool produces a block, the header contains the</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- full VRF verification key and VRF value for leader election.</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- We check the VRF key against the value in 'IndividualPoolStake'</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- and we check the VRF value using the epoch nonce and</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- the relative stake of the pool as given in 'IndividualPoolStake'.</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- The stake is relative to the total amount of active stake</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- in the network. Stake is active if it is both registered and</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- delegated to a registered stake pool.</span><span>
+</span><span id="line-49"></span><span id="local-6989586621679242357"><span id="local-6989586621679242358"></span></span><span class="hs-keyword">data</span><span> </span><span id="IndividualPoolStake"><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-var">IndividualPoolStake</span></a></span></span><span> </span><span id="local-6989586621679242400"><span class="annot"><a href="#local-6989586621679242400"><span class="hs-identifier hs-type">crypto</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="IndividualPoolStake"><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-var">IndividualPoolStake</span></a></span></span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="individualPoolStake"><span class="annot"><span class="annottext">IndividualPoolStake crypto -&gt; Rational
+</span><a href="Cardano.Ledger.PoolDistr.html#individualPoolStake"><span class="hs-identifier hs-var hs-var">individualPoolStake</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-51"></span><span>    </span><span id="individualPoolStakeVrf"><span class="annot"><span class="annottext">IndividualPoolStake crypto -&gt; Hash crypto (VerKeyVRF crypto)
+</span><a href="Cardano.Ledger.PoolDistr.html#individualPoolStakeVrf"><span class="hs-identifier hs-var hs-var">individualPoolStakeVrf</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Keys.html#Hash"><span class="hs-identifier hs-type">Hash</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242400"><span class="hs-identifier hs-type">crypto</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Keys.html#VerKeyVRF"><span class="hs-identifier hs-type">VerKeyVRF</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242400"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">stock</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679242348"><span id="local-6989586621679242350"><span id="local-6989586621679242352"><span class="annot"><span class="annottext">Int -&gt; IndividualPoolStake crypto -&gt; ShowS
+[IndividualPoolStake crypto] -&gt; ShowS
+IndividualPoolStake crypto -&gt; String
+(Int -&gt; IndividualPoolStake crypto -&gt; ShowS)
+-&gt; (IndividualPoolStake crypto -&gt; String)
+-&gt; ([IndividualPoolStake crypto] -&gt; ShowS)
+-&gt; Show (IndividualPoolStake crypto)
+forall crypto. Int -&gt; IndividualPoolStake crypto -&gt; ShowS
+forall crypto. [IndividualPoolStake crypto] -&gt; ShowS
+forall crypto. IndividualPoolStake crypto -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [IndividualPoolStake crypto] -&gt; ShowS
+$cshowList :: forall crypto. [IndividualPoolStake crypto] -&gt; ShowS
+show :: IndividualPoolStake crypto -&gt; String
+$cshow :: forall crypto. IndividualPoolStake crypto -&gt; String
+showsPrec :: Int -&gt; IndividualPoolStake crypto -&gt; ShowS
+$cshowsPrec :: forall crypto. Int -&gt; IndividualPoolStake crypto -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679242343"><span id="local-6989586621679242345"><span class="annot"><span class="annottext">IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool
+(IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool)
+-&gt; (IndividualPoolStake crypto
+    -&gt; IndividualPoolStake crypto -&gt; Bool)
+-&gt; Eq (IndividualPoolStake crypto)
+forall crypto.
+IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool
+$c/= :: forall crypto.
+IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool
+== :: IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool
+$c== :: forall crypto.
+IndividualPoolStake crypto -&gt; IndividualPoolStake crypto -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x.
+ IndividualPoolStake crypto -&gt; Rep (IndividualPoolStake crypto) x)
+-&gt; (forall x.
+    Rep (IndividualPoolStake crypto) x -&gt; IndividualPoolStake crypto)
+-&gt; Generic (IndividualPoolStake crypto)
+forall x.
+Rep (IndividualPoolStake crypto) x -&gt; IndividualPoolStake crypto
+forall x.
+IndividualPoolStake crypto -&gt; Rep (IndividualPoolStake crypto) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall crypto x.
+Rep (IndividualPoolStake crypto) x -&gt; IndividualPoolStake crypto
+forall crypto x.
+IndividualPoolStake crypto -&gt; Rep (IndividualPoolStake crypto) x
+$cto :: forall crypto x.
+Rep (IndividualPoolStake crypto) x -&gt; IndividualPoolStake crypto
+$cfrom :: forall crypto x.
+IndividualPoolStake crypto -&gt; Rep (IndividualPoolStake crypto) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">anyclass</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679242337"><span class="annot"><span class="annottext">IndividualPoolStake crypto -&gt; ()
+(IndividualPoolStake crypto -&gt; ())
+-&gt; NFData (IndividualPoolStake crypto)
+forall crypto. IndividualPoolStake crypto -&gt; ()
+forall a. (a -&gt; ()) -&gt; NFData a
+rnf :: IndividualPoolStake crypto -&gt; ()
+$crnf :: forall crypto. IndividualPoolStake crypto -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679242330"><span id="local-6989586621679242332"><span id="local-6989586621679242334"><span class="annot"><span class="annottext">Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo)
+Proxy (IndividualPoolStake crypto) -&gt; String
+(Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo))
+-&gt; (Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo))
+-&gt; (Proxy (IndividualPoolStake crypto) -&gt; String)
+-&gt; NoThunks (IndividualPoolStake crypto)
+forall crypto.
+Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo)
+forall crypto. Proxy (IndividualPoolStake crypto) -&gt; String
+forall a.
+(Context -&gt; a -&gt; IO (Maybe ThunkInfo))
+-&gt; (Context -&gt; a -&gt; IO (Maybe ThunkInfo))
+-&gt; (Proxy a -&gt; String)
+-&gt; NoThunks a
+showTypeOf :: Proxy (IndividualPoolStake crypto) -&gt; String
+$cshowTypeOf :: forall crypto. Proxy (IndividualPoolStake crypto) -&gt; String
+wNoThunks :: Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo)
+$cwNoThunks :: forall crypto.
+Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo)
+noThunks :: Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo)
+$cnoThunks :: forall crypto.
+Context -&gt; IndividualPoolStake crypto -&gt; IO (Maybe ThunkInfo)
+</span><a href="../../../../nothunks/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">NoThunks</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span id="local-6989586621679242328"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679242322"><span id="local-6989586621679242324"><span class="annot"><a href="Cardano.Ledger.Crypto.html#Crypto"><span class="hs-identifier hs-type">CC.Crypto</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242328"><span class="hs-identifier hs-type">crypto</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-type">ToCBOR</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-type">IndividualPoolStake</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242328"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-57"></span><span>  </span><span id="local-6989586621679242320"><span class="annot"><span class="annottext">toCBOR :: IndividualPoolStake crypto -&gt; Encoding
+</span><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">toCBOR</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-type">IndividualPoolStake</span></a></span><span> </span><span id="local-6989586621679242318"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679242318"><span class="hs-identifier hs-var">stake</span></a></span></span><span> </span><span id="local-6989586621679242317"><span class="annot"><span class="annottext">Hash crypto (VerKeyVRF crypto)
+</span><a href="#local-6989586621679242317"><span class="hs-identifier hs-var">vrf</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-58"></span><span>    </span><span class="annot"><span class="annottext">[Encoding] -&gt; Encoding
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mconcat</span></a></span><span>
+</span><span id="line-59"></span><span>      </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Encoding
+</span><a href="../../../../cborg/html/src"><span class="hs-identifier hs-var">encodeListLen</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">2</span></span><span class="hs-special">,</span><span>
+</span><span id="line-60"></span><span>        </span><span class="annot"><span class="annottext">Rational -&gt; Encoding
+forall a. ToCBOR a =&gt; a -&gt; Encoding
+</span><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-var">toCBOR</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679242318"><span class="hs-identifier hs-var">stake</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-61"></span><span>        </span><span class="annot"><span class="annottext">Hash crypto (VerKeyVRF crypto) -&gt; Encoding
+forall a. ToCBOR a =&gt; a -&gt; Encoding
+</span><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-var">toCBOR</span></a></span><span> </span><span class="annot"><span class="annottext">Hash crypto (VerKeyVRF crypto)
+</span><a href="#local-6989586621679242317"><span class="hs-identifier hs-var">vrf</span></a></span><span>
+</span><span id="line-62"></span><span>      </span><span class="hs-special">]</span></span><span>
+</span><span id="line-63"></span><span>
+</span><span id="line-64"></span><span id="local-6989586621679242316"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679242312"><span class="annot"><a href="Cardano.Ledger.Crypto.html#Crypto"><span class="hs-identifier hs-type">CC.Crypto</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242316"><span class="hs-identifier hs-type">crypto</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-type">FromCBOR</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-type">IndividualPoolStake</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242316"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-65"></span><span>  </span><span id="local-6989586621679242310"><span class="annot"><span class="annottext">fromCBOR :: Decoder s (IndividualPoolStake crypto)
+</span><a href="#local-6989586621679242310"><span class="hs-identifier hs-var hs-var hs-var hs-var">fromCBOR</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-66"></span><span>    </span><span class="annot"><span class="annottext">Text
+-&gt; (IndividualPoolStake crypto -&gt; Int)
+-&gt; Decoder s (IndividualPoolStake crypto)
+-&gt; Decoder s (IndividualPoolStake crypto)
+forall a s. Text -&gt; (a -&gt; Int) -&gt; Decoder s a -&gt; Decoder s a
+</span><a href="../../../../cardano-data/html/src"><span class="hs-identifier hs-var">decodeRecordNamed</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;IndividualPoolStake&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; IndividualPoolStake crypto -&gt; Int
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">2</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Decoder s (IndividualPoolStake crypto)
+ -&gt; Decoder s (IndividualPoolStake crypto))
+-&gt; Decoder s (IndividualPoolStake crypto)
+-&gt; Decoder s (IndividualPoolStake crypto)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-67"></span><span>      </span><span class="annot"><span class="annottext">Rational
+-&gt; Hash (HASH crypto) (VerKeyVRF (VRF crypto))
+-&gt; IndividualPoolStake crypto
+forall crypto.
+Rational
+-&gt; Hash crypto (VerKeyVRF crypto) -&gt; IndividualPoolStake crypto
+</span><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-var">IndividualPoolStake</span></a></span><span>
+</span><span id="line-68"></span><span>        </span><span class="annot"><span class="annottext">(Rational
+ -&gt; Hash (HASH crypto) (VerKeyVRF (VRF crypto))
+ -&gt; IndividualPoolStake crypto)
+-&gt; Decoder s Rational
+-&gt; Decoder
+     s
+     (Hash (HASH crypto) (VerKeyVRF (VRF crypto))
+      -&gt; IndividualPoolStake crypto)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Decoder s Rational
+forall a s. FromCBOR a =&gt; Decoder s a
+</span><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-var">fromCBOR</span></a></span><span>
+</span><span id="line-69"></span><span>        </span><span class="annot"><span class="annottext">Decoder
+  s
+  (Hash (HASH crypto) (VerKeyVRF (VRF crypto))
+   -&gt; IndividualPoolStake crypto)
+-&gt; Decoder s (Hash (HASH crypto) (VerKeyVRF (VRF crypto)))
+-&gt; Decoder s (IndividualPoolStake crypto)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Decoder s (Hash (HASH crypto) (VerKeyVRF (VRF crypto)))
+forall a s. FromCBOR a =&gt; Decoder s a
+</span><a href="../../../../cardano-binary/html/src"><span class="hs-identifier hs-var">fromCBOR</span></a></span></span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- | A map of stake pool IDs (the hash of the stake pool operator's</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- verification key) to 'IndividualPoolStake'.</span><span>
+</span><span id="line-73"></span><span class="hs-keyword">newtype</span><span> </span><span id="PoolDistr"><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-var">PoolDistr</span></a></span></span><span> </span><span id="local-6989586621679242307"><span class="annot"><a href="#local-6989586621679242307"><span class="hs-identifier hs-type">crypto</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="PoolDistr"><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-var">PoolDistr</span></a></span></span><span>
+</span><span id="line-74"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="unPoolDistr"><span class="annot"><span class="annottext">PoolDistr crypto
+-&gt; Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+</span><a href="Cardano.Ledger.PoolDistr.html#unPoolDistr"><span class="hs-identifier hs-var hs-var">unPoolDistr</span></a></span></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-75"></span><span>      </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Keys.html#KeyHash"><span class="hs-identifier hs-type">KeyHash</span></a></span><span> </span><span class="hs-special">'</span><span class="annot"><a href="Cardano.Ledger.Keys.html#StakePool"><span class="hs-identifier hs-type">StakePool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242307"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-type">IndividualPoolStake</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242307"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-77"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">stock</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679242299"><span id="local-6989586621679242301"><span id="local-6989586621679242303"><span class="annot"><span class="annottext">Int -&gt; PoolDistr crypto -&gt; ShowS
+[PoolDistr crypto] -&gt; ShowS
+PoolDistr crypto -&gt; String
+(Int -&gt; PoolDistr crypto -&gt; ShowS)
+-&gt; (PoolDistr crypto -&gt; String)
+-&gt; ([PoolDistr crypto] -&gt; ShowS)
+-&gt; Show (PoolDistr crypto)
+forall crypto. Int -&gt; PoolDistr crypto -&gt; ShowS
+forall crypto. [PoolDistr crypto] -&gt; ShowS
+forall crypto. PoolDistr crypto -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [PoolDistr crypto] -&gt; ShowS
+$cshowList :: forall crypto. [PoolDistr crypto] -&gt; ShowS
+show :: PoolDistr crypto -&gt; String
+$cshow :: forall crypto. PoolDistr crypto -&gt; String
+showsPrec :: Int -&gt; PoolDistr crypto -&gt; ShowS
+$cshowsPrec :: forall crypto. Int -&gt; PoolDistr crypto -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679242295"><span id="local-6989586621679242297"><span class="annot"><span class="annottext">PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool
+(PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool)
+-&gt; (PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool)
+-&gt; Eq (PoolDistr crypto)
+forall crypto. PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool
+$c/= :: forall crypto. PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool
+== :: PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool
+$c== :: forall crypto. PoolDistr crypto -&gt; PoolDistr crypto -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">newtype</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679242288"><span id="local-6989586621679242290"><span id="local-6989586621679242292"><span class="annot"><span class="annottext">Typeable (PoolDistr crypto)
+Typeable (PoolDistr crypto)
+-&gt; (PoolDistr crypto -&gt; Encoding)
+-&gt; ((forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+    -&gt; Proxy (PoolDistr crypto) -&gt; Size)
+-&gt; ((forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+    -&gt; Proxy [PoolDistr crypto] -&gt; Size)
+-&gt; ToCBOR (PoolDistr crypto)
+PoolDistr crypto -&gt; Encoding
+(forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy [PoolDistr crypto] -&gt; Size
+(forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy (PoolDistr crypto) -&gt; Size
+forall a.
+Typeable a
+-&gt; (a -&gt; Encoding)
+-&gt; ((forall t. ToCBOR t =&gt; Proxy t -&gt; Size) -&gt; Proxy a -&gt; Size)
+-&gt; ((forall t. ToCBOR t =&gt; Proxy t -&gt; Size) -&gt; Proxy [a] -&gt; Size)
+-&gt; ToCBOR a
+forall crypto. Crypto crypto =&gt; Typeable (PoolDistr crypto)
+forall crypto. Crypto crypto =&gt; PoolDistr crypto -&gt; Encoding
+forall crypto.
+Crypto crypto =&gt;
+(forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy [PoolDistr crypto] -&gt; Size
+forall crypto.
+Crypto crypto =&gt;
+(forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy (PoolDistr crypto) -&gt; Size
+encodedListSizeExpr :: (forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy [PoolDistr crypto] -&gt; Size
+$cencodedListSizeExpr :: forall crypto.
+Crypto crypto =&gt;
+(forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy [PoolDistr crypto] -&gt; Size
+encodedSizeExpr :: (forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy (PoolDistr crypto) -&gt; Size
+$cencodedSizeExpr :: forall crypto.
+Crypto crypto =&gt;
+(forall t. ToCBOR t =&gt; Proxy t -&gt; Size)
+-&gt; Proxy (PoolDistr crypto) -&gt; Size
+toCBOR :: PoolDistr crypto -&gt; Encoding
+$ctoCBOR :: forall crypto. Crypto crypto =&gt; PoolDistr crypto -&gt; Encoding
+$cp1ToCBOR :: forall crypto. Crypto crypto =&gt; Typeable (PoolDistr crypto)
+</span><a href="#local-6989586621679242288"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">ToCBOR</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679242283"><span id="local-6989586621679242285"><span class="annot"><span class="annottext">Typeable (PoolDistr crypto)
+Decoder s (PoolDistr crypto)
+Typeable (PoolDistr crypto)
+-&gt; (forall s. Decoder s (PoolDistr crypto))
+-&gt; (Proxy (PoolDistr crypto) -&gt; Text)
+-&gt; FromCBOR (PoolDistr crypto)
+Proxy (PoolDistr crypto) -&gt; Text
+forall s. Decoder s (PoolDistr crypto)
+forall a.
+Typeable a
+-&gt; (forall s. Decoder s a) -&gt; (Proxy a -&gt; Text) -&gt; FromCBOR a
+forall crypto. Crypto crypto =&gt; Typeable (PoolDistr crypto)
+forall crypto. Crypto crypto =&gt; Proxy (PoolDistr crypto) -&gt; Text
+forall crypto s. Crypto crypto =&gt; Decoder s (PoolDistr crypto)
+label :: Proxy (PoolDistr crypto) -&gt; Text
+$clabel :: forall crypto. Crypto crypto =&gt; Proxy (PoolDistr crypto) -&gt; Text
+fromCBOR :: Decoder s (PoolDistr crypto)
+$cfromCBOR :: forall crypto s. Crypto crypto =&gt; Decoder s (PoolDistr crypto)
+$cp1FromCBOR :: forall crypto. Crypto crypto =&gt; Typeable (PoolDistr crypto)
+</span><a href="#local-6989586621679242283"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var">FromCBOR</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679242281"><span class="annot"><span class="annottext">PoolDistr crypto -&gt; ()
+(PoolDistr crypto -&gt; ()) -&gt; NFData (PoolDistr crypto)
+forall crypto. PoolDistr crypto -&gt; ()
+forall a. (a -&gt; ()) -&gt; NFData a
+rnf :: PoolDistr crypto -&gt; ()
+$crnf :: forall crypto. PoolDistr crypto -&gt; ()
+</span><a href="#local-6989586621679242281"><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679242275"><span id="local-6989586621679242277"><span id="local-6989586621679242279"><span class="annot"><span class="annottext">Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo)
+Proxy (PoolDistr crypto) -&gt; String
+(Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo))
+-&gt; (Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo))
+-&gt; (Proxy (PoolDistr crypto) -&gt; String)
+-&gt; NoThunks (PoolDistr crypto)
+forall crypto. Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo)
+forall crypto. Proxy (PoolDistr crypto) -&gt; String
+forall a.
+(Context -&gt; a -&gt; IO (Maybe ThunkInfo))
+-&gt; (Context -&gt; a -&gt; IO (Maybe ThunkInfo))
+-&gt; (Proxy a -&gt; String)
+-&gt; NoThunks a
+showTypeOf :: Proxy (PoolDistr crypto) -&gt; String
+$cshowTypeOf :: forall crypto. Proxy (PoolDistr crypto) -&gt; String
+wNoThunks :: Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo)
+$cwNoThunks :: forall crypto. Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo)
+noThunks :: Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo)
+$cnoThunks :: forall crypto. Context -&gt; PoolDistr crypto -&gt; IO (Maybe ThunkInfo)
+</span><a href="#local-6989586621679242275"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">NoThunks</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- ===============================</span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span id="local-6989586621679242274"><span class="hs-keyword">instance</span><span>
+</span><span id="line-83"></span><span>  </span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-type">HasExp</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-type">PoolDistr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242274"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span>
+</span><span id="line-86"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Keys.html#KeyHash"><span class="hs-identifier hs-type">KeyHash</span></a></span><span> </span><span class="hs-special">'</span><span class="annot"><a href="Cardano.Ledger.Keys.html#StakePool"><span class="hs-identifier hs-type">StakePool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242274"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-type">IndividualPoolStake</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242274"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-90"></span><span>  </span><span id="local-6989586621679242271"><span class="annot"><span class="annottext">toExp :: PoolDistr crypto
+-&gt; Exp
+     (Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto))
+</span><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">toExp</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-type">PoolDistr</span></a></span><span> </span><span id="local-6989586621679242269"><span class="annot"><span class="annottext">Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+</span><a href="#local-6989586621679242269"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BaseRep
+  Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+-&gt; Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+-&gt; Exp
+     (Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto))
+forall k (f :: * -&gt; * -&gt; *) v.
+(Ord k, Basic f, Iter f) =&gt;
+BaseRep f k v -&gt; f k v -&gt; Exp (f k v)
+</span><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-var">Base</span></a></span><span> </span><span class="annot"><span class="annottext">BaseRep
+  Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+forall k v. Basic Map =&gt; BaseRep Map k v
+</span><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-var">MapR</span></a></span><span> </span><span class="annot"><span class="annottext">Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+</span><a href="#local-6989586621679242269"><span class="hs-identifier hs-var">x</span></a></span></span><span>
+</span><span id="line-91"></span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- | We can Embed a Newtype around a Map (or other Iterable type) and then use it in a set expression.</span><span>
+</span><span id="line-93"></span><span id="local-6989586621679242268"><span class="hs-keyword">instance</span><span>
+</span><span id="line-94"></span><span>  </span><span class="annot"><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-type">Embed</span></a></span><span>
+</span><span id="line-95"></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-type">PoolDistr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242268"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span>
+</span><span id="line-97"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Keys.html#KeyHash"><span class="hs-identifier hs-type">KeyHash</span></a></span><span> </span><span class="hs-special">'</span><span class="annot"><a href="Cardano.Ledger.Keys.html#StakePool"><span class="hs-identifier hs-type">StakePool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242268"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-98"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#IndividualPoolStake"><span class="hs-identifier hs-type">IndividualPoolStake</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679242268"><span class="hs-identifier hs-type">crypto</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-101"></span><span>  </span><span id="local-6989586621679242264"><span class="annot"><span class="annottext">toBase :: PoolDistr crypto
+-&gt; Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+</span><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">toBase</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-type">PoolDistr</span></a></span><span> </span><span id="local-6989586621679242262"><span class="annot"><span class="annottext">Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+</span><a href="#local-6989586621679242262"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+</span><a href="#local-6989586621679242262"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-102"></span><span>  </span><span id="local-6989586621679242261"><span class="annot"><span class="annottext">fromBase :: Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+-&gt; PoolDistr crypto
+</span><a href="../../../../set-algebra/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">fromBase</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+-&gt; PoolDistr crypto
+forall crypto.
+Map (KeyHash 'StakePool crypto) (IndividualPoolStake crypto)
+-&gt; PoolDistr crypto
+</span><a href="Cardano.Ledger.PoolDistr.html#PoolDistr"><span class="hs-identifier hs-var">PoolDistr</span></a></span></span><span>
+</span><span id="line-103"></span></pre></body></html>

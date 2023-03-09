@@ -1,0 +1,530 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE AllowAmbiguousTypes #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-comment">{-|
+Module:       Control.Monad.Freer
+Description:  Freer - an extensible effects library
+Copyright:    (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.; 2017 Alexis King
+License:      BSD3
+Maintainer:   Alexis King &lt;lexi.lambda@gmail.com&gt;
+Stability:    experimental
+Portability:  GHC specific language extensions.
+
+This library is an implementation of an /extensible effect system/ for Haskell,
+a general-purpose way of tracking effects at the type level and handling them in
+different ways. The concept of an &#8220;effect&#8221; is very general: it encompasses the
+things most people consider side-effects, like generating random values,
+interacting with the file system, and mutating state, but it also includes
+things like access to an immutable global environment and exception handling.
+
+Traditional Haskell tracks and composes effects using /monad transformers/,
+which involves modeling each effects using what is conceptually a separate
+monad. In contrast, @freer-simple@ provides exactly __one__ monad, 'Eff',
+parameterized by a type-level list of effects. For example, a computation that
+produces an 'Integer' by consuming a 'String' from the global environment and
+acting upon a single mutable cell containing a 'Bool' would have the following
+type:
+
+@
+'Eff' '['Control.Monad.Freer.Reader.Reader' 'String', 'Control.Monad.Freer.State.State' 'Bool'] 'Integer'
+@
+
+For comparison, this is the equivalent stack of monad transformers:
+
+@
+ReaderT 'String' (State 'Bool') 'Integer'
+@
+
+However, this is slightly misleading: the example with 'Eff' is actually
+/more general/ than the corresponding example using transformers because the
+implementations of effects are not /concrete/. While @StateT@ specifies a
+/specific/ implementation of a pseudo-mutable cell,
+'Control.Monad.Freer.State.State' is merely an interface with a set of available
+operations. Using 'Control.Monad.Freer.State.runState' will &#8220;run&#8221; the
+'Control.Monad.Freer.State.State' effect much the same way that @StateT@ does,
+but a hypothetical handler function @runStateTVar@ could implement the state in
+terms of a STM 'Control.Concurrent.STM.TVar'.
+
+The @freer-simple@ effect library is divided into three parts:
+
+  1. First, @freer-simple@ provides the 'Eff' monad, an implementation of
+     extensible effects that allows effects to be tracked at the type level and
+     interleaved at runtime.
+
+  2. Second, it provides a built-in library of common effects, such as
+     'Control.Monad.Freer.Reader.Reader', 'Control.Monad.Freer.Writer.Writer',
+     'Control.Monad.Freer.State.State', and 'Control.Monad.Freer.Error.Error'.
+     These effects can be used with 'Eff' out of the box with an interface that
+     is similar to the equivalent monad transformers.
+
+  3. Third, it provides a set of combinators for implementing your /own/
+     effects, which can either be implemented entirely independently, in terms
+     of other existing effects, or even in terms of existing monads, making it
+     possible to use @freer-simple@ with existing monad transformer stacks.
+
+One of the core ideas of @freer-simple@ is that /most/ effects that occur in
+practical applications are really different incarnations of a small set of
+fundamental effect types. Therefore, while it&#8217;s possible to write new effect
+handlers entirely from scratch, it&#8217;s more common that you will wish to define
+new effects in terms of other effects. @freer-simple@ makes this possible by
+providing the 'reinterpret' function, which allows /translating/ an effect into
+another one.
+
+For example, imagine an effect that represents interactions with a file system:
+
+@
+data FileSystem r where
+  ReadFile :: 'FilePath' -&gt; FileSystem 'String'
+  WriteFile :: 'FilePath' -&gt; 'String' -&gt; FileSystem ()
+@
+
+An implementation that uses the real file system would, of course, be
+implemented in terms of 'IO'. An alternate implementation, however, might be
+implemented in-memory in terms of 'Control.Monad.Freer.State.State'. With
+'reinterpret', this implementation is trivial:
+
+@
+runInMemoryFileSystem :: [('FilePath', 'String')] -&gt; 'Eff' (FileSystem ': effs) '~&gt;' 'Eff' effs
+runInMemoryFileSystem initVfs = 'Control.Monad.Freer.State.evalState' initVfs '.' fsToState where
+  fsToState :: 'Eff' (FileSystem ': effs) '~&gt;' 'Eff' ('Control.Monad.Freer.State.State' [('FilePath', 'String')] ': effs)
+  fsToState = 'reinterpret' '$' \case
+    ReadFile path -&gt; 'Control.Monad.Freer.State.get' '&gt;&gt;=' \\vfs -&gt; case 'lookup' path vfs of
+      'Just' contents -&gt; 'pure' contents
+      'Nothing' -&gt; 'error' (&quot;readFile: no such file &quot; ++ path)
+    WriteFile path contents -&gt; 'Control.Monad.Freer.State.modify' $ \\vfs -&gt;
+      (path, contents) : 'Data.List.deleteBy' (('==') ``Data.Function.on`` 'fst') (path, contents) vfs
+@
+
+This handler is easy to write, doesn&#8217;t require any knowledge of how
+'Control.Monad.Freer.State.State' is implemented, is entirely encapsulated, and
+is composable with all other effect handlers. This idea&#8212;making it easy to define
+new effects in terms of existing ones&#8212;is the concept around which @freer-simple@
+is based.
+
+= Effect Algebras
+
+In @freer-simple@, effects are defined using /effect algebras/, which are
+representations of an effect&#8217;s operations as a generalized algebraic datatype,
+aka GADT. This might sound intimidating, but you really don&#8217;t need to know very
+much at all about how GADTs work to use @freer-simple@; instead, you can just
+learn the syntax entirely in terms of what it means for defining effects.
+
+Consider the definition of the @FileSystem@ effect from the above example:
+
+@
+data FileSystem r where
+  ReadFile :: 'FilePath' -&gt; FileSystem 'String'
+  WriteFile :: 'FilePath' -&gt; 'String' -&gt; FileSystem ()
+@
+
+The first line, @data FileSystem r where@, defines a new effect. All effects
+have at least one parameter, normally named @r@, which represents the /result/
+or /return type/ of the operation. For example, take a look at the type of
+@ReadFile@:
+
+@
+ReadFile :: 'FilePath' -&gt; FileSystem 'String'
+@
+
+This is very similar to the type of 'readFile' from the standard &quot;Prelude&quot;,
+which has type @'FilePath' -&gt; 'IO' 'String'@. The only difference is that the
+name of the effect, in this case @FileSystem@, replaces the use of the monad,
+in this case 'IO'.
+
+Also notice that @ReadFile@ and @WriteFile@ begin with capital letters. This is
+because they are actually /data constructors/. This means that
+@ReadFile &quot;foo.txt&quot;@ actually constructs a /value/ of type
+@FileSystem 'String'@, and this is useful, since it allows effect handlers like
+@runInMemoryFileSystem@ to pattern-match on the effect&#8217;s constructors and get
+the values out.
+
+To actually /use/ our @FileSystem@ effect, however, we have to write just a
+little bit of glue to connect our effect definition to the 'Eff' monad, which we
+do using the 'send' function. We can write an ordinary function for each of the
+@FileSystem@ constructors that mechanically calls 'send':
+
+@
+readFile :: 'Member' FileSystem effs =&gt; 'FilePath' -&gt; 'Eff' effs 'String'
+readFile path = 'send' (ReadFile path)
+
+writeFile :: 'Member' FileSystem effs =&gt; 'FilePath' -&gt; 'String' -&gt; 'Eff' effs ()
+writeFile path contents = 'send' (WriteFile path contents)
+@
+
+Notice the use of the 'Member' constraint on these functions. This constraint
+means that the 'FileSystem' effect can be anywhere within the type-level list
+represented by the @effs@ variable. If the signature of 'readFile' were more
+concrete, like this:
+
+@
+readFile :: 'FilePath' -&gt; 'Eff' '[FileSystem] 'String'
+@
+
+&#8230;then 'readFile' would /only/ be usable with an 'Eff' computation that /only/
+performed @FileSystem@ effects, which isn&#8217;t especially useful.
+
+Since writing these functions is entirely mechanical, they can be generated
+automatically using Template Haskell; see &quot;Control.Monad.Freer.TH&quot; for more
+details.
+-}</span><span>
+</span><span id="line-169"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Control.Monad.Freer</span><span>
+</span><span id="line-170"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Effect Monad</span></span><span>
+</span><span id="line-171"></span><span>    </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier">Eff</span></a></span><span>
+</span><span id="line-172"></span><span>
+</span><span id="line-173"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Effect Constraints</span></span><span>
+</span><span id="line-174"></span><span>    </span><span class="hs-comment">-- | As mentioned in the documentation for 'Eff', it&#8217;s rare to actually</span><span>
+</span><span id="line-175"></span><span>    </span><span class="hs-comment">-- specify a concrete list of effects for an 'Eff' computation, since that</span><span>
+</span><span id="line-176"></span><span>    </span><span class="hs-comment">-- has two significant downsides:</span><span>
+</span><span id="line-177"></span><span>    </span><span class="hs-comment">--</span><span>
+</span><span id="line-178"></span><span>    </span><span class="hs-comment">--   1. It couples the computation to that /specific/ list of effects, so it</span><span>
+</span><span id="line-179"></span><span>    </span><span class="hs-comment">--      cannot be used in functions that perform a strict superset of</span><span>
+</span><span id="line-180"></span><span>    </span><span class="hs-comment">--      effects.</span><span>
+</span><span id="line-181"></span><span>    </span><span class="hs-comment">--</span><span>
+</span><span id="line-182"></span><span>    </span><span class="hs-comment">--   2. It forces the effects to be handled in a particular order, which</span><span>
+</span><span id="line-183"></span><span>    </span><span class="hs-comment">--      can make handler code brittle when the list of effects is changed.</span><span>
+</span><span id="line-184"></span><span>    </span><span class="hs-comment">--</span><span>
+</span><span id="line-185"></span><span>    </span><span class="hs-comment">-- Fortunately, these restrictions are easily avoided by using</span><span>
+</span><span id="line-186"></span><span>    </span><span class="hs-comment">-- /effect constraints/, such as 'Member' or 'Members', which decouple a</span><span>
+</span><span id="line-187"></span><span>    </span><span class="hs-comment">-- computation from a particular concrete list of effects.</span><span>
+</span><span id="line-188"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier">Member</span></a></span><span>
+</span><span id="line-189"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.html#Members"><span class="hs-identifier">Members</span></a></span><span>
+</span><span id="line-190"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.html#LastMember"><span class="hs-identifier">LastMember</span></a></span><span>
+</span><span id="line-191"></span><span>
+</span><span id="line-192"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Sending Arbitrary Effects</span></span><span>
+</span><span id="line-193"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier">send</span></a></span><span>
+</span><span id="line-194"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#sendM"><span class="hs-identifier">sendM</span></a></span><span>
+</span><span id="line-195"></span><span>
+</span><span id="line-196"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Lifting Effect Stacks</span></span><span>
+</span><span id="line-197"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#raise"><span class="hs-identifier">raise</span></a></span><span>
+</span><span id="line-198"></span><span>
+</span><span id="line-199"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Handling Effects</span></span><span>
+</span><span id="line-200"></span><span>    </span><span class="hs-comment">-- | Once an effectful computation has been produced, it needs to somehow be</span><span>
+</span><span id="line-201"></span><span>    </span><span class="hs-comment">-- executed. This is where /effect handlers/ come in. Each effect can have</span><span>
+</span><span id="line-202"></span><span>    </span><span class="hs-comment">-- an arbitrary number of different effect handlers, which can be used to</span><span>
+</span><span id="line-203"></span><span>    </span><span class="hs-comment">-- interpret the same effects in different ways. For example, it is often</span><span>
+</span><span id="line-204"></span><span>    </span><span class="hs-comment">-- useful to have two effect handlers: one that uses 'sendM' and</span><span>
+</span><span id="line-205"></span><span>    </span><span class="hs-comment">-- 'interpretM' to interpret the effect in 'IO', and another that uses</span><span>
+</span><span id="line-206"></span><span>    </span><span class="hs-comment">-- 'interpret', 'reinterpret', or 'translate' to interpret the effect in an</span><span>
+</span><span id="line-207"></span><span>    </span><span class="hs-comment">-- entirely pure way for the purposes of testing.</span><span>
+</span><span id="line-208"></span><span>    </span><span class="hs-comment">--</span><span>
+</span><span id="line-209"></span><span>    </span><span class="hs-comment">-- This module doesn&#8217;t provide any effects or effect handlers (those are in</span><span>
+</span><span id="line-210"></span><span>    </span><span class="hs-comment">-- their own modules, like &quot;Control.Monad.Freer.Reader&quot; and</span><span>
+</span><span id="line-211"></span><span>    </span><span class="hs-comment">-- &quot;Control.Monad.Freer.Error&quot;), but it /does/ provide a set of combinators</span><span>
+</span><span id="line-212"></span><span>    </span><span class="hs-comment">-- for constructing new effect handlers. It also provides the 'run' and</span><span>
+</span><span id="line-213"></span><span>    </span><span class="hs-comment">-- 'runM' functions for extracting the actual result of an effectful</span><span>
+</span><span id="line-214"></span><span>    </span><span class="hs-comment">-- computation once all effects have been handled.</span><span>
+</span><span id="line-215"></span><span>
+</span><span id="line-216"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Running the Eff monad</span></span><span>
+</span><span id="line-217"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#run"><span class="hs-identifier">run</span></a></span><span>
+</span><span id="line-218"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#runM"><span class="hs-identifier">runM</span></a></span><span>
+</span><span id="line-219"></span><span>
+</span><span id="line-220"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Building Effect Handlers</span></span><span>
+</span><span id="line-221"></span><span>    </span><span class="annot"><span class="hs-comment">-- *** Basic effect handlers</span></span><span>
+</span><span id="line-222"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpret"><span class="hs-identifier">interpret</span></a></span><span>
+</span><span id="line-223"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpose"><span class="hs-identifier">interpose</span></a></span><span>
+</span><span id="line-224"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#subsume"><span class="hs-identifier">subsume</span></a></span><span>
+</span><span id="line-225"></span><span>    </span><span class="annot"><span class="hs-comment">-- *** Derived effect handlers</span></span><span>
+</span><span id="line-226"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret"><span class="hs-identifier">reinterpret</span></a></span><span>
+</span><span id="line-227"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret2"><span class="hs-identifier">reinterpret2</span></a></span><span>
+</span><span id="line-228"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret3"><span class="hs-identifier">reinterpret3</span></a></span><span>
+</span><span id="line-229"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpretN"><span class="hs-identifier">reinterpretN</span></a></span><span>
+</span><span id="line-230"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#translate"><span class="hs-identifier">translate</span></a></span><span>
+</span><span id="line-231"></span><span>    </span><span class="annot"><span class="hs-comment">-- *** Monadic effect handlers</span></span><span>
+</span><span id="line-232"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpretM"><span class="hs-identifier">interpretM</span></a></span><span>
+</span><span id="line-233"></span><span>    </span><span class="annot"><span class="hs-comment">-- *** Advanced effect handlers</span></span><span>
+</span><span id="line-234"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpretWith"><span class="hs-identifier">interpretWith</span></a></span><span>
+</span><span id="line-235"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interposeWith"><span class="hs-identifier">interposeWith</span></a></span><span>
+</span><span id="line-236"></span><span>
+</span><span id="line-237"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Re-exported bindings</span></span><span>
+</span><span id="line-238"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">type</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator">(~&gt;)</span></a></span><span>
+</span><span id="line-239"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-240"></span><span>
+</span><span id="line-241"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-identifier">Control.Natural</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">type</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator">(~&gt;)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-242"></span><span>
+</span><span id="line-243"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html"><span class="hs-identifier">Control.Monad.Freer.Internal</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Internal</span></span><span>
+</span><span id="line-244"></span><span>
+</span><span id="line-245"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html"><span class="hs-identifier">Control.Monad.Freer.Internal</span></a></span><span>
+</span><span id="line-246"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier">Eff</span></a></span><span>
+</span><span id="line-247"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.html#LastMember"><span class="hs-identifier">LastMember</span></a></span><span>
+</span><span id="line-248"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier">Member</span></a></span><span>
+</span><span id="line-249"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.html#Members"><span class="hs-identifier">Members</span></a></span><span>
+</span><span id="line-250"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Weakens"><span class="hs-identifier">Weakens</span></a></span><span>
+</span><span id="line-251"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#%3A%2B%2B%3A"><span class="hs-operator">(:++:)</span></a></span><span>
+</span><span id="line-252"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#handleRelay"><span class="hs-identifier">handleRelay</span></a></span><span>
+</span><span id="line-253"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#raise"><span class="hs-identifier">raise</span></a></span><span>
+</span><span id="line-254"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#replaceRelay"><span class="hs-identifier">replaceRelay</span></a></span><span>
+</span><span id="line-255"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#replaceRelayN"><span class="hs-identifier">replaceRelayN</span></a></span><span>
+</span><span id="line-256"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#run"><span class="hs-identifier">run</span></a></span><span>
+</span><span id="line-257"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#runM"><span class="hs-identifier">runM</span></a></span><span>
+</span><span id="line-258"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier">send</span></a></span><span>
+</span><span id="line-259"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#sendM"><span class="hs-identifier">sendM</span></a></span><span>
+</span><span id="line-260"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-261"></span><span>
+</span><span id="line-262"></span><span class="hs-comment">-- | The simplest way to produce an effect handler. Given a natural</span><span>
+</span><span id="line-263"></span><span class="hs-comment">-- transformation from some effect @eff@ to some effectful computation with</span><span>
+</span><span id="line-264"></span><span class="hs-comment">-- effects @effs@, produces a natural transformation from @'Eff' (eff ': effs)@</span><span>
+</span><span id="line-265"></span><span class="hs-comment">-- to @'Eff' effs@.</span><span>
+</span><span id="line-266"></span><span class="annot"><a href="Control.Monad.Freer.html#interpret"><span class="hs-identifier hs-type">interpret</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066917"><span class="annot"><a href="#local-6989586621679066917"><span class="hs-identifier hs-type">eff</span></a></span></span><span> </span><span id="local-6989586621679066916"><span class="annot"><a href="#local-6989586621679066916"><span class="hs-identifier hs-type">effs</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066917"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066916"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066917"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066916"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066916"><span class="hs-identifier hs-type">effs</span></a></span><span>
+</span><span id="line-267"></span><span id="interpret"><span class="annot"><span class="annottext">interpret :: (eff ~&gt; Eff effs) -&gt; Eff (eff : effs) ~&gt; Eff effs
+</span><a href="Control.Monad.Freer.html#interpret"><span class="hs-identifier hs-var hs-var">interpret</span></a></span></span><span> </span><span id="local-6989586621679066815"><span class="annot"><span class="annottext">eff ~&gt; Eff effs
+</span><a href="#local-6989586621679066815"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall v. eff v -&gt; (v -&gt; Eff effs x) -&gt; Eff effs x)
+-&gt; Eff (eff : effs) x -&gt; Eff effs x
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) b.
+(forall v. eff v -&gt; (v -&gt; Eff effs b) -&gt; Eff effs b)
+-&gt; Eff (eff : effs) b -&gt; Eff effs b
+</span><a href="Control.Monad.Freer.html#interpretWith"><span class="hs-identifier hs-var">interpretWith</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679066814"><span class="annot"><span class="annottext">eff v
+</span><a href="#local-6989586621679066814"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">eff v -&gt; Eff effs v
+eff ~&gt; Eff effs
+</span><a href="#local-6989586621679066815"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">eff v
+</span><a href="#local-6989586621679066814"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">Eff effs v -&gt; (v -&gt; Eff effs x) -&gt; Eff effs x
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-268"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpret"><span class="hs-pragma hs-type">interpret</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-269"></span><span>
+</span><span id="line-270"></span><span class="hs-comment">-- | Like 'interpret', but instead of handling the effect, allows responding to</span><span>
+</span><span id="line-271"></span><span class="hs-comment">-- the effect while leaving it unhandled.</span><span>
+</span><span id="line-272"></span><span class="annot"><a href="Control.Monad.Freer.html#interpose"><span class="hs-identifier hs-type">interpose</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066813"><span class="annot"><a href="#local-6989586621679066813"><span class="hs-identifier hs-type">eff</span></a></span></span><span> </span><span id="local-6989586621679066812"><span class="annot"><a href="#local-6989586621679066812"><span class="hs-identifier hs-type">effs</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier hs-type">Member</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066813"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066812"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066813"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066812"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066812"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066812"><span class="hs-identifier hs-type">effs</span></a></span><span>
+</span><span id="line-273"></span><span id="interpose"><span class="annot"><span class="annottext">interpose :: (eff ~&gt; Eff effs) -&gt; Eff effs ~&gt; Eff effs
+</span><a href="Control.Monad.Freer.html#interpose"><span class="hs-identifier hs-var hs-var">interpose</span></a></span></span><span> </span><span id="local-6989586621679066811"><span class="annot"><span class="annottext">eff ~&gt; Eff effs
+</span><a href="#local-6989586621679066811"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall v. eff v -&gt; (v -&gt; Eff effs x) -&gt; Eff effs x)
+-&gt; Eff effs x -&gt; Eff effs x
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) b.
+Member eff effs =&gt;
+(forall v. eff v -&gt; (v -&gt; Eff effs b) -&gt; Eff effs b)
+-&gt; Eff effs b -&gt; Eff effs b
+</span><a href="Control.Monad.Freer.html#interposeWith"><span class="hs-identifier hs-var">interposeWith</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679066810"><span class="annot"><span class="annottext">eff v
+</span><a href="#local-6989586621679066810"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">eff v -&gt; Eff effs v
+eff ~&gt; Eff effs
+</span><a href="#local-6989586621679066811"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">eff v
+</span><a href="#local-6989586621679066810"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">Eff effs v -&gt; (v -&gt; Eff effs x) -&gt; Eff effs x
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-274"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpose"><span class="hs-pragma hs-type">interpose</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-275"></span><span>
+</span><span id="line-276"></span><span class="hs-comment">-- | Interprets an effect in terms of another identical effect. This can be used</span><span>
+</span><span id="line-277"></span><span class="hs-comment">-- to eliminate duplicate effects.</span><span>
+</span><span id="line-278"></span><span class="annot"><a href="Control.Monad.Freer.html#subsume"><span class="hs-identifier hs-type">subsume</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066809"><span class="annot"><a href="#local-6989586621679066809"><span class="hs-identifier hs-type">eff</span></a></span></span><span> </span><span id="local-6989586621679066808"><span class="annot"><a href="#local-6989586621679066808"><span class="hs-identifier hs-type">effs</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier hs-type">Member</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066809"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066808"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066809"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066808"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066808"><span class="hs-identifier hs-type">effs</span></a></span><span>
+</span><span id="line-279"></span><span id="subsume"><span class="annot"><span class="annottext">subsume :: Eff (eff : effs) ~&gt; Eff effs
+</span><a href="Control.Monad.Freer.html#subsume"><span class="hs-identifier hs-var hs-var">subsume</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(eff ~&gt; Eff effs) -&gt; Eff (eff : effs) ~&gt; Eff effs
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]).
+(eff ~&gt; Eff effs) -&gt; Eff (eff : effs) ~&gt; Eff effs
+</span><a href="Control.Monad.Freer.html#interpret"><span class="hs-identifier hs-var">interpret</span></a></span><span> </span><span class="annot"><span class="annottext">eff ~&gt; Eff effs
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) a.
+Member eff effs =&gt;
+eff a -&gt; Eff effs a
+</span><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier hs-var">send</span></a></span><span>
+</span><span id="line-280"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#subsume"><span class="hs-pragma hs-type">subsume</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-281"></span><span>
+</span><span id="line-282"></span><span class="hs-comment">-- | Like 'interpret', but instead of removing the interpreted effect @f@,</span><span>
+</span><span id="line-283"></span><span class="hs-comment">-- reencodes it in some new effect @g@.</span><span>
+</span><span id="line-284"></span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret"><span class="hs-identifier hs-type">reinterpret</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066867"><span class="annot"><a href="#local-6989586621679066867"><span class="hs-identifier hs-type">f</span></a></span></span><span> </span><span id="local-6989586621679066866"><span class="annot"><a href="#local-6989586621679066866"><span class="hs-identifier hs-type">g</span></a></span></span><span> </span><span id="local-6989586621679066865"><span class="annot"><a href="#local-6989586621679066865"><span class="hs-identifier hs-type">effs</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066867"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066866"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066865"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066867"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066865"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066866"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066865"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-285"></span><span id="reinterpret"><span class="annot"><span class="annottext">reinterpret :: (f ~&gt; Eff (g : effs)) -&gt; Eff (f : effs) ~&gt; Eff (g : effs)
+</span><a href="Control.Monad.Freer.html#reinterpret"><span class="hs-identifier hs-var hs-var">reinterpret</span></a></span></span><span> </span><span id="local-6989586621679066807"><span class="annot"><span class="annottext">f ~&gt; Eff (g : effs)
+</span><a href="#local-6989586621679066807"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(x -&gt; Eff (g : effs) x)
+-&gt; (forall x. f x -&gt; Arr (g : effs) x x -&gt; Eff (g : effs) x)
+-&gt; Eff (f : effs) x
+-&gt; Eff (g : effs) x
+forall a (v :: * -&gt; *) (effs :: [* -&gt; *]) w (t :: * -&gt; *).
+(a -&gt; Eff (v : effs) w)
+-&gt; (forall x. t x -&gt; Arr (v : effs) x w -&gt; Eff (v : effs) w)
+-&gt; Eff (t : effs) a
+-&gt; Eff (v : effs) w
+</span><a href="Control.Monad.Freer.Internal.html#replaceRelay"><span class="hs-identifier hs-var">replaceRelay</span></a></span><span> </span><span class="annot"><span class="annottext">x -&gt; Eff (g : effs) x
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679066806"><span class="annot"><span class="annottext">f x
+</span><a href="#local-6989586621679066806"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">f x -&gt; Eff (g : effs) x
+f ~&gt; Eff (g : effs)
+</span><a href="#local-6989586621679066807"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">f x
+</span><a href="#local-6989586621679066806"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">Eff (g : effs) x -&gt; Arr (g : effs) x x -&gt; Eff (g : effs) x
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-286"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret"><span class="hs-pragma hs-type">reinterpret</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-287"></span><span>
+</span><span id="line-288"></span><span class="hs-comment">-- | Like 'reinterpret', but encodes the @f@ effect in /two/ new effects instead</span><span>
+</span><span id="line-289"></span><span class="hs-comment">-- of just one.</span><span>
+</span><span id="line-290"></span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret2"><span class="hs-identifier hs-type">reinterpret2</span></a></span><span>
+</span><span id="line-291"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066805"><span class="annot"><a href="#local-6989586621679066805"><span class="hs-identifier hs-type">f</span></a></span></span><span> </span><span id="local-6989586621679066804"><span class="annot"><a href="#local-6989586621679066804"><span class="hs-identifier hs-type">g</span></a></span></span><span> </span><span id="local-6989586621679066803"><span class="annot"><a href="#local-6989586621679066803"><span class="hs-identifier hs-type">h</span></a></span></span><span> </span><span id="local-6989586621679066802"><span class="annot"><a href="#local-6989586621679066802"><span class="hs-identifier hs-type">effs</span></a></span></span><span>
+</span><span id="line-292"></span><span>   </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066805"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066804"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066803"><span class="hs-identifier hs-type">h</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066802"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066805"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066802"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066804"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066803"><span class="hs-identifier hs-type">h</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066802"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-293"></span><span id="reinterpret2"><span class="annot"><span class="annottext">reinterpret2 :: (f ~&gt; Eff (g : h : effs)) -&gt; Eff (f : effs) ~&gt; Eff (g : h : effs)
+</span><a href="Control.Monad.Freer.html#reinterpret2"><span class="hs-identifier hs-var hs-var">reinterpret2</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall (gs :: [* -&gt; *]) (f :: * -&gt; *) (effs :: [* -&gt; *]).
+Weakens gs =&gt;
+(f ~&gt; Eff (gs :++: effs)) -&gt; Eff (f : effs) ~&gt; Eff (gs :++: effs)
+forall (f :: * -&gt; *) (effs :: [* -&gt; *]).
+Weakens '[g, h] =&gt;
+(f ~&gt; Eff ('[g, h] :++: effs))
+-&gt; Eff (f : effs) ~&gt; Eff ('[g, h] :++: effs)
+</span><a href="Control.Monad.Freer.html#reinterpretN"><span class="hs-identifier hs-var">reinterpretN</span></a></span><span> </span><span class="hs-glyph">@</span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679066804"><span class="hs-identifier hs-type">g</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679066803"><span class="hs-identifier hs-type">h</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-294"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret2"><span class="hs-pragma hs-type">reinterpret2</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-295"></span><span>
+</span><span id="line-296"></span><span class="hs-comment">-- | Like 'reinterpret', but encodes the @f@ effect in /three/ new effects</span><span>
+</span><span id="line-297"></span><span class="hs-comment">-- instead of just one.</span><span>
+</span><span id="line-298"></span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret3"><span class="hs-identifier hs-type">reinterpret3</span></a></span><span>
+</span><span id="line-299"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066801"><span class="annot"><a href="#local-6989586621679066801"><span class="hs-identifier hs-type">f</span></a></span></span><span> </span><span id="local-6989586621679066800"><span class="annot"><a href="#local-6989586621679066800"><span class="hs-identifier hs-type">g</span></a></span></span><span> </span><span id="local-6989586621679066799"><span class="annot"><a href="#local-6989586621679066799"><span class="hs-identifier hs-type">h</span></a></span></span><span> </span><span id="local-6989586621679066798"><span class="annot"><a href="#local-6989586621679066798"><span class="hs-identifier hs-type">i</span></a></span></span><span> </span><span id="local-6989586621679066797"><span class="annot"><a href="#local-6989586621679066797"><span class="hs-identifier hs-type">effs</span></a></span></span><span>
+</span><span id="line-300"></span><span>   </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066801"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066800"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066799"><span class="hs-identifier hs-type">h</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066798"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066797"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-301"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066801"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066797"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066800"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066799"><span class="hs-identifier hs-type">h</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066798"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066797"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-302"></span><span id="reinterpret3"><span class="annot"><span class="annottext">reinterpret3 :: (f ~&gt; Eff (g : h : i : effs))
+-&gt; Eff (f : effs) ~&gt; Eff (g : h : i : effs)
+</span><a href="Control.Monad.Freer.html#reinterpret3"><span class="hs-identifier hs-var hs-var">reinterpret3</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall (gs :: [* -&gt; *]) (f :: * -&gt; *) (effs :: [* -&gt; *]).
+Weakens gs =&gt;
+(f ~&gt; Eff (gs :++: effs)) -&gt; Eff (f : effs) ~&gt; Eff (gs :++: effs)
+forall (f :: * -&gt; *) (effs :: [* -&gt; *]).
+Weakens '[g, h, i] =&gt;
+(f ~&gt; Eff ('[g, h, i] :++: effs))
+-&gt; Eff (f : effs) ~&gt; Eff ('[g, h, i] :++: effs)
+</span><a href="Control.Monad.Freer.html#reinterpretN"><span class="hs-identifier hs-var">reinterpretN</span></a></span><span> </span><span class="hs-glyph">@</span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679066800"><span class="hs-identifier hs-type">g</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679066799"><span class="hs-identifier hs-type">h</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679066798"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-303"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpret3"><span class="hs-pragma hs-type">reinterpret3</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-304"></span><span>
+</span><span id="line-305"></span><span class="hs-comment">-- | Like 'interpret', 'reinterpret', 'reinterpret2', and 'reinterpret3', but</span><span>
+</span><span id="line-306"></span><span class="hs-comment">-- allows the result to have any number of additional effects instead of simply</span><span>
+</span><span id="line-307"></span><span class="hs-comment">-- 0-3. The problem is that this completely breaks type inference, so you will</span><span>
+</span><span id="line-308"></span><span class="hs-comment">-- have to explicitly pick @gs@ using @TypeApplications@. Prefer 'interpret',</span><span>
+</span><span id="line-309"></span><span class="hs-comment">-- 'reinterpret', 'reinterpret2', or 'reinterpret3' where possible.</span><span>
+</span><span id="line-310"></span><span class="annot"><a href="Control.Monad.Freer.html#reinterpretN"><span class="hs-identifier hs-type">reinterpretN</span></a></span><span>
+</span><span id="line-311"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066893"><span class="annot"><a href="#local-6989586621679066893"><span class="hs-identifier hs-type">gs</span></a></span></span><span> </span><span id="local-6989586621679066891"><span class="annot"><a href="#local-6989586621679066891"><span class="hs-identifier hs-type">f</span></a></span></span><span> </span><span id="local-6989586621679066890"><span class="annot"><a href="#local-6989586621679066890"><span class="hs-identifier hs-type">effs</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Weakens"><span class="hs-identifier hs-type">Weakens</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066893"><span class="hs-identifier hs-type">gs</span></a></span><span>
+</span><span id="line-312"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066891"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066893"><span class="hs-identifier hs-type">gs</span></a></span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#%3A%2B%2B%3A"><span class="hs-operator hs-type">:++:</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066890"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066891"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066890"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066893"><span class="hs-identifier hs-type">gs</span></a></span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#%3A%2B%2B%3A"><span class="hs-operator hs-type">:++:</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066890"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-313"></span><span id="reinterpretN"><span class="annot"><span class="annottext">reinterpretN :: (f ~&gt; Eff (gs :++: effs)) -&gt; Eff (f : effs) ~&gt; Eff (gs :++: effs)
+</span><a href="Control.Monad.Freer.html#reinterpretN"><span class="hs-identifier hs-var hs-var">reinterpretN</span></a></span></span><span> </span><span id="local-6989586621679066796"><span class="annot"><span class="annottext">f ~&gt; Eff (gs :++: effs)
+</span><a href="#local-6989586621679066796"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(x -&gt; Eff (gs :++: effs) x)
+-&gt; (forall x.
+    f x -&gt; Arr (gs :++: effs) x x -&gt; Eff (gs :++: effs) x)
+-&gt; Eff (f : effs) x
+-&gt; Eff (gs :++: effs) x
+forall (gs :: [* -&gt; *]) (t :: * -&gt; *) a (effs :: [* -&gt; *]) w.
+Weakens gs =&gt;
+(a -&gt; Eff (gs :++: effs) w)
+-&gt; (forall x.
+    t x -&gt; Arr (gs :++: effs) x w -&gt; Eff (gs :++: effs) w)
+-&gt; Eff (t : effs) a
+-&gt; Eff (gs :++: effs) w
+</span><a href="Control.Monad.Freer.Internal.html#replaceRelayN"><span class="hs-identifier hs-var">replaceRelayN</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679066893"><span class="hs-identifier hs-type">gs</span></a></span><span> </span><span class="annot"><span class="annottext">x -&gt; Eff (gs :++: effs) x
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679066795"><span class="annot"><span class="annottext">f x
+</span><a href="#local-6989586621679066795"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">f x -&gt; Eff (gs :++: effs) x
+f ~&gt; Eff (gs :++: effs)
+</span><a href="#local-6989586621679066796"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">f x
+</span><a href="#local-6989586621679066795"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">Eff (gs :++: effs) x
+-&gt; Arr (gs :++: effs) x x -&gt; Eff (gs :++: effs) x
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-314"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#reinterpretN"><span class="hs-pragma hs-type">reinterpretN</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-315"></span><span>
+</span><span id="line-316"></span><span class="hs-comment">-- | Runs an effect by translating it into another effect. This is effectively a</span><span>
+</span><span id="line-317"></span><span class="hs-comment">-- more restricted form of 'reinterpret', since both produce a natural</span><span>
+</span><span id="line-318"></span><span class="hs-comment">-- transformation from @'Eff' (f ': effs)@ to @'Eff' (g ': effs)@ for some</span><span>
+</span><span id="line-319"></span><span class="hs-comment">-- effects @f@ and @g@, but 'translate' does not permit using any of the other</span><span>
+</span><span id="line-320"></span><span class="hs-comment">-- effects in the implementation of the interpreter.</span><span>
+</span><span id="line-321"></span><span class="hs-comment">--</span><span>
+</span><span id="line-322"></span><span class="hs-comment">-- In practice, this difference in functionality is not particularly useful, and</span><span>
+</span><span id="line-323"></span><span class="hs-comment">-- 'reinterpret' easily subsumes all of the functionality of 'translate', but</span><span>
+</span><span id="line-324"></span><span class="hs-comment">-- the way 'translate' restricts the result leads to much better type inference.</span><span>
+</span><span id="line-325"></span><span class="hs-comment">--</span><span>
+</span><span id="line-326"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-327"></span><span class="hs-comment">-- 'translate' f = 'reinterpret' ('send' . f)</span><span>
+</span><span id="line-328"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-329"></span><span class="annot"><a href="Control.Monad.Freer.html#translate"><span class="hs-identifier hs-type">translate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066794"><span class="annot"><a href="#local-6989586621679066794"><span class="hs-identifier hs-type">f</span></a></span></span><span> </span><span id="local-6989586621679066793"><span class="annot"><a href="#local-6989586621679066793"><span class="hs-identifier hs-type">g</span></a></span></span><span> </span><span id="local-6989586621679066792"><span class="annot"><a href="#local-6989586621679066792"><span class="hs-identifier hs-type">effs</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066794"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066793"><span class="hs-identifier hs-type">g</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066794"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066792"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066793"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066792"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-330"></span><span id="translate"><span class="annot"><span class="annottext">translate :: (f ~&gt; g) -&gt; Eff (f : effs) ~&gt; Eff (g : effs)
+</span><a href="Control.Monad.Freer.html#translate"><span class="hs-identifier hs-var hs-var">translate</span></a></span></span><span> </span><span id="local-6989586621679066791"><span class="annot"><span class="annottext">f ~&gt; g
+</span><a href="#local-6989586621679066791"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(f ~&gt; Eff (g : effs)) -&gt; Eff (f : effs) ~&gt; Eff (g : effs)
+forall (f :: * -&gt; *) (g :: * -&gt; *) (effs :: [* -&gt; *]).
+(f ~&gt; Eff (g : effs)) -&gt; Eff (f : effs) ~&gt; Eff (g : effs)
+</span><a href="Control.Monad.Freer.html#reinterpret"><span class="hs-identifier hs-var">reinterpret</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">g x -&gt; Eff (g : effs) x
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) a.
+Member eff effs =&gt;
+eff a -&gt; Eff effs a
+</span><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier hs-var">send</span></a></span><span> </span><span class="annot"><span class="annottext">(g x -&gt; Eff (g : effs) x)
+-&gt; (f x -&gt; g x) -&gt; f x -&gt; Eff (g : effs) x
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">f x -&gt; g x
+f ~&gt; g
+</span><a href="#local-6989586621679066791"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-331"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#translate"><span class="hs-pragma hs-type">translate</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-332"></span><span>
+</span><span id="line-333"></span><span class="hs-comment">-- | Like 'interpret', this function runs an effect without introducing another</span><span>
+</span><span id="line-334"></span><span class="hs-comment">-- one. Like 'translate', this function runs an effect by translating it into</span><span>
+</span><span id="line-335"></span><span class="hs-comment">-- another effect in isolation, without access to the other effects in @effs@.</span><span>
+</span><span id="line-336"></span><span class="hs-comment">-- Unlike either of those functions, however, this runs the effect in a final</span><span>
+</span><span id="line-337"></span><span class="hs-comment">-- monad in @effs@, intended to be run with 'runM'.</span><span>
+</span><span id="line-338"></span><span class="hs-comment">--</span><span>
+</span><span id="line-339"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-340"></span><span class="hs-comment">-- 'interpretM' f = 'interpret' ('sendM' . f)</span><span>
+</span><span id="line-341"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-342"></span><span class="annot"><a href="Control.Monad.Freer.html#interpretM"><span class="hs-identifier hs-type">interpretM</span></a></span><span>
+</span><span id="line-343"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066789"><span class="annot"><a href="#local-6989586621679066789"><span class="hs-identifier hs-type">eff</span></a></span></span><span> </span><span id="local-6989586621679066788"><span class="annot"><a href="#local-6989586621679066788"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679066787"><span class="annot"><a href="#local-6989586621679066787"><span class="hs-identifier hs-type">effs</span></a></span></span><span>
+</span><span id="line-344"></span><span>   </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066788"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.html#LastMember"><span class="hs-identifier hs-type">LastMember</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066788"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066787"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-345"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066789"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066788"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066789"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066787"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../natural-transformation/html/src"><span class="hs-operator hs-type">~&gt;</span></a></span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066787"><span class="hs-identifier hs-type">effs</span></a></span><span>
+</span><span id="line-346"></span><span id="interpretM"><span class="annot"><span class="annottext">interpretM :: (eff ~&gt; m) -&gt; Eff (eff : effs) ~&gt; Eff effs
+</span><a href="Control.Monad.Freer.html#interpretM"><span class="hs-identifier hs-var hs-var">interpretM</span></a></span></span><span> </span><span id="local-6989586621679066786"><span class="annot"><span class="annottext">eff ~&gt; m
+</span><a href="#local-6989586621679066786"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(eff ~&gt; Eff effs) -&gt; Eff (eff : effs) ~&gt; Eff effs
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]).
+(eff ~&gt; Eff effs) -&gt; Eff (eff : effs) ~&gt; Eff effs
+</span><a href="Control.Monad.Freer.html#interpret"><span class="hs-identifier hs-var">interpret</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">m x -&gt; Eff effs x
+forall (m :: * -&gt; *) (effs :: [* -&gt; *]) a.
+(Monad m, LastMember m effs) =&gt;
+m a -&gt; Eff effs a
+</span><a href="Control.Monad.Freer.Internal.html#sendM"><span class="hs-identifier hs-var">sendM</span></a></span><span> </span><span class="annot"><span class="annottext">(m x -&gt; Eff effs x) -&gt; (eff x -&gt; m x) -&gt; eff x -&gt; Eff effs x
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">eff x -&gt; m x
+eff ~&gt; m
+</span><a href="#local-6989586621679066786"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-347"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpretM"><span class="hs-pragma hs-type">interpretM</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-348"></span><span>
+</span><span id="line-349"></span><span class="hs-comment">-- | A highly general way of handling an effect. Like 'interpret', but</span><span>
+</span><span id="line-350"></span><span class="hs-comment">-- explicitly passes the /continuation/, a function of type @v -&gt; 'Eff' effs b@,</span><span>
+</span><span id="line-351"></span><span class="hs-comment">-- to the handler function. Most handlers invoke this continuation to resume the</span><span>
+</span><span id="line-352"></span><span class="hs-comment">-- computation with a particular value as the result, but some handlers may</span><span>
+</span><span id="line-353"></span><span class="hs-comment">-- return a value without resumption, effectively aborting the computation to</span><span>
+</span><span id="line-354"></span><span class="hs-comment">-- the point where the handler is invoked. This is useful for implementing</span><span>
+</span><span id="line-355"></span><span class="hs-comment">-- things like 'Control.Monad.Freer.Error.catchError', for example.</span><span>
+</span><span id="line-356"></span><span class="hs-comment">--</span><span>
+</span><span id="line-357"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-358"></span><span class="hs-comment">-- 'interpret' f = 'interpretWith' (\e -&gt; (f e '&gt;&gt;='))</span><span>
+</span><span id="line-359"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-360"></span><span class="annot"><a href="Control.Monad.Freer.html#interpretWith"><span class="hs-identifier hs-type">interpretWith</span></a></span><span>
+</span><span id="line-361"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066936"><span class="annot"><a href="#local-6989586621679066936"><span class="hs-identifier hs-type">eff</span></a></span></span><span> </span><span id="local-6989586621679066935"><span class="annot"><a href="#local-6989586621679066935"><span class="hs-identifier hs-type">effs</span></a></span></span><span> </span><span id="local-6989586621679066934"><span class="annot"><a href="#local-6989586621679066934"><span class="hs-identifier hs-type">b</span></a></span></span><span>
+</span><span id="line-362"></span><span>   </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066938"><span class="annot"><a href="#local-6989586621679066938"><span class="hs-identifier hs-type">v</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="#local-6989586621679066936"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066938"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066938"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066935"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066934"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066935"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066934"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-363"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066936"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066935"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679066934"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-364"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066935"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066934"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-365"></span><span id="interpretWith"><span class="annot"><span class="annottext">interpretWith :: (forall v. eff v -&gt; (v -&gt; Eff effs b) -&gt; Eff effs b)
+-&gt; Eff (eff : effs) b -&gt; Eff effs b
+</span><a href="Control.Monad.Freer.html#interpretWith"><span class="hs-identifier hs-var hs-var">interpretWith</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(b -&gt; Eff effs b)
+-&gt; (forall v. eff v -&gt; (v -&gt; Eff effs b) -&gt; Eff effs b)
+-&gt; Eff (eff : effs) b
+-&gt; Eff effs b
+forall a (effs :: [* -&gt; *]) b (eff :: * -&gt; *).
+(a -&gt; Eff effs b)
+-&gt; (forall v. eff v -&gt; Arr effs v b -&gt; Eff effs b)
+-&gt; Eff (eff : effs) a
+-&gt; Eff effs b
+</span><a href="Control.Monad.Freer.Internal.html#handleRelay"><span class="hs-identifier hs-var">handleRelay</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; Eff effs b
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span>
+</span><span id="line-366"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interpretWith"><span class="hs-pragma hs-type">interpretWith</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-367"></span><span>
+</span><span id="line-368"></span><span class="hs-comment">-- | Combines the interposition behavior of 'interpose' with the</span><span>
+</span><span id="line-369"></span><span class="hs-comment">-- continuation-passing capabilities of 'interpretWith'.</span><span>
+</span><span id="line-370"></span><span class="hs-comment">--</span><span>
+</span><span id="line-371"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-372"></span><span class="hs-comment">-- 'interpose' f = 'interposeWith' (\e -&gt; (f e '&gt;&gt;='))</span><span>
+</span><span id="line-373"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-374"></span><span class="annot"><a href="Control.Monad.Freer.html#interposeWith"><span class="hs-identifier hs-type">interposeWith</span></a></span><span>
+</span><span id="line-375"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066925"><span class="annot"><a href="#local-6989586621679066925"><span class="hs-identifier hs-type">eff</span></a></span></span><span> </span><span id="local-6989586621679066924"><span class="annot"><a href="#local-6989586621679066924"><span class="hs-identifier hs-type">effs</span></a></span></span><span> </span><span id="local-6989586621679066922"><span class="annot"><a href="#local-6989586621679066922"><span class="hs-identifier hs-type">b</span></a></span></span><span>
+</span><span id="line-376"></span><span>   </span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier hs-type">Member</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066925"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066924"><span class="hs-identifier hs-type">effs</span></a></span><span>
+</span><span id="line-377"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679066927"><span class="annot"><a href="#local-6989586621679066927"><span class="hs-identifier hs-type">v</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="#local-6989586621679066925"><span class="hs-identifier hs-type">eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066927"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066927"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066924"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066922"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066924"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066922"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-378"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066924"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066922"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-379"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066924"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066922"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-380"></span><span id="interposeWith"><span class="annot"><span class="annottext">interposeWith :: (forall v. eff v -&gt; (v -&gt; Eff effs b) -&gt; Eff effs b)
+-&gt; Eff effs b -&gt; Eff effs b
+</span><a href="Control.Monad.Freer.html#interposeWith"><span class="hs-identifier hs-var hs-var">interposeWith</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(b -&gt; Eff effs b)
+-&gt; (forall v. eff v -&gt; (v -&gt; Eff effs b) -&gt; Eff effs b)
+-&gt; Eff effs b
+-&gt; Eff effs b
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) a b.
+Member eff effs =&gt;
+(a -&gt; Eff effs b)
+-&gt; (forall v. eff v -&gt; Arr effs v b -&gt; Eff effs b)
+-&gt; Eff effs a
+-&gt; Eff effs b
+</span><a href="Control.Monad.Freer.Internal.html#interpose"><span class="hs-identifier hs-var">Internal.interpose</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; Eff effs b
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span>
+</span><span id="line-381"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html#interposeWith"><span class="hs-pragma hs-type">interposeWith</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-382"></span></pre></body></html>

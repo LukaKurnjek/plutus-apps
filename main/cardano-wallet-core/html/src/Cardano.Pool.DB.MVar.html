@@ -1,0 +1,1010 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE RankNTypes #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Copyright: &#169; 2018-2020 IOHK</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Dummy implementation of the database-layer, using 'MVar'. This may be good</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- for testing to compare with an implementation on a real data store, or to use</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- when compiling the wallet for targets which don't have SQLite.</span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Pool.DB.MVar</span><span>
+</span><span id="line-15"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.MVar.html#newDBLayer"><span class="hs-identifier">newDBLayer</span></a></span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.html"><span class="hs-identifier">Cardano.Pool.DB</span></a></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.html#DBLayer"><span class="hs-identifier">DBLayer</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.html#ErrPointAlreadyExists"><span class="hs-identifier">ErrPointAlreadyExists</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html"><span class="hs-identifier">Cardano.Pool.DB.Model</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#ModelOp"><span class="hs-identifier">ModelOp</span></a></span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolDatabase"><span class="hs-identifier">PoolDatabase</span></a></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolErr"><span class="hs-identifier">PoolErr</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#emptyPoolDatabase"><span class="hs-identifier">emptyPoolDatabase</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mCleanDatabase"><span class="hs-identifier">mCleanDatabase</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mCleanPoolMetadata"><span class="hs-identifier">mCleanPoolMetadata</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mListHeaders"><span class="hs-identifier">mListHeaders</span></a></span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mListPoolLifeCycleData"><span class="hs-identifier">mListPoolLifeCycleData</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mListRegisteredPools"><span class="hs-identifier">mListRegisteredPools</span></a></span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mListRetiredPools"><span class="hs-identifier">mListRetiredPools</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutDelistedPools"><span class="hs-identifier">mPutDelistedPools</span></a></span><span>
+</span><span id="line-34"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutFetchAttempt"><span class="hs-identifier">mPutFetchAttempt</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutHeader"><span class="hs-identifier">mPutHeader</span></a></span><span>
+</span><span id="line-36"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutLastMetadataGC"><span class="hs-identifier">mPutLastMetadataGC</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutPoolMetadata"><span class="hs-identifier">mPutPoolMetadata</span></a></span><span>
+</span><span id="line-38"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutPoolProduction"><span class="hs-identifier">mPutPoolProduction</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutPoolRegistration"><span class="hs-identifier">mPutPoolRegistration</span></a></span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutPoolRetirement"><span class="hs-identifier">mPutPoolRetirement</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutSettings"><span class="hs-identifier">mPutSettings</span></a></span><span>
+</span><span id="line-42"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mPutStakeDistribution"><span class="hs-identifier">mPutStakeDistribution</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadCursor"><span class="hs-identifier">mReadCursor</span></a></span><span>
+</span><span id="line-44"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadDelistedPools"><span class="hs-identifier">mReadDelistedPools</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadLastMetadataGC"><span class="hs-identifier">mReadLastMetadataGC</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadPoolLifeCycleStatus"><span class="hs-identifier">mReadPoolLifeCycleStatus</span></a></span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadPoolMetadata"><span class="hs-identifier">mReadPoolMetadata</span></a></span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadPoolProduction"><span class="hs-identifier">mReadPoolProduction</span></a></span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadPoolRegistration"><span class="hs-identifier">mReadPoolRegistration</span></a></span><span>
+</span><span id="line-50"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadPoolRetirement"><span class="hs-identifier">mReadPoolRetirement</span></a></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadSettings"><span class="hs-identifier">mReadSettings</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadStakeDistribution"><span class="hs-identifier">mReadStakeDistribution</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadSystemSeed"><span class="hs-identifier">mReadSystemSeed</span></a></span><span>
+</span><span id="line-54"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mReadTotalProduction"><span class="hs-identifier">mReadTotalProduction</span></a></span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mRemovePools"><span class="hs-identifier">mRemovePools</span></a></span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mRemoveRetiredPools"><span class="hs-identifier">mRemoveRetiredPools</span></a></span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mRollbackTo"><span class="hs-identifier">mRollbackTo</span></a></span><span>
+</span><span id="line-58"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#mUnfetchedPoolMetadataRefs"><span class="hs-identifier">mUnfetchedPoolMetadataRefs</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Slotting.html"><span class="hs-identifier">Cardano.Wallet.Primitive.Slotting</span></a></span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Slotting.html#TimeInterpreter"><span class="hs-identifier">TimeInterpreter</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-62"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">Control.DeepSeq</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">deepseq</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">void</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">Control.Monad.Trans.Except</span></a></span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">ExceptT</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">Control.Monad.Trans.State.Strict</span></a></span><span>
+</span><span id="line-69"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">runStateT</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Either</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">fromRight</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Functor.Identity</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Identity</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Tuple</span></a></span><span>
+</span><span id="line-75"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">swap</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.Exception</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Exception</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">throwIO</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.MVar</span></a></span><span>
+</span><span id="line-79"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">MVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">modifyMVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">newMVar</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- | Instantiate a new in-memory &quot;database&quot; layer that simply stores data in</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- a local MVar. Data vanishes if the software is shut down.</span><span>
+</span><span id="line-83"></span><span class="annot"><a href="Cardano.Pool.DB.MVar.html#newDBLayer"><span class="hs-identifier hs-type">newDBLayer</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Slotting.html#TimeInterpreter"><span class="hs-identifier hs-type">TimeInterpreter</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Pool.DB.html#DBLayer"><span class="hs-identifier hs-type">DBLayer</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-84"></span><span id="newDBLayer"><span class="annot"><span class="annottext">newDBLayer :: TimeInterpreter Identity -&gt; IO (DBLayer IO)
+</span><a href="Cardano.Pool.DB.MVar.html#newDBLayer"><span class="hs-identifier hs-var hs-var">newDBLayer</span></a></span></span><span> </span><span id="local-6989586621682467136"><span class="annot"><span class="annottext">TimeInterpreter Identity
+</span><a href="#local-6989586621682467136"><span class="hs-identifier hs-var">timeInterpreter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-85"></span><span>    </span><span id="local-6989586621682467135"><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467135"><span class="hs-identifier hs-var">db</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">PoolDatabase -&gt; IO (MVar PoolDatabase)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; a -&gt; m (MVar a)
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">newMVar</span></a></span><span> </span><span class="annot"><span class="annottext">PoolDatabase
+</span><a href="Cardano.Pool.DB.Model.html#emptyPoolDatabase"><span class="hs-identifier hs-var">emptyPoolDatabase</span></a></span><span>
+</span><span id="line-86"></span><span>    </span><span class="annot"><span class="annottext">DBLayer IO -&gt; IO (DBLayer IO)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(DBLayer IO -&gt; IO (DBLayer IO)) -&gt; DBLayer IO -&gt; IO (DBLayer IO)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase -&gt; DBLayer IO
+</span><a href="#local-6989586621682467134"><span class="hs-identifier hs-var">mkDBLayer</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467135"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-88"></span><span>    </span><span id="local-6989586621682467134"><span class="annot"><span class="annottext">mkDBLayer :: MVar PoolDatabase -&gt; DBLayer IO
+</span><a href="#local-6989586621682467134"><span class="hs-identifier hs-var hs-var">mkDBLayer</span></a></span></span><span> </span><span id="local-6989586621682467133"><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DBLayer :: forall (m :: * -&gt; *) (stm :: * -&gt; *).
+(MonadFail stm, MonadIO stm) =&gt;
+(BlockHeader -&gt; PoolId -&gt; ExceptT ErrPointAlreadyExists stm ())
+-&gt; (EpochNo -&gt; stm (Map PoolId [BlockHeader]))
+-&gt; stm (Map PoolId (Quantity &quot;block&quot; Word64))
+-&gt; (EpochNo -&gt; [(PoolId, Quantity &quot;lovelace&quot; Word64)] -&gt; stm ())
+-&gt; (EpochNo -&gt; stm [(PoolId, Quantity &quot;lovelace&quot; Word64)])
+-&gt; (Int -&gt; stm [BlockHeader])
+-&gt; (PoolId -&gt; stm PoolLifeCycleStatus)
+-&gt; (CertificatePublicationTime
+    -&gt; PoolRegistrationCertificate -&gt; stm ())
+-&gt; (PoolId
+    -&gt; stm
+         (Maybe (CertificatePublicationTime, PoolRegistrationCertificate)))
+-&gt; (CertificatePublicationTime
+    -&gt; PoolRetirementCertificate -&gt; stm ())
+-&gt; (PoolId
+    -&gt; stm
+         (Maybe (CertificatePublicationTime, PoolRetirementCertificate)))
+-&gt; (Int
+    -&gt; stm [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)])
+-&gt; ((StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; stm ())
+-&gt; stm [PoolId]
+-&gt; (EpochNo -&gt; stm [PoolRetirementCertificate])
+-&gt; (EpochNo -&gt; stm [PoolLifeCycleStatus])
+-&gt; (StakePoolMetadataHash -&gt; StakePoolMetadata -&gt; stm ())
+-&gt; stm ()
+-&gt; stm (Map StakePoolMetadataHash StakePoolMetadata)
+-&gt; stm StdGen
+-&gt; (SlotNo -&gt; stm ())
+-&gt; ([PoolId] -&gt; stm ())
+-&gt; stm [PoolId]
+-&gt; ([PoolId] -&gt; stm ())
+-&gt; (EpochNo -&gt; stm [PoolRetirementCertificate])
+-&gt; (BlockHeader -&gt; stm ())
+-&gt; (Int -&gt; stm [BlockHeader])
+-&gt; stm Settings
+-&gt; (Settings -&gt; stm ())
+-&gt; stm (Maybe POSIXTime)
+-&gt; (POSIXTime -&gt; stm ())
+-&gt; stm ()
+-&gt; (forall a. stm a -&gt; m a)
+-&gt; DBLayer m
+</span><a href="Cardano.Pool.DB.html#DBLayer"><span class="hs-identifier hs-type">DBLayer</span></a></span><span> </span><span class="hs-special">{</span><span class="annot"><span class="annottext">IO [PoolId]
+IO (Maybe POSIXTime)
+IO ()
+IO (Map PoolId (Quantity &quot;block&quot; Word64))
+IO (Map StakePoolMetadataHash StakePoolMetadata)
+IO StdGen
+IO Settings
+Int -&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+Int -&gt; IO [BlockHeader]
+[PoolId] -&gt; IO ()
+(StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; IO ()
+SlotNo -&gt; IO ()
+POSIXTime -&gt; IO ()
+Settings -&gt; IO ()
+CertificatePublicationTime -&gt; PoolRetirementCertificate -&gt; IO ()
+CertificatePublicationTime -&gt; PoolRegistrationCertificate -&gt; IO ()
+EpochNo -&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+EpochNo -&gt; IO [PoolLifeCycleStatus]
+EpochNo -&gt; IO [PoolRetirementCertificate]
+EpochNo -&gt; IO (Map PoolId [BlockHeader])
+EpochNo -&gt; [(PoolId, Quantity &quot;lovelace&quot; Word64)] -&gt; IO ()
+BlockHeader -&gt; IO ()
+BlockHeader -&gt; PoolId -&gt; ExceptT ErrPointAlreadyExists IO ()
+PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+PoolId -&gt; IO PoolLifeCycleStatus
+StakePoolMetadataHash -&gt; StakePoolMetadata -&gt; IO ()
+forall a. a -&gt; a
+forall a. IO a -&gt; IO a
+atomically :: forall a. IO a -&gt; IO a
+cleanDB :: IO ()
+putLastMetadataGC :: POSIXTime -&gt; IO ()
+readLastMetadataGC :: IO (Maybe POSIXTime)
+putSettings :: Settings -&gt; IO ()
+readSettings :: IO Settings
+listHeaders :: Int -&gt; IO [BlockHeader]
+putHeader :: BlockHeader -&gt; IO ()
+removeRetiredPools :: EpochNo -&gt; IO [PoolRetirementCertificate]
+removePools :: [PoolId] -&gt; IO ()
+readDelistedPools :: IO [PoolId]
+putDelistedPools :: [PoolId] -&gt; IO ()
+rollbackTo :: SlotNo -&gt; IO ()
+readSystemSeed :: IO StdGen
+readPoolMetadata :: IO (Map StakePoolMetadataHash StakePoolMetadata)
+removePoolMetadata :: IO ()
+putPoolMetadata :: StakePoolMetadataHash -&gt; StakePoolMetadata -&gt; IO ()
+listPoolLifeCycleData :: EpochNo -&gt; IO [PoolLifeCycleStatus]
+listRetiredPools :: EpochNo -&gt; IO [PoolRetirementCertificate]
+listRegisteredPools :: IO [PoolId]
+putFetchAttempt :: (StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; IO ()
+unfetchedPoolMetadataRefs :: Int -&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+readPoolRetirement :: PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+putPoolRetirement :: CertificatePublicationTime -&gt; PoolRetirementCertificate -&gt; IO ()
+readPoolRegistration :: PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+putPoolRegistration :: CertificatePublicationTime -&gt; PoolRegistrationCertificate -&gt; IO ()
+readPoolLifeCycleStatus :: PoolId -&gt; IO PoolLifeCycleStatus
+readPoolProductionCursor :: Int -&gt; IO [BlockHeader]
+readStakeDistribution :: EpochNo -&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+putStakeDistribution :: EpochNo -&gt; [(PoolId, Quantity &quot;lovelace&quot; Word64)] -&gt; IO ()
+readTotalProduction :: IO (Map PoolId (Quantity &quot;block&quot; Word64))
+readPoolProduction :: EpochNo -&gt; IO (Map PoolId [BlockHeader])
+putPoolProduction :: BlockHeader -&gt; PoolId -&gt; ExceptT ErrPointAlreadyExists IO ()
+atomically :: forall a. a -&gt; a
+readPoolMetadata :: IO (Map StakePoolMetadataHash StakePoolMetadata)
+cleanDB :: IO ()
+putLastMetadataGC :: POSIXTime -&gt; IO ()
+readLastMetadataGC :: IO (Maybe POSIXTime)
+putSettings :: Settings -&gt; IO ()
+readSettings :: IO Settings
+listHeaders :: Int -&gt; IO [BlockHeader]
+putHeader :: BlockHeader -&gt; IO ()
+removeRetiredPools :: EpochNo -&gt; IO [PoolRetirementCertificate]
+removePools :: [PoolId] -&gt; IO ()
+readDelistedPools :: IO [PoolId]
+putDelistedPools :: [PoolId] -&gt; IO ()
+rollbackTo :: SlotNo -&gt; IO ()
+readSystemSeed :: IO StdGen
+removePoolMetadata :: IO ()
+putPoolMetadata :: StakePoolMetadataHash -&gt; StakePoolMetadata -&gt; IO ()
+listPoolLifeCycleData :: EpochNo -&gt; IO [PoolLifeCycleStatus]
+listRetiredPools :: EpochNo -&gt; IO [PoolRetirementCertificate]
+listRegisteredPools :: IO [PoolId]
+putFetchAttempt :: (StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; IO ()
+unfetchedPoolMetadataRefs :: Int -&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+putPoolRetirement :: CertificatePublicationTime -&gt; PoolRetirementCertificate -&gt; IO ()
+readPoolLifeCycleStatus :: PoolId -&gt; IO PoolLifeCycleStatus
+putPoolRegistration :: CertificatePublicationTime -&gt; PoolRegistrationCertificate -&gt; IO ()
+readPoolProductionCursor :: Int -&gt; IO [BlockHeader]
+readStakeDistribution :: EpochNo -&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+putStakeDistribution :: EpochNo -&gt; [(PoolId, Quantity &quot;lovelace&quot; Word64)] -&gt; IO ()
+readTotalProduction :: IO (Map PoolId (Quantity &quot;block&quot; Word64))
+readPoolProduction :: EpochNo -&gt; IO (Map PoolId [BlockHeader])
+putPoolProduction :: BlockHeader -&gt; PoolId -&gt; ExceptT ErrPointAlreadyExists IO ()
+readPoolRetirement :: PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+readPoolRegistration :: PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+</span><a href="Cardano.Pool.DB.html#atomically"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span><span class="hs-special">}</span><span>
+</span><span id="line-89"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-90"></span><span>        </span><span id="local-6989586621682467131"><span class="annot"><span class="annottext">readPoolRegistration :: PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+</span><a href="#local-6989586621682467131"><span class="hs-identifier hs-var hs-var">readPoolRegistration</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-91"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp
+   (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+ -&gt; IO
+      (Maybe (CertificatePublicationTime, PoolRegistrationCertificate)))
+-&gt; (PoolId
+    -&gt; ModelOp
+         (Maybe (CertificatePublicationTime, PoolRegistrationCertificate)))
+-&gt; PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">PoolId
+-&gt; ModelOp
+     (Maybe (CertificatePublicationTime, PoolRegistrationCertificate))
+</span><a href="Cardano.Pool.DB.Model.html#mReadPoolRegistration"><span class="hs-identifier hs-var">mReadPoolRegistration</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span>        </span><span id="local-6989586621682467130"><span class="annot"><span class="annottext">readPoolRetirement :: PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+</span><a href="#local-6989586621682467130"><span class="hs-identifier hs-var hs-var">readPoolRetirement</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-94"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp
+   (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+ -&gt; IO
+      (Maybe (CertificatePublicationTime, PoolRetirementCertificate)))
+-&gt; (PoolId
+    -&gt; ModelOp
+         (Maybe (CertificatePublicationTime, PoolRetirementCertificate)))
+-&gt; PoolId
+-&gt; IO
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">PoolId
+-&gt; ModelOp
+     (Maybe (CertificatePublicationTime, PoolRetirementCertificate))
+</span><a href="Cardano.Pool.DB.Model.html#mReadPoolRetirement"><span class="hs-identifier hs-var">mReadPoolRetirement</span></a></span><span>
+</span><span id="line-95"></span><span>
+</span><span id="line-96"></span><span>        </span><span id="local-6989586621682467129"><span class="annot"><span class="annottext">putPoolProduction :: BlockHeader -&gt; PoolId -&gt; ExceptT ErrPointAlreadyExists IO ()
+</span><a href="#local-6989586621682467129"><span class="hs-identifier hs-var hs-var">putPoolProduction</span></a></span></span><span> </span><span id="local-6989586621682467063"><span class="annot"><span class="annottext">BlockHeader
+</span><a href="#local-6989586621682467063"><span class="hs-identifier hs-var">sl</span></a></span></span><span> </span><span id="local-6989586621682467062"><span class="annot"><span class="annottext">PoolId
+</span><a href="#local-6989586621682467062"><span class="hs-identifier hs-var">pool</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Either ErrPointAlreadyExists ())
+-&gt; ExceptT ErrPointAlreadyExists IO ()
+forall e (m :: * -&gt; *) a. m (Either e a) -&gt; ExceptT e m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">ExceptT</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either ErrPointAlreadyExists ())
+ -&gt; ExceptT ErrPointAlreadyExists IO ())
+-&gt; IO (Either ErrPointAlreadyExists ())
+-&gt; ExceptT ErrPointAlreadyExists IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-97"></span><span>            </span><span class="annot"><span class="annottext">PoolId
+</span><a href="#local-6989586621682467062"><span class="hs-identifier hs-var">pool</span></a></span><span> </span><span class="annot"><span class="annottext">PoolId
+-&gt; IO (Either ErrPointAlreadyExists ())
+-&gt; IO (Either ErrPointAlreadyExists ())
+forall a b. NFData a =&gt; a -&gt; b -&gt; b
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-operator hs-var">`deepseq`</span></a></span><span>
+</span><span id="line-98"></span><span>                </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe ErrPointAlreadyExists)
+-&gt; MVar PoolDatabase
+-&gt; ModelOp ()
+-&gt; IO (Either ErrPointAlreadyExists ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">PoolErr -&gt; Maybe ErrPointAlreadyExists
+</span><a href="Cardano.Pool.DB.MVar.html#errPointAlreadyExists"><span class="hs-identifier hs-var">errPointAlreadyExists</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BlockHeader -&gt; PoolId -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutPoolProduction"><span class="hs-identifier hs-var">mPutPoolProduction</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeader
+</span><a href="#local-6989586621682467063"><span class="hs-identifier hs-var">sl</span></a></span><span> </span><span class="annot"><span class="annottext">PoolId
+</span><a href="#local-6989586621682467062"><span class="hs-identifier hs-var">pool</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span>        </span><span id="local-6989586621682467128"><span class="annot"><span class="annottext">readPoolProduction :: EpochNo -&gt; IO (Map PoolId [BlockHeader])
+</span><a href="#local-6989586621682467128"><span class="hs-identifier hs-var hs-var">readPoolProduction</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-101"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp (Map PoolId [BlockHeader])
+-&gt; IO (Map PoolId [BlockHeader])
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp (Map PoolId [BlockHeader])
+ -&gt; IO (Map PoolId [BlockHeader]))
+-&gt; (EpochNo -&gt; ModelOp (Map PoolId [BlockHeader]))
+-&gt; EpochNo
+-&gt; IO (Map PoolId [BlockHeader])
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">TimeInterpreter Identity
+-&gt; EpochNo -&gt; ModelOp (Map PoolId [BlockHeader])
+</span><a href="Cardano.Pool.DB.Model.html#mReadPoolProduction"><span class="hs-identifier hs-var">mReadPoolProduction</span></a></span><span> </span><span class="annot"><span class="annottext">TimeInterpreter Identity
+</span><a href="#local-6989586621682467136"><span class="hs-identifier hs-var">timeInterpreter</span></a></span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span>        </span><span id="local-6989586621682467127"><span class="annot"><span class="annottext">readTotalProduction :: IO (Map PoolId (Quantity &quot;block&quot; Word64))
+</span><a href="#local-6989586621682467127"><span class="hs-identifier hs-var hs-var">readTotalProduction</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-104"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp (Map PoolId (Quantity &quot;block&quot; Word64))
+-&gt; IO (Map PoolId (Quantity &quot;block&quot; Word64))
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp (Map PoolId (Quantity &quot;block&quot; Word64))
+</span><a href="Cardano.Pool.DB.Model.html#mReadTotalProduction"><span class="hs-identifier hs-var">mReadTotalProduction</span></a></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span>        </span><span id="local-6989586621682467126"><span class="annot"><span class="annottext">putStakeDistribution :: EpochNo -&gt; [(PoolId, Quantity &quot;lovelace&quot; Word64)] -&gt; IO ()
+</span><a href="#local-6989586621682467126"><span class="hs-identifier hs-var hs-var">putStakeDistribution</span></a></span></span><span> </span><span id="local-6989586621682467058"><span class="annot"><span class="annottext">EpochNo
+</span><a href="#local-6989586621682467058"><span class="hs-identifier hs-var">a0</span></a></span></span><span> </span><span id="local-6989586621682467057"><span class="annot"><span class="annottext">[(PoolId, Quantity &quot;lovelace&quot; Word64)]
+</span><a href="#local-6989586621682467057"><span class="hs-identifier hs-var">a1</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-107"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ()) -&gt; IO (Either Any ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EpochNo -&gt; [(PoolId, Quantity &quot;lovelace&quot; Word64)] -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutStakeDistribution"><span class="hs-identifier hs-var">mPutStakeDistribution</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo
+</span><a href="#local-6989586621682467058"><span class="hs-identifier hs-var">a0</span></a></span><span> </span><span class="annot"><span class="annottext">[(PoolId, Quantity &quot;lovelace&quot; Word64)]
+</span><a href="#local-6989586621682467057"><span class="hs-identifier hs-var">a1</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span>        </span><span id="local-6989586621682467125"><span class="annot"><span class="annottext">readStakeDistribution :: EpochNo -&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+</span><a href="#local-6989586621682467125"><span class="hs-identifier hs-var hs-var">readStakeDistribution</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-110"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+-&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+ -&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)])
+-&gt; (EpochNo -&gt; ModelOp [(PoolId, Quantity &quot;lovelace&quot; Word64)])
+-&gt; EpochNo
+-&gt; IO [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; ModelOp [(PoolId, Quantity &quot;lovelace&quot; Word64)]
+</span><a href="Cardano.Pool.DB.Model.html#mReadStakeDistribution"><span class="hs-identifier hs-var">mReadStakeDistribution</span></a></span><span>
+</span><span id="line-111"></span><span>
+</span><span id="line-112"></span><span>        </span><span id="local-6989586621682467124"><span class="annot"><span class="annottext">readPoolProductionCursor :: Int -&gt; IO [BlockHeader]
+</span><a href="#local-6989586621682467124"><span class="hs-identifier hs-var hs-var">readPoolProductionCursor</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-113"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase -&gt; ModelOp [BlockHeader] -&gt; IO [BlockHeader]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp [BlockHeader] -&gt; IO [BlockHeader])
+-&gt; (Int -&gt; ModelOp [BlockHeader]) -&gt; Int -&gt; IO [BlockHeader]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; ModelOp [BlockHeader]
+</span><a href="Cardano.Pool.DB.Model.html#mReadCursor"><span class="hs-identifier hs-var">mReadCursor</span></a></span><span>
+</span><span id="line-114"></span><span>
+</span><span id="line-115"></span><span>        </span><span id="local-6989586621682467123"><span class="annot"><span class="annottext">putPoolRegistration :: CertificatePublicationTime -&gt; PoolRegistrationCertificate -&gt; IO ()
+</span><a href="#local-6989586621682467123"><span class="hs-identifier hs-var hs-var">putPoolRegistration</span></a></span></span><span> </span><span id="local-6989586621682467055"><span class="annot"><span class="annottext">CertificatePublicationTime
+</span><a href="#local-6989586621682467055"><span class="hs-identifier hs-var">cpt</span></a></span></span><span> </span><span id="local-6989586621682467054"><span class="annot"><span class="annottext">PoolRegistrationCertificate
+</span><a href="#local-6989586621682467054"><span class="hs-identifier hs-var">cert</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span>
+</span><span id="line-116"></span><span>              </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ()) -&gt; IO (Either Any ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-117"></span><span>              </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; ModelOp () -&gt; IO (Either Any ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">CertificatePublicationTime
+-&gt; PoolRegistrationCertificate -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutPoolRegistration"><span class="hs-identifier hs-var">mPutPoolRegistration</span></a></span><span> </span><span class="annot"><span class="annottext">CertificatePublicationTime
+</span><a href="#local-6989586621682467055"><span class="hs-identifier hs-var">cpt</span></a></span><span> </span><span class="annot"><span class="annottext">PoolRegistrationCertificate
+</span><a href="#local-6989586621682467054"><span class="hs-identifier hs-var">cert</span></a></span><span>
+</span><span id="line-118"></span><span>
+</span><span id="line-119"></span><span>        </span><span id="local-6989586621682467122"><span class="annot"><span class="annottext">readPoolLifeCycleStatus :: PoolId -&gt; IO PoolLifeCycleStatus
+</span><a href="#local-6989586621682467122"><span class="hs-identifier hs-var hs-var">readPoolLifeCycleStatus</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-120"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp PoolLifeCycleStatus -&gt; IO PoolLifeCycleStatus
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp PoolLifeCycleStatus -&gt; IO PoolLifeCycleStatus)
+-&gt; (PoolId -&gt; ModelOp PoolLifeCycleStatus)
+-&gt; PoolId
+-&gt; IO PoolLifeCycleStatus
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">PoolId -&gt; ModelOp PoolLifeCycleStatus
+</span><a href="Cardano.Pool.DB.Model.html#mReadPoolLifeCycleStatus"><span class="hs-identifier hs-var">mReadPoolLifeCycleStatus</span></a></span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span>        </span><span id="local-6989586621682467121"><span class="annot"><span class="annottext">putPoolRetirement :: CertificatePublicationTime -&gt; PoolRetirementCertificate -&gt; IO ()
+</span><a href="#local-6989586621682467121"><span class="hs-identifier hs-var hs-var">putPoolRetirement</span></a></span></span><span> </span><span id="local-6989586621682467053"><span class="annot"><span class="annottext">CertificatePublicationTime
+</span><a href="#local-6989586621682467053"><span class="hs-identifier hs-var">cpt</span></a></span></span><span> </span><span id="local-6989586621682467052"><span class="annot"><span class="annottext">PoolRetirementCertificate
+</span><a href="#local-6989586621682467052"><span class="hs-identifier hs-var">cert</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span>
+</span><span id="line-123"></span><span>            </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ()) -&gt; IO (Either Any ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-124"></span><span>            </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; ModelOp () -&gt; IO (Either Any ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">CertificatePublicationTime
+-&gt; PoolRetirementCertificate -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutPoolRetirement"><span class="hs-identifier hs-var">mPutPoolRetirement</span></a></span><span> </span><span class="annot"><span class="annottext">CertificatePublicationTime
+</span><a href="#local-6989586621682467053"><span class="hs-identifier hs-var">cpt</span></a></span><span> </span><span class="annot"><span class="annottext">PoolRetirementCertificate
+</span><a href="#local-6989586621682467052"><span class="hs-identifier hs-var">cert</span></a></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span>        </span><span id="local-6989586621682467120"><span class="annot"><span class="annottext">unfetchedPoolMetadataRefs :: Int -&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+</span><a href="#local-6989586621682467120"><span class="hs-identifier hs-var hs-var">unfetchedPoolMetadataRefs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-127"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+-&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+ -&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)])
+-&gt; (Int
+    -&gt; ModelOp [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)])
+-&gt; Int
+-&gt; IO [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; ModelOp [(PoolId, StakePoolMetadataUrl, StakePoolMetadataHash)]
+</span><a href="Cardano.Pool.DB.Model.html#mUnfetchedPoolMetadataRefs"><span class="hs-identifier hs-var">mUnfetchedPoolMetadataRefs</span></a></span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span>        </span><span id="local-6989586621682467119"><span class="annot"><span class="annottext">putFetchAttempt :: (StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; IO ()
+</span><a href="#local-6989586621682467119"><span class="hs-identifier hs-var hs-var">putFetchAttempt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-130"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; ((StakePoolMetadataUrl, StakePoolMetadataHash)
+    -&gt; IO (Either Any ()))
+-&gt; (StakePoolMetadataUrl, StakePoolMetadataHash)
+-&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; ((StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; ModelOp ())
+-&gt; (StakePoolMetadataUrl, StakePoolMetadataHash)
+-&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(StakePoolMetadataUrl, StakePoolMetadataHash) -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutFetchAttempt"><span class="hs-identifier hs-var">mPutFetchAttempt</span></a></span><span>
+</span><span id="line-131"></span><span>
+</span><span id="line-132"></span><span>        </span><span id="local-6989586621682467118"><span class="annot"><span class="annottext">listRegisteredPools :: IO [PoolId]
+</span><a href="#local-6989586621682467118"><span class="hs-identifier hs-var hs-var">listRegisteredPools</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-133"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase -&gt; ModelOp [PoolId] -&gt; IO [PoolId]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp [PoolId]
+</span><a href="Cardano.Pool.DB.Model.html#mListRegisteredPools"><span class="hs-identifier hs-var">mListRegisteredPools</span></a></span><span>
+</span><span id="line-134"></span><span>
+</span><span id="line-135"></span><span>        </span><span id="local-6989586621682467117"><span class="annot"><span class="annottext">listRetiredPools :: EpochNo -&gt; IO [PoolRetirementCertificate]
+</span><a href="#local-6989586621682467117"><span class="hs-identifier hs-var hs-var">listRetiredPools</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-136"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp [PoolRetirementCertificate]
+-&gt; IO [PoolRetirementCertificate]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp [PoolRetirementCertificate]
+ -&gt; IO [PoolRetirementCertificate])
+-&gt; (EpochNo -&gt; ModelOp [PoolRetirementCertificate])
+-&gt; EpochNo
+-&gt; IO [PoolRetirementCertificate]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; ModelOp [PoolRetirementCertificate]
+</span><a href="Cardano.Pool.DB.Model.html#mListRetiredPools"><span class="hs-identifier hs-var">mListRetiredPools</span></a></span><span>
+</span><span id="line-137"></span><span>
+</span><span id="line-138"></span><span>        </span><span id="local-6989586621682467116"><span class="annot"><span class="annottext">listPoolLifeCycleData :: EpochNo -&gt; IO [PoolLifeCycleStatus]
+</span><a href="#local-6989586621682467116"><span class="hs-identifier hs-var hs-var">listPoolLifeCycleData</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-139"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp [PoolLifeCycleStatus] -&gt; IO [PoolLifeCycleStatus]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp [PoolLifeCycleStatus] -&gt; IO [PoolLifeCycleStatus])
+-&gt; (EpochNo -&gt; ModelOp [PoolLifeCycleStatus])
+-&gt; EpochNo
+-&gt; IO [PoolLifeCycleStatus]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; ModelOp [PoolLifeCycleStatus]
+</span><a href="Cardano.Pool.DB.Model.html#mListPoolLifeCycleData"><span class="hs-identifier hs-var">mListPoolLifeCycleData</span></a></span><span>
+</span><span id="line-140"></span><span>
+</span><span id="line-141"></span><span>        </span><span id="local-6989586621682467115"><span class="annot"><span class="annottext">putPoolMetadata :: StakePoolMetadataHash -&gt; StakePoolMetadata -&gt; IO ()
+</span><a href="#local-6989586621682467115"><span class="hs-identifier hs-var hs-var">putPoolMetadata</span></a></span></span><span> </span><span id="local-6989586621682467051"><span class="annot"><span class="annottext">StakePoolMetadataHash
+</span><a href="#local-6989586621682467051"><span class="hs-identifier hs-var">a0</span></a></span></span><span> </span><span id="local-6989586621682467050"><span class="annot"><span class="annottext">StakePoolMetadata
+</span><a href="#local-6989586621682467050"><span class="hs-identifier hs-var">a1</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-142"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ()) -&gt; IO (Either Any ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StakePoolMetadataHash -&gt; StakePoolMetadata -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutPoolMetadata"><span class="hs-identifier hs-var">mPutPoolMetadata</span></a></span><span> </span><span class="annot"><span class="annottext">StakePoolMetadataHash
+</span><a href="#local-6989586621682467051"><span class="hs-identifier hs-var">a0</span></a></span><span> </span><span class="annot"><span class="annottext">StakePoolMetadata
+</span><a href="#local-6989586621682467050"><span class="hs-identifier hs-var">a1</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-143"></span><span>
+</span><span id="line-144"></span><span>        </span><span id="local-6989586621682467114"><span class="annot"><span class="annottext">removePoolMetadata :: IO ()
+</span><a href="#local-6989586621682467114"><span class="hs-identifier hs-var hs-var">removePoolMetadata</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-145"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ()) -&gt; IO (Either Any ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mCleanPoolMetadata"><span class="hs-identifier hs-var">mCleanPoolMetadata</span></a></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span>        </span><span id="local-6989586621682467113"><span class="annot"><span class="annottext">readSystemSeed :: IO StdGen
+</span><a href="#local-6989586621682467113"><span class="hs-identifier hs-var hs-var">readSystemSeed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-148"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; (PoolDatabase -&gt; IO (PoolDatabase, StdGen)) -&gt; IO StdGen
+forall (m :: * -&gt; *) a b.
+MonadUnliftIO m =&gt;
+MVar a -&gt; (a -&gt; m (a, b)) -&gt; m b
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">modifyMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">((StdGen, PoolDatabase) -&gt; (PoolDatabase, StdGen))
+-&gt; IO (StdGen, PoolDatabase) -&gt; IO (PoolDatabase, StdGen)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">(StdGen, PoolDatabase) -&gt; (PoolDatabase, StdGen)
+forall a b. (a, b) -&gt; (b, a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">swap</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (StdGen, PoolDatabase) -&gt; IO (PoolDatabase, StdGen))
+-&gt; (PoolDatabase -&gt; IO (StdGen, PoolDatabase))
+-&gt; PoolDatabase
+-&gt; IO (PoolDatabase, StdGen)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">PoolDatabase -&gt; IO (StdGen, PoolDatabase)
+</span><a href="Cardano.Pool.DB.Model.html#mReadSystemSeed"><span class="hs-identifier hs-var">mReadSystemSeed</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-149"></span><span>
+</span><span id="line-150"></span><span>        </span><span id="local-6989586621682467112"><span class="annot"><span class="annottext">rollbackTo :: SlotNo -&gt; IO ()
+</span><a href="#local-6989586621682467112"><span class="hs-identifier hs-var hs-var">rollbackTo</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-151"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; (SlotNo -&gt; IO (Either Any ())) -&gt; SlotNo -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; (SlotNo -&gt; ModelOp ()) -&gt; SlotNo -&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">TimeInterpreter Identity -&gt; SlotNo -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mRollbackTo"><span class="hs-identifier hs-var">mRollbackTo</span></a></span><span> </span><span class="annot"><span class="annottext">TimeInterpreter Identity
+</span><a href="#local-6989586621682467136"><span class="hs-identifier hs-var">timeInterpreter</span></a></span><span>
+</span><span id="line-152"></span><span>
+</span><span id="line-153"></span><span>        </span><span id="local-6989586621682467111"><span class="annot"><span class="annottext">putDelistedPools :: [PoolId] -&gt; IO ()
+</span><a href="#local-6989586621682467111"><span class="hs-identifier hs-var hs-var">putDelistedPools</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-154"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; ([PoolId] -&gt; IO (Either Any ())) -&gt; [PoolId] -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; ([PoolId] -&gt; ModelOp ()) -&gt; [PoolId] -&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[PoolId] -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutDelistedPools"><span class="hs-identifier hs-var">mPutDelistedPools</span></a></span><span>
+</span><span id="line-155"></span><span>
+</span><span id="line-156"></span><span>        </span><span id="local-6989586621682467110"><span class="annot"><span class="annottext">readDelistedPools :: IO [PoolId]
+</span><a href="#local-6989586621682467110"><span class="hs-identifier hs-var hs-var">readDelistedPools</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-157"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase -&gt; ModelOp [PoolId] -&gt; IO [PoolId]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp [PoolId]
+</span><a href="Cardano.Pool.DB.Model.html#mReadDelistedPools"><span class="hs-identifier hs-var">mReadDelistedPools</span></a></span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span>        </span><span id="local-6989586621682467109"><span class="annot"><span class="annottext">removePools :: [PoolId] -&gt; IO ()
+</span><a href="#local-6989586621682467109"><span class="hs-identifier hs-var hs-var">removePools</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-160"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; ([PoolId] -&gt; IO (Either Any ())) -&gt; [PoolId] -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; ([PoolId] -&gt; ModelOp ()) -&gt; [PoolId] -&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[PoolId] -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mRemovePools"><span class="hs-identifier hs-var">mRemovePools</span></a></span><span>
+</span><span id="line-161"></span><span>
+</span><span id="line-162"></span><span>        </span><span id="local-6989586621682467108"><span class="annot"><span class="annottext">removeRetiredPools :: EpochNo -&gt; IO [PoolRetirementCertificate]
+</span><a href="#local-6989586621682467108"><span class="hs-identifier hs-var hs-var">removeRetiredPools</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-163"></span><span>            </span><span class="annot"><span class="annottext">(Either Any [PoolRetirementCertificate]
+ -&gt; [PoolRetirementCertificate])
+-&gt; IO (Either Any [PoolRetirementCertificate])
+-&gt; IO [PoolRetirementCertificate]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[PoolRetirementCertificate]
+-&gt; Either Any [PoolRetirementCertificate]
+-&gt; [PoolRetirementCertificate]
+forall b a. b -&gt; Either a b -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRight</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-164"></span><span>                </span><span class="annot"><span class="annottext">(IO (Either Any [PoolRetirementCertificate])
+ -&gt; IO [PoolRetirementCertificate])
+-&gt; (EpochNo -&gt; IO (Either Any [PoolRetirementCertificate]))
+-&gt; EpochNo
+-&gt; IO [PoolRetirementCertificate]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase
+-&gt; ModelOp [PoolRetirementCertificate]
+-&gt; IO (Either Any [PoolRetirementCertificate])
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-165"></span><span>                </span><span class="annot"><span class="annottext">(ModelOp [PoolRetirementCertificate]
+ -&gt; IO (Either Any [PoolRetirementCertificate]))
+-&gt; (EpochNo -&gt; ModelOp [PoolRetirementCertificate])
+-&gt; EpochNo
+-&gt; IO (Either Any [PoolRetirementCertificate])
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; ModelOp [PoolRetirementCertificate]
+</span><a href="Cardano.Pool.DB.Model.html#mRemoveRetiredPools"><span class="hs-identifier hs-var">mRemoveRetiredPools</span></a></span><span>
+</span><span id="line-166"></span><span>
+</span><span id="line-167"></span><span>        </span><span id="local-6989586621682467107"><span class="annot"><span class="annottext">putHeader :: BlockHeader -&gt; IO ()
+</span><a href="#local-6989586621682467107"><span class="hs-identifier hs-var hs-var">putHeader</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-168"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; (BlockHeader -&gt; IO (Either Any ())) -&gt; BlockHeader -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; (BlockHeader -&gt; ModelOp ()) -&gt; BlockHeader -&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeader -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutHeader"><span class="hs-identifier hs-var">mPutHeader</span></a></span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span>        </span><span id="local-6989586621682467106"><span class="annot"><span class="annottext">listHeaders :: Int -&gt; IO [BlockHeader]
+</span><a href="#local-6989586621682467106"><span class="hs-identifier hs-var hs-var">listHeaders</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-171"></span><span>            </span><span class="annot"><span class="annottext">MVar PoolDatabase -&gt; ModelOp [BlockHeader] -&gt; IO [BlockHeader]
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp [BlockHeader] -&gt; IO [BlockHeader])
+-&gt; (Int -&gt; ModelOp [BlockHeader]) -&gt; Int -&gt; IO [BlockHeader]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; ModelOp [BlockHeader]
+</span><a href="Cardano.Pool.DB.Model.html#mListHeaders"><span class="hs-identifier hs-var">mListHeaders</span></a></span><span>
+</span><span id="line-172"></span><span>
+</span><span id="line-173"></span><span>        </span><span id="local-6989586621682467105"><span class="annot"><span class="annottext">readSettings :: IO Settings
+</span><a href="#local-6989586621682467105"><span class="hs-identifier hs-var hs-var">readSettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase -&gt; ModelOp Settings -&gt; IO Settings
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp Settings
+</span><a href="Cardano.Pool.DB.Model.html#mReadSettings"><span class="hs-identifier hs-var">mReadSettings</span></a></span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span>        </span><span id="local-6989586621682467104"><span class="annot"><span class="annottext">putSettings :: Settings -&gt; IO ()
+</span><a href="#local-6989586621682467104"><span class="hs-identifier hs-var hs-var">putSettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-176"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; (Settings -&gt; IO (Either Any ())) -&gt; Settings -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; (Settings -&gt; ModelOp ()) -&gt; Settings -&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Settings -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutSettings"><span class="hs-identifier hs-var">mPutSettings</span></a></span><span>
+</span><span id="line-177"></span><span>
+</span><span id="line-178"></span><span>        </span><span id="local-6989586621682467103"><span class="annot"><span class="annottext">readLastMetadataGC :: IO (Maybe POSIXTime)
+</span><a href="#local-6989586621682467103"><span class="hs-identifier hs-var hs-var">readLastMetadataGC</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp (Maybe POSIXTime) -&gt; IO (Maybe POSIXTime)
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp (Maybe POSIXTime)
+</span><a href="Cardano.Pool.DB.Model.html#mReadLastMetadataGC"><span class="hs-identifier hs-var">mReadLastMetadataGC</span></a></span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span>        </span><span id="local-6989586621682467102"><span class="annot"><span class="annottext">putLastMetadataGC :: POSIXTime -&gt; IO ()
+</span><a href="#local-6989586621682467102"><span class="hs-identifier hs-var hs-var">putLastMetadataGC</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-181"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ())
+-&gt; (POSIXTime -&gt; IO (Either Any ())) -&gt; POSIXTime -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">(ModelOp () -&gt; IO (Either Any ()))
+-&gt; (POSIXTime -&gt; ModelOp ()) -&gt; POSIXTime -&gt; IO (Either Any ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">POSIXTime -&gt; ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mPutLastMetadataGC"><span class="hs-identifier hs-var">mPutLastMetadataGC</span></a></span><span>
+</span><span id="line-182"></span><span>
+</span><span id="line-183"></span><span>        </span><span id="local-6989586621682467101"><span class="annot"><span class="annottext">cleanDB :: IO ()
+</span><a href="#local-6989586621682467101"><span class="hs-identifier hs-var hs-var">cleanDB</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-184"></span><span>            </span><span class="annot"><span class="annottext">IO (Either Any ()) -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either Any ()) -&gt; IO ()) -&gt; IO (Either Any ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe Any)
+-&gt; MVar PoolDatabase -&gt; ModelOp () -&gt; IO (Either Any ())
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Any -&gt; PoolErr -&gt; Maybe Any
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Any
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp ()
+</span><a href="Cardano.Pool.DB.Model.html#mCleanDatabase"><span class="hs-identifier hs-var">mCleanDatabase</span></a></span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span>        </span><span id="local-6989586621682467100"><span class="annot"><span class="annottext">readPoolMetadata :: IO (Map StakePoolMetadataHash StakePoolMetadata)
+</span><a href="#local-6989586621682467100"><span class="hs-identifier hs-var hs-var">readPoolMetadata</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; ModelOp (Map StakePoolMetadataHash StakePoolMetadata)
+-&gt; IO (Map StakePoolMetadataHash StakePoolMetadata)
+forall a. MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var">readPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467133"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp (Map StakePoolMetadataHash StakePoolMetadata)
+</span><a href="Cardano.Pool.DB.Model.html#mReadPoolMetadata"><span class="hs-identifier hs-var">mReadPoolMetadata</span></a></span><span>
+</span><span id="line-187"></span><span>
+</span><span id="line-188"></span><span>        </span><span id="local-6989586621682467099"><span class="annot"><span class="annottext">atomically :: a -&gt; a
+</span><a href="#local-6989586621682467099"><span class="hs-identifier hs-var hs-var">atomically</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; a
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-189"></span><span>
+</span><span id="line-190"></span><span id="local-6989586621682467220"><span id="local-6989586621682467221"><span class="annot"><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-type">alterPoolDB</span></a></span><span>
+</span><span id="line-191"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolErr"><span class="hs-identifier hs-type">PoolErr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682467221"><span class="hs-identifier hs-type">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-192"></span><span>    </span><span class="hs-comment">-- ^ Error type converter</span><span>
+</span><span id="line-193"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">MVar</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolDatabase"><span class="hs-identifier hs-type">PoolDatabase</span></a></span><span>
+</span><span id="line-194"></span><span>    </span><span class="hs-comment">-- ^ The database variable</span><span>
+</span><span id="line-195"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#ModelOp"><span class="hs-identifier hs-type">ModelOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682467220"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-196"></span><span>    </span><span class="hs-comment">-- ^ Operation to run on the database</span><span>
+</span><span id="line-197"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682467221"><span class="hs-identifier hs-type">err</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682467220"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-198"></span><span id="alterPoolDB"><span class="annot"><span class="annottext">alterPoolDB :: (PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var hs-var">alterPoolDB</span></a></span></span><span> </span><span id="local-6989586621682467048"><span class="annot"><span class="annottext">PoolErr -&gt; Maybe err
+</span><a href="#local-6989586621682467048"><span class="hs-identifier hs-var">convertErr</span></a></span></span><span> </span><span id="local-6989586621682467047"><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467047"><span class="hs-identifier hs-var">dbVar</span></a></span></span><span> </span><span id="local-6989586621682467046"><span class="annot"><span class="annottext">ModelOp a
+</span><a href="#local-6989586621682467046"><span class="hs-identifier hs-var">op</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-199"></span><span>    </span><span class="annot"><span class="annottext">MVar PoolDatabase
+-&gt; (PoolDatabase -&gt; IO (PoolDatabase, Either err a))
+-&gt; IO (Either err a)
+forall (m :: * -&gt; *) a b.
+MonadUnliftIO m =&gt;
+MVar a -&gt; (a -&gt; m (a, b)) -&gt; m b
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">modifyMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467047"><span class="hs-identifier hs-var">dbVar</span></a></span><span> </span><span class="annot"><span class="annottext">((PoolDatabase -&gt; IO (PoolDatabase, Either err a))
+ -&gt; IO (Either err a))
+-&gt; (PoolDatabase -&gt; IO (PoolDatabase, Either err a))
+-&gt; IO (Either err a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682467045"><span class="annot"><span class="annottext">PoolDatabase
+</span><a href="#local-6989586621682467045"><span class="hs-identifier hs-var">db</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-200"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ModelOp a -&gt; PoolDatabase -&gt; Either PoolErr (a, PoolDatabase)
+forall s (m :: * -&gt; *) a. StateT s m a -&gt; s -&gt; m (a, s)
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var hs-var">runStateT</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp a
+</span><a href="#local-6989586621682467046"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="annot"><span class="annottext">PoolDatabase
+</span><a href="#local-6989586621682467045"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-201"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621682467044"><span class="annot"><span class="annottext">PoolErr
+</span><a href="#local-6989586621682467044"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">PoolErr -&gt; Maybe err
+</span><a href="#local-6989586621682467048"><span class="hs-identifier hs-var">convertErr</span></a></span><span> </span><span class="annot"><span class="annottext">PoolErr
+</span><a href="#local-6989586621682467044"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-202"></span><span>                </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682467043"><span class="annot"><span class="annottext">err
+</span><a href="#local-6989586621682467043"><span class="hs-identifier hs-var">e'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(PoolDatabase, Either err a) -&gt; IO (PoolDatabase, Either err a)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PoolDatabase
+</span><a href="#local-6989586621682467045"><span class="hs-identifier hs-var">db</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">err -&gt; Either err a
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">err
+</span><a href="#local-6989586621682467043"><span class="hs-identifier hs-var">e'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-203"></span><span>                </span><span class="annot"><span class="annottext">Maybe err
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">MVarPoolDBError -&gt; IO (PoolDatabase, Either err a)
+forall (m :: * -&gt; *) e a. (MonadIO m, Exception e) =&gt; e -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">(MVarPoolDBError -&gt; IO (PoolDatabase, Either err a))
+-&gt; MVarPoolDBError -&gt; IO (PoolDatabase, Either err a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">PoolErr -&gt; MVarPoolDBError
+</span><a href="Cardano.Pool.DB.MVar.html#MVarPoolDBError"><span class="hs-identifier hs-var">MVarPoolDBError</span></a></span><span> </span><span class="annot"><span class="annottext">PoolErr
+</span><a href="#local-6989586621682467044"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-204"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621682467041"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682467041"><span class="hs-identifier hs-var">result</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682467040"><span class="annot"><span class="annottext">PoolDatabase
+</span><a href="#local-6989586621682467040"><span class="hs-identifier hs-var">dbUpdated</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-205"></span><span>                </span><span class="annot"><span class="annottext">(PoolDatabase, Either err a) -&gt; IO (PoolDatabase, Either err a)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PoolDatabase
+</span><a href="#local-6989586621682467040"><span class="hs-identifier hs-var">dbUpdated</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a -&gt; Either err a
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682467041"><span class="hs-identifier hs-var">result</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span>
+</span><span id="line-207"></span><span id="local-6989586621682467232"><span class="annot"><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-type">readPoolDB</span></a></span><span>
+</span><span id="line-208"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">MVar</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolDatabase"><span class="hs-identifier hs-type">PoolDatabase</span></a></span><span>
+</span><span id="line-209"></span><span>    </span><span class="hs-comment">-- ^ The database variable</span><span>
+</span><span id="line-210"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#ModelOp"><span class="hs-identifier hs-type">ModelOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682467232"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-211"></span><span>    </span><span class="hs-comment">-- ^ Operation to run on the database</span><span>
+</span><span id="line-212"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682467232"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-213"></span><span id="readPoolDB"><span class="annot"><span class="annottext">readPoolDB :: MVar PoolDatabase -&gt; ModelOp a -&gt; IO a
+</span><a href="Cardano.Pool.DB.MVar.html#readPoolDB"><span class="hs-identifier hs-var hs-var">readPoolDB</span></a></span></span><span> </span><span id="local-6989586621682467039"><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467039"><span class="hs-identifier hs-var">db</span></a></span></span><span> </span><span id="local-6989586621682467038"><span class="annot"><span class="annottext">ModelOp a
+</span><a href="#local-6989586621682467038"><span class="hs-identifier hs-var">op</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-214"></span><span>    </span><span class="annot"><span class="annottext">(PoolErr -&gt; Maybe PoolErr)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either PoolErr a)
+forall err a.
+(PoolErr -&gt; Maybe err)
+-&gt; MVar PoolDatabase -&gt; ModelOp a -&gt; IO (Either err a)
+</span><a href="Cardano.Pool.DB.MVar.html#alterPoolDB"><span class="hs-identifier hs-var">alterPoolDB</span></a></span><span> </span><span class="annot"><span class="annottext">PoolErr -&gt; Maybe PoolErr
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">MVar PoolDatabase
+</span><a href="#local-6989586621682467039"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">ModelOp a
+</span><a href="#local-6989586621682467038"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Either PoolErr a) -&gt; (Either PoolErr a -&gt; IO a) -&gt; IO a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(PoolErr -&gt; IO a) -&gt; (a -&gt; IO a) -&gt; Either PoolErr a -&gt; IO a
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">either</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MVarPoolDBError -&gt; IO a
+forall (m :: * -&gt; *) e a. (MonadIO m, Exception e) =&gt; e -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">(MVarPoolDBError -&gt; IO a)
+-&gt; (PoolErr -&gt; MVarPoolDBError) -&gt; PoolErr -&gt; IO a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">PoolErr -&gt; MVarPoolDBError
+</span><a href="Cardano.Pool.DB.MVar.html#MVarPoolDBError"><span class="hs-identifier hs-var">MVarPoolDBError</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span>
+</span><span id="line-215"></span><span>
+</span><span id="line-216"></span><span class="annot"><a href="Cardano.Pool.DB.MVar.html#errPointAlreadyExists"><span class="hs-identifier hs-type">errPointAlreadyExists</span></a></span><span>
+</span><span id="line-217"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolErr"><span class="hs-identifier hs-type">PoolErr</span></a></span><span>
+</span><span id="line-218"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.DB.html#ErrPointAlreadyExists"><span class="hs-identifier hs-type">ErrPointAlreadyExists</span></a></span><span>
+</span><span id="line-219"></span><span id="errPointAlreadyExists"><span class="annot"><span class="annottext">errPointAlreadyExists :: PoolErr -&gt; Maybe ErrPointAlreadyExists
+</span><a href="Cardano.Pool.DB.MVar.html#errPointAlreadyExists"><span class="hs-identifier hs-var hs-var">errPointAlreadyExists</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PointAlreadyExists"><span class="hs-identifier hs-type">PointAlreadyExists</span></a></span><span> </span><span id="local-6989586621682467035"><span class="annot"><span class="annottext">BlockHeader
+</span><a href="#local-6989586621682467035"><span class="hs-identifier hs-var">slotid</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-220"></span><span>    </span><span class="annot"><span class="annottext">ErrPointAlreadyExists -&gt; Maybe ErrPointAlreadyExists
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BlockHeader -&gt; ErrPointAlreadyExists
+</span><a href="Cardano.Pool.DB.html#ErrPointAlreadyExists"><span class="hs-identifier hs-var">ErrPointAlreadyExists</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeader
+</span><a href="#local-6989586621682467035"><span class="hs-identifier hs-var">slotid</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-221"></span><span>
+</span><span id="line-222"></span><span class="hs-keyword">newtype</span><span> </span><span id="MVarPoolDBError"><span class="annot"><a href="Cardano.Pool.DB.MVar.html#MVarPoolDBError"><span class="hs-identifier hs-var">MVarPoolDBError</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="MVarPoolDBError"><span class="annot"><a href="Cardano.Pool.DB.MVar.html#MVarPoolDBError"><span class="hs-identifier hs-var">MVarPoolDBError</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.DB.Model.html#PoolErr"><span class="hs-identifier hs-type">PoolErr</span></a></span><span>
+</span><span id="line-223"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682467028"><span id="local-6989586621682467030"><span id="local-6989586621682467032"><span class="annot"><span class="annottext">Int -&gt; MVarPoolDBError -&gt; ShowS
+[MVarPoolDBError] -&gt; ShowS
+MVarPoolDBError -&gt; String
+(Int -&gt; MVarPoolDBError -&gt; ShowS)
+-&gt; (MVarPoolDBError -&gt; String)
+-&gt; ([MVarPoolDBError] -&gt; ShowS)
+-&gt; Show MVarPoolDBError
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [MVarPoolDBError] -&gt; ShowS
+$cshowList :: [MVarPoolDBError] -&gt; ShowS
+show :: MVarPoolDBError -&gt; String
+$cshow :: MVarPoolDBError -&gt; String
+showsPrec :: Int -&gt; MVarPoolDBError -&gt; ShowS
+$cshowsPrec :: Int -&gt; MVarPoolDBError -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-224"></span><span>
+</span><span id="line-225"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621682467019"><span id="local-6989586621682467021"><span id="local-6989586621682467023"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Exception</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.DB.MVar.html#MVarPoolDBError"><span class="hs-identifier hs-type">MVarPoolDBError</span></a></span></span></span></span><span>
+</span><span id="line-226"></span></pre></body></html>

@@ -1,0 +1,240 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# OPTIONS_GHC -Wall -fwarn-tabs #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- TODO: cf &lt;http://hpaste.org/76873&gt;</span><span>
+</span><span id="line-3"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--                                                    2021.10.17</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Module      :  System.Posix.IO.ByteString.Lazy</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Copyright   :  2010--2022 wren romano</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- License     :  BSD-3-Clause</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Maintainer  :  wren@cpan.org</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Stability   :  experimental</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Portability :  non-portable (requires POSIX.1, XPG4.2)</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- Provides a lazy-'BL.ByteString' file-descriptor based I\/O</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- API, designed loosely after the @String@ file-descriptor based</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- I\/O API in &quot;System.Posix.IO&quot;. The functions here wrap standard</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- C implementations of the functions specified by the ISO\/IEC</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- 9945-1:1990 (``POSIX.1'') and X\/Open Portability Guide Issue</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- 4, Version 2 (``XPG4.2'') specifications.</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- These functions are provided mainly as a convenience to avoid</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- boilerplate code converting between lazy 'BL.ByteString' and</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- strict @['BS.ByteString']@. It may be depricated in the future.</span><span>
+</span><span id="line-23"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">System.Posix.IO.ByteString.Lazy</span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">(</span><span>
+</span><span id="line-26"></span><span>    </span><span class="annot"><span class="hs-comment">-- * I\/O with file descriptors</span></span><span>
+</span><span id="line-27"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Reading</span></span><span>
+</span><span id="line-28"></span><span>      </span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdRead"><span class="hs-identifier">fdRead</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdPread"><span class="hs-identifier">fdPread</span></a></span><span>
+</span><span id="line-30"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** Writing</span></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdWrites"><span class="hs-identifier">fdWrites</span></a></span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdWritev"><span class="hs-identifier">fdWritev</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-34"></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>               </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Unsafe</span></a></span><span>        </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BSU</span></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="System.Posix.IO.ByteString.html"><span class="hs-identifier">System.Posix.IO.ByteString</span></a></span><span>    </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">PosixBS</span></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Lazy</span></a></span><span>          </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BL</span></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Lazy.Internal</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BLI</span></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.Posix.Types</span></a></span><span>            </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Fd</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">ByteCount</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">FileOffset</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- | Read data from an 'Fd' and convert it to a 'BL.ByteString'.</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- Throws an exception if this is an invalid descriptor, or EOF has</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- been reached. This is a thin wrapper around 'PosixBS.fdRead'.</span><span>
+</span><span id="line-46"></span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdRead"><span class="hs-identifier hs-type">fdRead</span></a></span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Fd</span></a></span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ByteCount</span></a></span><span>        </span><span class="hs-comment">-- ^ How many bytes to try to read.</span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span> </span><span class="hs-comment">-- ^ The bytes read.</span><span>
+</span><span id="line-50"></span><span id="fdRead"><span class="annot"><span class="annottext">fdRead :: Fd -&gt; ByteCount -&gt; IO ByteString
+</span><a href="System.Posix.IO.ByteString.Lazy.html#fdRead"><span class="hs-identifier hs-var hs-var">fdRead</span></a></span></span><span> </span><span id="local-6989586621679036221"><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036221"><span class="hs-identifier hs-var">fd</span></a></span></span><span> </span><span id="local-6989586621679036220"><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036220"><span class="hs-identifier hs-var">nbytes</span></a></span></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036220"><span class="hs-identifier hs-var">nbytes</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount -&gt; ByteCount -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; IO ByteString
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.empty</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-53"></span><span>        </span><span id="local-6989586621679036217"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036217"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Fd -&gt; ByteCount -&gt; IO ByteString
+</span><a href="System.Posix.IO.ByteString.html#fdRead"><span class="hs-identifier hs-var">PosixBS.fdRead</span></a></span><span> </span><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036221"><span class="hs-identifier hs-var">fd</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036220"><span class="hs-identifier hs-var">nbytes</span></a></span><span>
+</span><span id="line-54"></span><span>        </span><span class="annot"><span class="annottext">ByteString -&gt; IO ByteString
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BLI.chunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036217"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.empty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- | Read data from a specified position in the 'Fd' and convert</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- it to a 'BS.ByteString', without altering the position stored</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- in the @Fd@. Throws an exception if this is an invalid descriptor,</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- or EOF has been reached. This is a thin wrapper around</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- 'PosixBS.fdPread'.</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- /Since: 0.3.1/</span><span>
+</span><span id="line-64"></span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdPread"><span class="hs-identifier hs-type">fdPread</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Fd</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ByteCount</span></a></span><span>        </span><span class="hs-comment">-- ^ How many bytes to try to read.</span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FileOffset</span></a></span><span>       </span><span class="hs-comment">-- ^ Where to read the data from.</span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span> </span><span class="hs-comment">-- ^ The bytes read.</span><span>
+</span><span id="line-69"></span><span id="fdPread"><span class="annot"><span class="annottext">fdPread :: Fd -&gt; ByteCount -&gt; FileOffset -&gt; IO ByteString
+</span><a href="System.Posix.IO.ByteString.Lazy.html#fdPread"><span class="hs-identifier hs-var hs-var">fdPread</span></a></span></span><span> </span><span id="local-6989586621679036214"><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036214"><span class="hs-identifier hs-var">fd</span></a></span></span><span> </span><span id="local-6989586621679036213"><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036213"><span class="hs-identifier hs-var">nbytes</span></a></span></span><span> </span><span id="local-6989586621679036212"><span class="annot"><span class="annottext">FileOffset
+</span><a href="#local-6989586621679036212"><span class="hs-identifier hs-var">offset</span></a></span></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036213"><span class="hs-identifier hs-var">nbytes</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount -&gt; ByteCount -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; IO ByteString
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.empty</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-72"></span><span>        </span><span id="local-6989586621679036211"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036211"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Fd -&gt; ByteCount -&gt; FileOffset -&gt; IO ByteString
+</span><a href="System.Posix.IO.ByteString.html#fdPread"><span class="hs-identifier hs-var">PosixBS.fdPread</span></a></span><span> </span><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036214"><span class="hs-identifier hs-var">fd</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036213"><span class="hs-identifier hs-var">nbytes</span></a></span><span> </span><span class="annot"><span class="annottext">FileOffset
+</span><a href="#local-6989586621679036212"><span class="hs-identifier hs-var">offset</span></a></span><span>
+</span><span id="line-73"></span><span>        </span><span class="annot"><span class="annottext">ByteString -&gt; IO ByteString
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BLI.chunk</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036211"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.empty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span>
+</span><span id="line-75"></span><span>
+</span><span id="line-76"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- | Write a 'BL.ByteString' to an 'Fd'. This function makes one</span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- @write(2)@ system call per chunk, as per 'PosixBS.fdWrites'.</span><span>
+</span><span id="line-79"></span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdWrites"><span class="hs-identifier hs-type">fdWrites</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Fd</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span>
+</span><span id="line-82"></span><span>        </span><span class="hs-comment">-- ^ The string to write.</span><span>
+</span><span id="line-83"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ByteCount</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-84"></span><span>        </span><span class="hs-comment">-- ^ How many bytes were actually written, and the remaining</span><span>
+</span><span id="line-85"></span><span>        </span><span class="hs-comment">-- (unwritten) string.</span><span>
+</span><span id="line-86"></span><span id="fdWrites"><span class="annot"><span class="annottext">fdWrites :: Fd -&gt; ByteString -&gt; IO (ByteCount, ByteString)
+</span><a href="System.Posix.IO.ByteString.Lazy.html#fdWrites"><span class="hs-identifier hs-var hs-var">fdWrites</span></a></span></span><span> </span><span id="local-6989586621679036209"><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036209"><span class="hs-identifier hs-var">fd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteCount -&gt; ByteString -&gt; IO (ByteCount, ByteString)
+</span><a href="#local-6989586621679036208"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-comment">-- We want to do a left fold in order to avoid stack overflows,</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-comment">-- but we need to have an early exit for incomplete writes</span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-comment">-- (which normally requires a right fold). Hence this recursion.</span><span>
+</span><span id="line-91"></span><span>    </span><span id="local-6989586621679036208"><span class="annot"><span class="annottext">go :: ByteCount -&gt; ByteString -&gt; IO (ByteCount, ByteString)
+</span><a href="#local-6989586621679036208"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679036207"><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036207"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BLI.Empty</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ByteCount, ByteString) -&gt; IO (ByteCount, ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036207"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.empty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-92"></span><span>    </span><span class="annot"><a href="#local-6989586621679036208"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span id="local-6989586621679036205"><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036205"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BLI.Chunk</span></a></span><span> </span><span id="local-6989586621679036203"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036203"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span id="local-6989586621679036202"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036202"><span class="hs-identifier hs-var">cs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-93"></span><span>        </span><span class="annot"><span class="annottext">Fd -&gt; ByteString -&gt; IO ByteCount
+</span><a href="System.Posix.IO.ByteString.html#fdWrite"><span class="hs-identifier hs-var">PosixBS.fdWrite</span></a></span><span> </span><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036209"><span class="hs-identifier hs-var">fd</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036203"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">IO ByteCount
+-&gt; (ByteCount -&gt; IO (ByteCount, ByteString))
+-&gt; IO (ByteCount, ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679036200"><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036200"><span class="hs-identifier hs-var">rc</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-94"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679036199"><span class="annot"><span class="annottext">acc' :: ByteCount
+</span><a href="#local-6989586621679036199"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036205"><span class="hs-identifier hs-var">acc</span></a></span><span class="annot"><span class="annottext">ByteCount -&gt; ByteCount -&gt; ByteCount
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036200"><span class="hs-identifier hs-var">rc</span></a></span><span>          </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036199"><span class="hs-identifier hs-var">acc'</span></a></span><span>  </span><span class="annot"><span class="annottext">ByteCount
+-&gt; IO (ByteCount, ByteString) -&gt; IO (ByteCount, ByteString)
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">`seq`</span></a></span><span>
+</span><span id="line-95"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679036197"><span class="annot"><span class="annottext">rcInt :: Int
+</span><a href="#local-6989586621679036197"><span class="hs-identifier hs-var hs-var">rcInt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteCount -&gt; Int
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036200"><span class="hs-identifier hs-var">rc</span></a></span><span> </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679036197"><span class="hs-identifier hs-var">rcInt</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO (ByteCount, ByteString) -&gt; IO (ByteCount, ByteString)
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">`seq`</span></a></span><span>
+</span><span id="line-96"></span><span>        </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679036197"><span class="hs-identifier hs-var">rcInt</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036203"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-97"></span><span>            </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">ByteCount -&gt; ByteString -&gt; IO (ByteCount, ByteString)
+</span><a href="#local-6989586621679036208"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036199"><span class="hs-identifier hs-var">acc'</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036202"><span class="hs-identifier hs-var">cs</span></a></span><span>
+</span><span id="line-98"></span><span>            </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">(ByteCount, ByteString) -&gt; IO (ByteCount, ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteCount
+</span><a href="#local-6989586621679036199"><span class="hs-identifier hs-var">acc'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BLI.Chunk</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BSU.unsafeDrop</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679036197"><span class="hs-identifier hs-var">rcInt</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036203"><span class="hs-identifier hs-var">c</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036202"><span class="hs-identifier hs-var">cs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span class="hs-comment">{-
+Using 'BSU.unsafeDrop' above is safe, assuming that
+'System.Posix.IO.fdWriteBuf' never returns (rc &lt; 0 || rc &gt; BS.length c).
+If we are paranoid about that then we should do the following instead:
+
+    go acc ccs =
+        case ccs of
+        BLI.Empty      -&gt; return (acc, ccs)
+        BLI.Chunk c cs -&gt; do
+            rc &lt;- PosixBS.fdWrite fd c
+            let acc'  = acc+rc          in acc'  `seq` do
+            let rcInt = fromIntegral rc in rcInt `seq` do
+            case BS.length c of
+                len | rcInt == len -&gt; go acc' cs
+                    | rcInt &gt;  len -&gt; error _impossibleByteCount
+                    | rcInt &lt;  0   -&gt; error _negtiveByteCount
+                    | rcInt == 0   -&gt; return (acc', ccs) -- trivial optimizing
+                    | otherwise    -&gt; return (acc', BLI.Chunk (BSU.unsafeDrop rcInt c) cs)
+
+_negtiveByteCount =
+    &quot;System.Posix.IO.fdWriteBuf: returned a negative byte count&quot;
+_impossibleByteCount =
+    &quot;System.Posix.IO.fdWriteBuf: returned a byte count greater than the length it was given&quot;
+-}</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span>
+</span><span id="line-125"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- | Write a 'BL.ByteString' to an 'Fd'. This function makes a</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- single @writev(2)@ system call, as per 'PosixBS.fdWritev'.</span><span>
+</span><span id="line-128"></span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdWritev"><span class="hs-identifier hs-type">fdWritev</span></a></span><span>
+</span><span id="line-129"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Fd</span></a></span><span>
+</span><span id="line-130"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">BL.ByteString</span></a></span><span> </span><span class="hs-comment">-- ^ The string to write.</span><span>
+</span><span id="line-131"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ByteCount</span></a></span><span>  </span><span class="hs-comment">-- ^ How many bytes were actually written.</span><span>
+</span><span id="line-132"></span><span id="fdWritev"><span class="annot"><span class="annottext">fdWritev :: Fd -&gt; ByteString -&gt; IO ByteCount
+</span><a href="System.Posix.IO.ByteString.Lazy.html#fdWritev"><span class="hs-identifier hs-var hs-var">fdWritev</span></a></span></span><span> </span><span id="local-6989586621679036194"><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036194"><span class="hs-identifier hs-var">fd</span></a></span></span><span> </span><span id="local-6989586621679036193"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036193"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Fd -&gt; [ByteString] -&gt; IO ByteCount
+</span><a href="System.Posix.IO.ByteString.html#fdWritev"><span class="hs-identifier hs-var">PosixBS.fdWritev</span></a></span><span> </span><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679036194"><span class="hs-identifier hs-var">fd</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; [ByteString]
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BL.toChunks</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679036193"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="System.Posix.IO.ByteString.Lazy.html#fdWritev"><span class="hs-pragma hs-type">fdWritev</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-134"></span><span class="hs-comment">-- Hopefully the intermediate list can be fused away...</span><span>
+</span><span id="line-135"></span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-138"></span><span class="hs-comment">----------------------------------------------------------- fin.</span><span>
+</span><span id="line-139"></span></pre></body></html>

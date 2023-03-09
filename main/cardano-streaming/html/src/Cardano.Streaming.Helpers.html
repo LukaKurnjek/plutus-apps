@@ -1,0 +1,413 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# OPTIONS_GHC -Wno-orphans #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# OPTIONS_GHC -Wno-overlapping-patterns #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE GADTs      #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE MultiWayIf #-}</span><span>
+</span><span id="line-6"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Streaming.Helpers</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../tasty/html/src"><span class="hs-identifier">Control.Concurrent.Async</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">IO</span></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">IO</span></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier">Data.SOP.Strict</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier">NP</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-operator">(:*)</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Generics</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier">Streaming.Prelude</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">C</span></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api.Shelley</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CS</span></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-byron/html/src"><span class="hs-identifier">Cardano.Chain.Genesis</span></a></span><span> </span><span class="hs-keyword">qualified</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier">Cardano.Crypto</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier">ProtocolMagicId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier">unProtocolMagicId</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier">RequiresNetworkMagic</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier">RequiresMagic</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier">RequiresNoMagic</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-shelley/html/src"><span class="hs-identifier">Cardano.Ledger.Shelley.LedgerState</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">SL</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">Cardano.Slotting.Slot</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">WithOrigin</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">At</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">Origin</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus-cardano/html/src"><span class="hs-identifier">Ouroboros.Consensus.Cardano.Block</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">O</span></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus-cardano/html/src"><span class="hs-identifier">Ouroboros.Consensus.Cardano.CanHardFork</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Consensus</span></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier">Ouroboros.Consensus.HardFork.Combinator</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Consensus</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier">Ouroboros.Consensus.HardFork.Combinator.AcrossEras</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">HFC</span></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier">Ouroboros.Consensus.HardFork.Combinator.Basics</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">HFC</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus-shelley/html/src"><span class="hs-identifier">Ouroboros.Consensus.Shelley.Ledger</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">O</span></span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- * ChainSyncEvent</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span id="local-6989586621679291110"><span id="local-6989586621679291111"></span></span><span class="hs-keyword">data</span><span> </span><span id="ChainSyncEvent"><span class="annot"><a href="Cardano.Streaming.Helpers.html#ChainSyncEvent"><span class="hs-identifier hs-var">ChainSyncEvent</span></a></span></span><span> </span><span id="local-6989586621679291109"><span class="annot"><a href="#local-6989586621679291109"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-30"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="RollForward"><span class="annot"><a href="Cardano.Streaming.Helpers.html#RollForward"><span class="hs-identifier hs-var">RollForward</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679291109"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="RollBackward"><span class="annot"><a href="Cardano.Streaming.Helpers.html#RollBackward"><span class="hs-identifier hs-var">RollBackward</span></a></span></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679291100"><span id="local-6989586621679291102"><span id="local-6989586621679291104"><span class="annot"><span class="annottext">Int -&gt; ChainSyncEvent a -&gt; ShowS
+[ChainSyncEvent a] -&gt; ShowS
+ChainSyncEvent a -&gt; String
+(Int -&gt; ChainSyncEvent a -&gt; ShowS)
+-&gt; (ChainSyncEvent a -&gt; String)
+-&gt; ([ChainSyncEvent a] -&gt; ShowS)
+-&gt; Show (ChainSyncEvent a)
+forall a. Show a =&gt; Int -&gt; ChainSyncEvent a -&gt; ShowS
+forall a. Show a =&gt; [ChainSyncEvent a] -&gt; ShowS
+forall a. Show a =&gt; ChainSyncEvent a -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [ChainSyncEvent a] -&gt; ShowS
+$cshowList :: forall a. Show a =&gt; [ChainSyncEvent a] -&gt; ShowS
+show :: ChainSyncEvent a -&gt; String
+$cshow :: forall a. Show a =&gt; ChainSyncEvent a -&gt; String
+showsPrec :: Int -&gt; ChainSyncEvent a -&gt; ShowS
+$cshowsPrec :: forall a. Show a =&gt; Int -&gt; ChainSyncEvent a -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679291095"><span id="local-6989586621679291097"><span class="annot"><span class="annottext">a -&gt; ChainSyncEvent b -&gt; ChainSyncEvent a
+(a -&gt; b) -&gt; ChainSyncEvent a -&gt; ChainSyncEvent b
+(forall a b. (a -&gt; b) -&gt; ChainSyncEvent a -&gt; ChainSyncEvent b)
+-&gt; (forall a b. a -&gt; ChainSyncEvent b -&gt; ChainSyncEvent a)
+-&gt; Functor ChainSyncEvent
+forall a b. a -&gt; ChainSyncEvent b -&gt; ChainSyncEvent a
+forall a b. (a -&gt; b) -&gt; ChainSyncEvent a -&gt; ChainSyncEvent b
+forall (f :: * -&gt; *).
+(forall a b. (a -&gt; b) -&gt; f a -&gt; f b)
+-&gt; (forall a b. a -&gt; f b -&gt; f a) -&gt; Functor f
+&lt;$ :: a -&gt; ChainSyncEvent b -&gt; ChainSyncEvent a
+$c&lt;$ :: forall a b. a -&gt; ChainSyncEvent b -&gt; ChainSyncEvent a
+fmap :: (a -&gt; b) -&gt; ChainSyncEvent a -&gt; ChainSyncEvent b
+$cfmap :: forall a b. (a -&gt; b) -&gt; ChainSyncEvent a -&gt; ChainSyncEvent b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Functor</span></a></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. ChainSyncEvent a -&gt; Rep (ChainSyncEvent a) x)
+-&gt; (forall x. Rep (ChainSyncEvent a) x -&gt; ChainSyncEvent a)
+-&gt; Generic (ChainSyncEvent a)
+forall x. Rep (ChainSyncEvent a) x -&gt; ChainSyncEvent a
+forall x. ChainSyncEvent a -&gt; Rep (ChainSyncEvent a) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall a x. Rep (ChainSyncEvent a) x -&gt; ChainSyncEvent a
+forall a x. ChainSyncEvent a -&gt; Rep (ChainSyncEvent a) x
+$cto :: forall a x. Rep (ChainSyncEvent a) x -&gt; ChainSyncEvent a
+$cfrom :: forall a x. ChainSyncEvent a -&gt; Rep (ChainSyncEvent a) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">data</span><span> </span><span id="ChainSyncEventException"><span class="annot"><a href="Cardano.Streaming.Helpers.html#ChainSyncEventException"><span class="hs-identifier hs-var">ChainSyncEventException</span></a></span></span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="NoIntersectionFound"><span class="annot"><a href="Cardano.Streaming.Helpers.html#NoIntersectionFound"><span class="hs-identifier hs-var">NoIntersectionFound</span></a></span></span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679291084"><span id="local-6989586621679291086"><span id="local-6989586621679291088"><span class="annot"><span class="annottext">Int -&gt; ChainSyncEventException -&gt; ShowS
+[ChainSyncEventException] -&gt; ShowS
+ChainSyncEventException -&gt; String
+(Int -&gt; ChainSyncEventException -&gt; ShowS)
+-&gt; (ChainSyncEventException -&gt; String)
+-&gt; ([ChainSyncEventException] -&gt; ShowS)
+-&gt; Show ChainSyncEventException
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [ChainSyncEventException] -&gt; ShowS
+$cshowList :: [ChainSyncEventException] -&gt; ShowS
+show :: ChainSyncEventException -&gt; String
+$cshow :: ChainSyncEventException -&gt; String
+showsPrec :: Int -&gt; ChainSyncEventException -&gt; ShowS
+$cshowsPrec :: Int -&gt; ChainSyncEventException -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679291076"><span id="local-6989586621679291078"><span id="local-6989586621679291080"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IO.Exception</span></a></span><span> </span><span class="annot"><a href="Cardano.Streaming.Helpers.html#ChainSyncEventException"><span class="hs-identifier hs-type">ChainSyncEventException</span></a></span></span></span></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">data</span><span> </span><span id="RollbackException"><span class="annot"><a href="Cardano.Streaming.Helpers.html#RollbackException"><span class="hs-identifier hs-var">RollbackException</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="RollbackLocationNotFound"><span class="annot"><a href="Cardano.Streaming.Helpers.html#RollbackLocationNotFound"><span class="hs-identifier hs-var">RollbackLocationNotFound</span></a></span></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span>
+</span><span id="line-41"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679291070"><span id="local-6989586621679291072"><span class="annot"><span class="annottext">RollbackException -&gt; RollbackException -&gt; Bool
+(RollbackException -&gt; RollbackException -&gt; Bool)
+-&gt; (RollbackException -&gt; RollbackException -&gt; Bool)
+-&gt; Eq RollbackException
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: RollbackException -&gt; RollbackException -&gt; Bool
+$c/= :: RollbackException -&gt; RollbackException -&gt; Bool
+== :: RollbackException -&gt; RollbackException -&gt; Bool
+$c== :: RollbackException -&gt; RollbackException -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679291063"><span id="local-6989586621679291065"><span id="local-6989586621679291067"><span class="annot"><span class="annottext">Int -&gt; RollbackException -&gt; ShowS
+[RollbackException] -&gt; ShowS
+RollbackException -&gt; String
+(Int -&gt; RollbackException -&gt; ShowS)
+-&gt; (RollbackException -&gt; String)
+-&gt; ([RollbackException] -&gt; ShowS)
+-&gt; Show RollbackException
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [RollbackException] -&gt; ShowS
+$cshowList :: [RollbackException] -&gt; ShowS
+show :: RollbackException -&gt; String
+$cshow :: RollbackException -&gt; String
+showsPrec :: Int -&gt; RollbackException -&gt; ShowS
+$cshowsPrec :: Int -&gt; RollbackException -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679291055"><span id="local-6989586621679291057"><span id="local-6989586621679291059"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IO.Exception</span></a></span><span> </span><span class="annot"><a href="Cardano.Streaming.Helpers.html#RollbackException"><span class="hs-identifier hs-type">RollbackException</span></a></span></span></span></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- * Orphans</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679291047"><span id="local-6989586621679291049"><span id="local-6989586621679291051"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IO.Exception</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerStateError</span></a></span></span></span></span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679291039"><span id="local-6989586621679291041"><span id="local-6989586621679291043"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IO.Exception</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.FoldBlocksError</span></a></span></span></span></span><span>
+</span><span id="line-49"></span><span id="local-6989586621679291033"><span id="local-6989586621679291035"><span id="local-6989586621679291037"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.FoldBlocksError</span></a></span></span></span></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679291025"><span id="local-6989586621679291027"><span id="local-6989586621679291029"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IO.Exception</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.InitialLedgerStateError</span></a></span></span></span></span><span>
+</span><span id="line-52"></span><span id="local-6989586621679291019"><span id="local-6989586621679291021"><span id="local-6989586621679291023"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.InitialLedgerStateError</span></a></span></span></span></span><span>
+</span><span id="line-53"></span><span id="local-6989586621679291013"><span id="local-6989586621679291015"><span id="local-6989586621679291017"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">CS.GenesisConfigError</span></a></span></span></span></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- * Block</span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span class="annot"><a href="Cardano.Streaming.Helpers.html#bimBlockNo"><span class="hs-identifier hs-type">bimBlockNo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">C.BlockNo</span></a></span><span>
+</span><span id="line-58"></span><span id="bimBlockNo"><span class="annot"><span class="annottext">bimBlockNo :: BlockInMode CardanoMode -&gt; BlockNo
+</span><a href="Cardano.Streaming.Helpers.html#bimBlockNo"><span class="hs-identifier hs-var hs-var">bimBlockNo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.Block</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockHeader</span></a></span><span> </span><span class="annot"><span class="annottext">SlotNo
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Hash BlockHeader
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679291008"><span class="annot"><span class="annottext">BlockNo
+</span><a href="#local-6989586621679291008"><span class="hs-identifier hs-var">blockNo</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Tx era]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">EraInMode era CardanoMode
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BlockNo
+</span><a href="#local-6989586621679291008"><span class="hs-identifier hs-var">blockNo</span></a></span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span class="annot"><a href="Cardano.Streaming.Helpers.html#bimSlotNo"><span class="hs-identifier hs-type">bimSlotNo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">C.SlotNo</span></a></span><span>
+</span><span id="line-61"></span><span id="bimSlotNo"><span class="annot"><span class="annottext">bimSlotNo :: BlockInMode CardanoMode -&gt; SlotNo
+</span><a href="Cardano.Streaming.Helpers.html#bimSlotNo"><span class="hs-identifier hs-var hs-var">bimSlotNo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.Block</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockHeader</span></a></span><span> </span><span id="local-6989586621679291006"><span class="annot"><span class="annottext">SlotNo
+</span><a href="#local-6989586621679291006"><span class="hs-identifier hs-var">slotNo</span></a></span></span><span> </span><span class="annot"><span class="annottext">Hash BlockHeader
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">BlockNo
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Tx era]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">EraInMode era CardanoMode
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">SlotNo
+</span><a href="#local-6989586621679291006"><span class="hs-identifier hs-var">slotNo</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Cardano.Streaming.Helpers.html#getEpochNo"><span class="hs-identifier hs-type">getEpochNo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">CS.EpochNo</span></a></span><span>
+</span><span id="line-64"></span><span id="getEpochNo"><span class="annot"><span class="annottext">getEpochNo :: LedgerState -&gt; Maybe EpochNo
+</span><a href="Cardano.Streaming.Helpers.html#getEpochNo"><span class="hs-identifier hs-var hs-var">getEpochNo</span></a></span></span><span> </span><span id="local-6989586621679291004"><span class="annot"><span class="annottext">LedgerState
+</span><a href="#local-6989586621679291004"><span class="hs-identifier hs-var">ledgerState'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">LedgerState
+</span><a href="#local-6989586621679291004"><span class="hs-identifier hs-var">ledgerState'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-65"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerStateByron</span></a></span><span> </span><span id="local-6989586621679291002"><span class="annot"><span class="annottext">LedgerState ByronBlock
+</span><a href="#local-6989586621679291002"><span class="hs-identifier hs-var">_st</span></a></span></span><span>                   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe EpochNo
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-66"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerStateShelley</span></a></span><span> </span><span id="local-6989586621679291000"><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (ShelleyEra StandardCrypto))
+</span><a href="#local-6989586621679291000"><span class="hs-identifier hs-var">st</span></a></span></span><span>                  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (ShelleyEra StandardCrypto))
+-&gt; Maybe EpochNo
+forall proto era.
+LedgerState (ShelleyBlock proto era) -&gt; Maybe EpochNo
+</span><a href="#local-6989586621679290999"><span class="hs-identifier hs-var">fromState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (ShelleyEra StandardCrypto))
+</span><a href="#local-6989586621679291000"><span class="hs-identifier hs-var">st</span></a></span><span>
+</span><span id="line-67"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerStateAllegra</span></a></span><span> </span><span id="local-6989586621679290997"><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (AllegraEra StandardCrypto))
+</span><a href="#local-6989586621679290997"><span class="hs-identifier hs-var">st</span></a></span></span><span>                  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (AllegraEra StandardCrypto))
+-&gt; Maybe EpochNo
+forall proto era.
+LedgerState (ShelleyBlock proto era) -&gt; Maybe EpochNo
+</span><a href="#local-6989586621679290999"><span class="hs-identifier hs-var">fromState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (AllegraEra StandardCrypto))
+</span><a href="#local-6989586621679290997"><span class="hs-identifier hs-var">st</span></a></span><span>
+</span><span id="line-68"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerStateMary</span></a></span><span> </span><span id="local-6989586621679290995"><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (MaryEra StandardCrypto))
+</span><a href="#local-6989586621679290995"><span class="hs-identifier hs-var">st</span></a></span></span><span>                     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (MaryEra StandardCrypto))
+-&gt; Maybe EpochNo
+forall proto era.
+LedgerState (ShelleyBlock proto era) -&gt; Maybe EpochNo
+</span><a href="#local-6989586621679290999"><span class="hs-identifier hs-var">fromState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (MaryEra StandardCrypto))
+</span><a href="#local-6989586621679290995"><span class="hs-identifier hs-var">st</span></a></span><span>
+</span><span id="line-69"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LedgerStateAlonzo</span></a></span><span> </span><span id="local-6989586621679290993"><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (AlonzoEra StandardCrypto))
+</span><a href="#local-6989586621679290993"><span class="hs-identifier hs-var">st</span></a></span></span><span>                   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (AlonzoEra StandardCrypto))
+-&gt; Maybe EpochNo
+forall proto era.
+LedgerState (ShelleyBlock proto era) -&gt; Maybe EpochNo
+</span><a href="#local-6989586621679290999"><span class="hs-identifier hs-var">fromState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock protocol (AlonzoEra StandardCrypto))
+</span><a href="#local-6989586621679290993"><span class="hs-identifier hs-var">st</span></a></span><span>
+</span><span id="line-70"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">CS.LedgerState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-consensus-cardano/html/src"><span class="hs-identifier hs-type">O.LedgerStateBabbage</span></a></span><span> </span><span id="local-6989586621679290990"><span class="annot"><span class="annottext">LedgerState
+  (ShelleyBlock (Praos StandardCrypto) (BabbageEra StandardCrypto))
+</span><a href="#local-6989586621679290990"><span class="hs-identifier hs-var">st</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LedgerState
+  (ShelleyBlock (Praos StandardCrypto) (BabbageEra StandardCrypto))
+-&gt; Maybe EpochNo
+forall proto era.
+LedgerState (ShelleyBlock proto era) -&gt; Maybe EpochNo
+</span><a href="#local-6989586621679290999"><span class="hs-identifier hs-var">fromState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState
+  (ShelleyBlock (Praos StandardCrypto) (BabbageEra StandardCrypto))
+</span><a href="#local-6989586621679290990"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="hs-comment">-- TODO pattern missing from cardano-node: is it there on master? if not create PR.</span><span>
+</span><span id="line-71"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-72"></span><span>    </span><span id="local-6989586621679290999"><span class="annot"><span class="annottext">fromState :: LedgerState (ShelleyBlock proto era) -&gt; Maybe EpochNo
+</span><a href="#local-6989586621679290999"><span class="hs-identifier hs-var hs-var">fromState</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; Maybe EpochNo
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochNo -&gt; Maybe EpochNo)
+-&gt; (LedgerState (ShelleyBlock proto era) -&gt; EpochNo)
+-&gt; LedgerState (ShelleyBlock proto era)
+-&gt; Maybe EpochNo
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">NewEpochState era -&gt; EpochNo
+forall era. NewEpochState era -&gt; EpochNo
+</span><a href="../../../../cardano-ledger-shelley/html/src"><span class="hs-identifier hs-var hs-var">SL.nesEL</span></a></span><span> </span><span class="annot"><span class="annottext">(NewEpochState era -&gt; EpochNo)
+-&gt; (LedgerState (ShelleyBlock proto era) -&gt; NewEpochState era)
+-&gt; LedgerState (ShelleyBlock proto era)
+-&gt; EpochNo
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState (ShelleyBlock proto era) -&gt; NewEpochState era
+forall proto era.
+LedgerState (ShelleyBlock proto era) -&gt; NewEpochState era
+</span><a href="../../../../ouroboros-consensus-shelley/html/src"><span class="hs-identifier hs-var hs-var">O.shelleyLedgerState</span></a></span><span>
+</span><span id="line-73"></span><span>
+</span><span id="line-74"></span><span class="annot"><a href="Cardano.Streaming.Helpers.html#fromChainTip"><span class="hs-identifier hs-type">fromChainTip</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">WithOrigin</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">C.BlockNo</span></a></span><span>
+</span><span id="line-75"></span><span id="fromChainTip"><span class="annot"><span class="annottext">fromChainTip :: ChainTip -&gt; WithOrigin BlockNo
+</span><a href="Cardano.Streaming.Helpers.html#fromChainTip"><span class="hs-identifier hs-var hs-var">fromChainTip</span></a></span></span><span> </span><span id="local-6989586621679290985"><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679290985"><span class="hs-identifier hs-var">ct</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679290985"><span class="hs-identifier hs-var">ct</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-76"></span><span>  </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.ChainTipAtGenesis</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+forall t. WithOrigin t
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">Origin</span></a></span><span>
+</span><span id="line-77"></span><span>  </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span> </span><span class="annot"><span class="annottext">SlotNo
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Hash BlockHeader
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679290982"><span class="annot"><span class="annottext">BlockNo
+</span><a href="#local-6989586621679290982"><span class="hs-identifier hs-var">bno</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">BlockNo -&gt; WithOrigin BlockNo
+forall t. t -&gt; WithOrigin t
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">At</span></a></span><span> </span><span class="annot"><span class="annottext">BlockNo
+</span><a href="#local-6989586621679290982"><span class="hs-identifier hs-var">bno</span></a></span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- * IO</span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span id="local-6989586621679290981"><span class="annot"><a href="Cardano.Streaming.Helpers.html#linkedAsync"><span class="hs-identifier hs-type">linkedAsync</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679290981"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-82"></span><span id="linkedAsync"><span class="annot"><span class="annottext">linkedAsync :: IO a -&gt; IO ()
+</span><a href="Cardano.Streaming.Helpers.html#linkedAsync"><span class="hs-identifier hs-var hs-var">linkedAsync</span></a></span></span><span> </span><span id="local-6989586621679290979"><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621679290979"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Async a -&gt; IO ()
+forall a. Async a -&gt; IO ()
+</span><a href="../../../../async/html/src"><span class="hs-identifier hs-var">IO.link</span></a></span><span> </span><span class="annot"><span class="annottext">(Async a -&gt; IO ()) -&gt; IO (Async a) -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; (a -&gt; m b) -&gt; m a -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">=&lt;&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO a -&gt; IO (Async a)
+forall a. IO a -&gt; IO (Async a)
+</span><a href="../../../../async/html/src"><span class="hs-identifier hs-var">IO.async</span></a></span><span> </span><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621679290979"><span class="hs-identifier hs-var">action</span></a></span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- * LocalNodeConnectInfo</span><span>
+</span><span id="line-85"></span><span>
+</span><span id="line-86"></span><span class="annot"><a href="Cardano.Streaming.Helpers.html#mkLocalNodeConnectInfo"><span class="hs-identifier hs-type">mkLocalNodeConnectInfo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.NetworkId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeConnectInfo</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span>
+</span><span id="line-87"></span><span id="mkLocalNodeConnectInfo"><span class="annot"><span class="annottext">mkLocalNodeConnectInfo :: NetworkId -&gt; String -&gt; LocalNodeConnectInfo CardanoMode
+</span><a href="Cardano.Streaming.Helpers.html#mkLocalNodeConnectInfo"><span class="hs-identifier hs-var hs-var">mkLocalNodeConnectInfo</span></a></span></span><span> </span><span id="local-6989586621679290973"><span class="annot"><span class="annottext">NetworkId
+</span><a href="#local-6989586621679290973"><span class="hs-identifier hs-var">networkId</span></a></span></span><span> </span><span id="local-6989586621679290972"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679290972"><span class="hs-identifier hs-var">socketPath</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LocalNodeConnectInfo :: forall mode.
+ConsensusModeParams mode
+-&gt; NetworkId -&gt; String -&gt; LocalNodeConnectInfo mode
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeConnectInfo</span></a></span><span>
+</span><span id="line-88"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">localConsensusModeParams :: ConsensusModeParams CardanoMode
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localConsensusModeParams</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EpochSlots -&gt; ConsensusModeParams CardanoMode
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.CardanoModeParams</span></a></span><span> </span><span class="annot"><span class="annottext">EpochSlots
+</span><a href="#local-6989586621679290968"><span class="hs-identifier hs-var">epochSlots</span></a></span><span>
+</span><span id="line-89"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localNodeNetworkId :: NetworkId
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localNodeNetworkId</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NetworkId
+</span><a href="#local-6989586621679290973"><span class="hs-identifier hs-var">networkId</span></a></span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localNodeSocketPath :: String
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localNodeSocketPath</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679290972"><span class="hs-identifier hs-var">socketPath</span></a></span><span>
+</span><span id="line-91"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-92"></span><span>  </span><span class="hs-comment">-- This a parameter needed only for the Byron era. Since the Byron</span><span>
+</span><span id="line-93"></span><span>  </span><span class="hs-comment">-- era is over and the parameter has never changed it is ok to</span><span>
+</span><span id="line-94"></span><span>  </span><span class="hs-comment">-- hardcode this. See comment on `Cardano.Api.ConsensusModeParams` in</span><span>
+</span><span id="line-95"></span><span>  </span><span class="hs-comment">-- cardano-node.</span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679290968"><span class="annot"><span class="annottext">epochSlots :: EpochSlots
+</span><a href="#local-6989586621679290968"><span class="hs-identifier hs-var hs-var">epochSlots</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; EpochSlots
+</span><a href="../../../../cardano-ledger-byron/html/src"><span class="hs-identifier hs-var">C.EpochSlots</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><span class="hs-number">21600</span></span><span> </span><span class="hs-comment">-- TODO: is this configurable? see below</span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span class="hs-comment">-- | Derive LocalNodeConnectInfo from Env.</span><span>
+</span><span id="line-99"></span><span class="annot"><a href="Cardano.Streaming.Helpers.html#mkConnectInfo"><span class="hs-identifier hs-type">mkConnectInfo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.Env</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeConnectInfo</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span>
+</span><span id="line-100"></span><span id="mkConnectInfo"><span class="annot"><span class="annottext">mkConnectInfo :: Env -&gt; String -&gt; LocalNodeConnectInfo CardanoMode
+</span><a href="Cardano.Streaming.Helpers.html#mkConnectInfo"><span class="hs-identifier hs-var hs-var">mkConnectInfo</span></a></span></span><span> </span><span id="local-6989586621679290963"><span class="annot"><span class="annottext">Env
+</span><a href="#local-6989586621679290963"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679290962"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679290962"><span class="hs-identifier hs-var">socketPath</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LocalNodeConnectInfo :: forall mode.
+ConsensusModeParams mode
+-&gt; NetworkId -&gt; String -&gt; LocalNodeConnectInfo mode
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeConnectInfo</span></a></span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">localConsensusModeParams :: ConsensusModeParams CardanoMode
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localConsensusModeParams</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ConsensusModeParams CardanoMode
+</span><a href="#local-6989586621679290961"><span class="hs-identifier hs-var">cardanoModeParams</span></a></span><span>
+</span><span id="line-102"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localNodeNetworkId :: NetworkId
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localNodeNetworkId</span></a></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NetworkId
+</span><a href="#local-6989586621679290960"><span class="hs-identifier hs-var">networkId'</span></a></span><span>
+</span><span id="line-103"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localNodeSocketPath :: String
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localNodeSocketPath</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679290962"><span class="hs-identifier hs-var">socketPath</span></a></span><span>
+</span><span id="line-104"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-105"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-106"></span><span>    </span><span class="hs-comment">-- Derive the NetworkId as described in network-magic.md from the</span><span>
+</span><span id="line-107"></span><span>    </span><span class="hs-comment">-- cardano-ledger-specs repo.</span><span>
+</span><span id="line-108"></span><span>    </span><span id="local-6989586621679290959"><span class="annot"><span class="annottext">byronConfig :: Config
+</span><a href="#local-6989586621679290959"><span class="hs-identifier hs-var hs-var">byronConfig</span></a></span></span><span>
+</span><span id="line-109"></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier hs-type">Consensus.WrapPartialLedgerConfig</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-consensus-cardano/html/src"><span class="hs-identifier hs-type">Consensus.ByronPartialLedgerConfig</span></a></span><span> </span><span id="local-6989586621679290956"><span class="annot"><a href="#local-6989586621679290956"><span class="hs-identifier hs-var">bc</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ouroboros-consensus/html/src"><span class="hs-operator hs-type">:*</span></a></span><span> </span><span class="annot"><span class="annottext">NP WrapPartialLedgerConfig xs
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Config
+LedgerConfig ByronBlock
+</span><a href="#local-6989586621679290956"><span class="hs-identifier hs-var">bc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span>      </span><span class="annot"><span class="annottext">(NP WrapPartialLedgerConfig (CardanoEras StandardCrypto) -&gt; Config)
+-&gt; (HardForkLedgerConfig (CardanoEras StandardCrypto)
+    -&gt; NP WrapPartialLedgerConfig (CardanoEras StandardCrypto))
+-&gt; HardForkLedgerConfig (CardanoEras StandardCrypto)
+-&gt; Config
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">PerEraLedgerConfig (CardanoEras StandardCrypto)
+-&gt; NP WrapPartialLedgerConfig (CardanoEras StandardCrypto)
+forall (xs :: [*]).
+PerEraLedgerConfig xs -&gt; NP WrapPartialLedgerConfig xs
+</span><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier hs-var hs-var">HFC.getPerEraLedgerConfig</span></a></span><span>
+</span><span id="line-111"></span><span>      </span><span class="annot"><span class="annottext">(PerEraLedgerConfig (CardanoEras StandardCrypto)
+ -&gt; NP WrapPartialLedgerConfig (CardanoEras StandardCrypto))
+-&gt; (HardForkLedgerConfig (CardanoEras StandardCrypto)
+    -&gt; PerEraLedgerConfig (CardanoEras StandardCrypto))
+-&gt; HardForkLedgerConfig (CardanoEras StandardCrypto)
+-&gt; NP WrapPartialLedgerConfig (CardanoEras StandardCrypto)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">HardForkLedgerConfig (CardanoEras StandardCrypto)
+-&gt; PerEraLedgerConfig (CardanoEras StandardCrypto)
+forall (xs :: [*]).
+HardForkLedgerConfig xs -&gt; PerEraLedgerConfig xs
+</span><a href="../../../../ouroboros-consensus/html/src"><span class="hs-identifier hs-var hs-var">HFC.hardForkLedgerConfigPerEra</span></a></span><span>
+</span><span id="line-112"></span><span>      </span><span class="annot"><span class="annottext">(HardForkLedgerConfig (CardanoEras StandardCrypto) -&gt; Config)
+-&gt; HardForkLedgerConfig (CardanoEras StandardCrypto) -&gt; Config
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Env -&gt; HardForkLedgerConfig (CardanoEras StandardCrypto)
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var hs-var">C.envLedgerConfig</span></a></span><span> </span><span class="annot"><span class="annottext">Env
+</span><a href="#local-6989586621679290963"><span class="hs-identifier hs-var">env</span></a></span><span>
+</span><span id="line-113"></span><span>
+</span><span id="line-114"></span><span>    </span><span id="local-6989586621679290952"><span class="annot"><span class="annottext">networkMagic :: NetworkMagic
+</span><a href="#local-6989586621679290952"><span class="hs-identifier hs-var hs-var">networkMagic</span></a></span></span><span>
+</span><span id="line-115"></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; NetworkMagic
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">C.NetworkMagic</span></a></span><span>
+</span><span id="line-116"></span><span>      </span><span class="annot"><span class="annottext">(Word32 -&gt; NetworkMagic) -&gt; Word32 -&gt; NetworkMagic
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ProtocolMagicId -&gt; Word32
+</span><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier hs-var hs-var">unProtocolMagicId</span></a></span><span>
+</span><span id="line-117"></span><span>      </span><span class="annot"><span class="annottext">(ProtocolMagicId -&gt; Word32) -&gt; ProtocolMagicId -&gt; Word32
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">GenesisData -&gt; ProtocolMagicId
+</span><a href="../../../../cardano-ledger-byron/html/src"><span class="hs-identifier hs-var hs-var">Cardano.Chain.Genesis.gdProtocolMagicId</span></a></span><span>
+</span><span id="line-118"></span><span>      </span><span class="annot"><span class="annottext">(GenesisData -&gt; ProtocolMagicId) -&gt; GenesisData -&gt; ProtocolMagicId
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Config -&gt; GenesisData
+</span><a href="../../../../cardano-ledger-byron/html/src"><span class="hs-identifier hs-var hs-var">Cardano.Chain.Genesis.configGenesisData</span></a></span><span> </span><span class="annot"><span class="annottext">Config
+</span><a href="#local-6989586621679290959"><span class="hs-identifier hs-var">byronConfig</span></a></span><span>
+</span><span id="line-119"></span><span>
+</span><span id="line-120"></span><span>    </span><span id="local-6989586621679290960"><span class="annot"><span class="annottext">networkId' :: NetworkId
+</span><a href="#local-6989586621679290960"><span class="hs-identifier hs-var hs-var">networkId'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Config -&gt; RequiresNetworkMagic
+</span><a href="../../../../cardano-ledger-byron/html/src"><span class="hs-identifier hs-var hs-var">Cardano.Chain.Genesis.configReqNetMagic</span></a></span><span> </span><span class="annot"><span class="annottext">Config
+</span><a href="#local-6989586621679290959"><span class="hs-identifier hs-var">byronConfig</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-121"></span><span>      </span><span class="annot"><span class="annottext">RequiresNetworkMagic
+</span><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier hs-var">RequiresNoMagic</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">NetworkId
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.Mainnet</span></a></span><span>
+</span><span id="line-122"></span><span>      </span><span class="annot"><span class="annottext">RequiresNetworkMagic
+</span><a href="../../../../cardano-crypto-wrapper/html/src"><span class="hs-identifier hs-var">RequiresMagic</span></a></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">NetworkMagic -&gt; NetworkId
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.Testnet</span></a></span><span> </span><span class="annot"><span class="annottext">NetworkMagic
+</span><a href="#local-6989586621679290952"><span class="hs-identifier hs-var">networkMagic</span></a></span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span>    </span><span id="local-6989586621679290961"><span class="annot"><span class="annottext">cardanoModeParams :: ConsensusModeParams CardanoMode
+</span><a href="#local-6989586621679290961"><span class="hs-identifier hs-var hs-var">cardanoModeParams</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EpochSlots -&gt; ConsensusModeParams CardanoMode
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.CardanoModeParams</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochSlots -&gt; ConsensusModeParams CardanoMode)
+-&gt; (Word64 -&gt; EpochSlots)
+-&gt; Word64
+-&gt; ConsensusModeParams CardanoMode
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; EpochSlots
+</span><a href="../../../../cardano-ledger-byron/html/src"><span class="hs-identifier hs-var">C.EpochSlots</span></a></span><span> </span><span class="annot"><span class="annottext">(Word64 -&gt; ConsensusModeParams CardanoMode)
+-&gt; Word64 -&gt; ConsensusModeParams CardanoMode
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><span class="hs-number">10</span></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; Word64 -&gt; Word64
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Env -&gt; Word64
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.envSecurityParam</span></a></span><span> </span><span class="annot"><span class="annottext">Env
+</span><a href="#local-6989586621679290963"><span class="hs-identifier hs-var">env</span></a></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- | Ignore rollback events in the chainsync event stream. Useful for</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- monitor which blocks has been seen by the node, regardless whether</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- they are permanent.</span><span>
+</span><span id="line-129"></span><span id="local-6989586621679290941"><span id="local-6989586621679290942"><span id="local-6989586621679290943"><span class="annot"><a href="Cardano.Streaming.Helpers.html#ignoreRollbacks"><span class="hs-identifier hs-type">ignoreRollbacks</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679290943"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">S.Stream</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">S.Of</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Streaming.Helpers.html#ChainSyncEvent"><span class="hs-identifier hs-type">ChainSyncEvent</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679290942"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679290943"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679290941"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">S.Stream</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../streaming/html/src"><span class="hs-identifier hs-type">S.Of</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679290942"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679290943"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679290941"><span class="hs-identifier hs-type">r</span></a></span></span></span></span><span>
+</span><span id="line-130"></span><span id="ignoreRollbacks"><span class="annot"><span class="annottext">ignoreRollbacks :: Stream (Of (ChainSyncEvent a)) m r -&gt; Stream (Of a) m r
+</span><a href="Cardano.Streaming.Helpers.html#ignoreRollbacks"><span class="hs-identifier hs-var hs-var">ignoreRollbacks</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ChainSyncEvent a -&gt; Maybe a)
+-&gt; Stream (Of (ChainSyncEvent a)) m r -&gt; Stream (Of a) m r
+forall (m :: * -&gt; *) a b r.
+Monad m =&gt;
+(a -&gt; Maybe b) -&gt; Stream (Of a) m r -&gt; Stream (Of b) m r
+</span><a href="../../../../streaming/html/src"><span class="hs-identifier hs-var">S.mapMaybe</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span> </span><span class="annot"><a href="Cardano.Streaming.Helpers.html#RollForward"><span class="hs-identifier hs-type">RollForward</span></a></span><span> </span><span id="local-6989586621679290938"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679290938"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679290938"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">;</span><span> </span><span class="annot"><span class="annottext">ChainSyncEvent a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-131"></span></pre></body></html>

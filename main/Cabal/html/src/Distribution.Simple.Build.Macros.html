@@ -1,0 +1,501 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Module      :  Distribution.Simple.Build.Macros</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Copyright   :  Simon Marlow 2008</span><span>
+</span><span id="line-5"></span><span class="hs-comment">--</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Maintainer  :  cabal-devel@haskell.org</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Portability :  portable</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Generate cabal_macros.h - CPP macros for package version testing</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- When using CPP you get</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- &gt; VERSION_&lt;package&gt;</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- &gt; MIN_VERSION_&lt;package&gt;(A,B,C)</span><span>
+</span><span id="line-15"></span><span class="hs-comment">--</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- for each /package/ in @build-depends@, which is true if the version of</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- /package/ in use is @&gt;= A.B.C@, using the normal ordering on version</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- numbers.</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- TODO Figure out what to do about backpack and internal libraries. It is very</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- suspecious that this stuff works with munged package identifiers</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Distribution.Simple.Build.Macros</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-23"></span><span>    </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generateCabalMacrosHeader"><span class="hs-identifier">generateCabalMacrosHeader</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generatePackageVersionMacros"><span class="hs-identifier">generatePackageVersionMacros</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-25"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html"><span class="hs-identifier">Distribution.Compat.Prelude</span></a></span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Version.html"><span class="hs-identifier">Distribution.Version</span></a></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.PackageDescription.html"><span class="hs-identifier">Distribution.PackageDescription</span></a></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.LocalBuildInfo.html"><span class="hs-identifier">Distribution.Simple.LocalBuildInfo</span></a></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Program.Db.html"><span class="hs-identifier">Distribution.Simple.Program.Db</span></a></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Program.Types.html"><span class="hs-identifier">Distribution.Simple.Program.Types</span></a></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Types.MungedPackageId.html"><span class="hs-identifier">Distribution.Types.MungedPackageId</span></a></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Types.MungedPackageName.html"><span class="hs-identifier">Distribution.Types.MungedPackageName</span></a></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Types.PackageId.html"><span class="hs-identifier">Distribution.Types.PackageId</span></a></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Pretty.html"><span class="hs-identifier">Distribution.Pretty</span></a></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- ------------------------------------------------------------</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- * Generate cabal_macros.h</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- ------------------------------------------------------------</span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- Invariant: HeaderLines always has a trailing newline</span><span>
+</span><span id="line-45"></span><span class="hs-keyword">type</span><span> </span><span id="HeaderLines"><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-var">HeaderLines</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-type">line</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span>
+</span><span id="line-48"></span><span id="line"><span class="annot"><span class="annottext">line :: String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-var hs-var">line</span></a></span></span><span> </span><span id="local-6989586621679581509"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581509"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581509"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;\n&quot;</span></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#ifndef"><span class="hs-identifier hs-type">ifndef</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span>
+</span><span id="line-51"></span><span id="ifndef"><span class="annot"><span class="annottext">ifndef :: String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndef"><span class="hs-identifier hs-var hs-var">ifndef</span></a></span></span><span> </span><span id="local-6989586621679581507"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581507"><span class="hs-identifier hs-var">macro</span></a></span></span><span> </span><span id="local-6989586621679581506"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581506"><span class="hs-identifier hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-52"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-var">line</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;#ifndef &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581507"><span class="hs-identifier hs-var">macro</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581506"><span class="hs-identifier hs-var">body</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-54"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-var">line</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;#endif /* &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581507"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; */&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#define"><span class="hs-identifier hs-type">define</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span>
+</span><span id="line-57"></span><span id="define"><span class="annot"><span class="annottext">define :: String -&gt; Maybe [String] -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#define"><span class="hs-identifier hs-var hs-var">define</span></a></span></span><span> </span><span id="local-6989586621679581504"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581504"><span class="hs-identifier hs-var">macro</span></a></span></span><span> </span><span id="local-6989586621679581503"><span class="annot"><span class="annottext">Maybe [String]
+</span><a href="#local-6989586621679581503"><span class="hs-identifier hs-var">params</span></a></span></span><span> </span><span id="local-6989586621679581502"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581502"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-58"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-var">line</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;#define &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581504"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe [String] -&gt; String
+</span><a href="#local-6989586621679581501"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe [String]
+</span><a href="#local-6989586621679581503"><span class="hs-identifier hs-var">params</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581502"><span class="hs-identifier hs-var">val</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-60"></span><span>    </span><span id="local-6989586621679581501"><span class="annot"><span class="annottext">f :: Maybe [String] -&gt; String
+</span><a href="#local-6989586621679581501"><span class="hs-identifier hs-var hs-var">f</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe [String]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-61"></span><span>    </span><span class="annot"><a href="#local-6989586621679581501"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679581500"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679581500"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;(&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; String
+forall a. [a] -&gt; [[a]] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">intercalate</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;,&quot;</span></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679581500"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;)&quot;</span></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#defineStr"><span class="hs-identifier hs-type">defineStr</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span>
+</span><span id="line-64"></span><span id="defineStr"><span class="annot"><span class="annottext">defineStr :: String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#defineStr"><span class="hs-identifier hs-var hs-var">defineStr</span></a></span></span><span> </span><span id="local-6989586621679581497"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581497"><span class="hs-identifier hs-var">macro</span></a></span></span><span> </span><span id="local-6989586621679581496"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581496"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe [String] -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#define"><span class="hs-identifier hs-var">define</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581497"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe [String]
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581496"><span class="hs-identifier hs-var">str</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>
+</span><span id="line-66"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#ifndefDefine"><span class="hs-identifier hs-type">ifndefDefine</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span>
+</span><span id="line-67"></span><span id="ifndefDefine"><span class="annot"><span class="annottext">ifndefDefine :: String -&gt; Maybe [String] -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefine"><span class="hs-identifier hs-var hs-var">ifndefDefine</span></a></span></span><span> </span><span id="local-6989586621679581493"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581493"><span class="hs-identifier hs-var">macro</span></a></span></span><span> </span><span id="local-6989586621679581492"><span class="annot"><span class="annottext">Maybe [String]
+</span><a href="#local-6989586621679581492"><span class="hs-identifier hs-var">params</span></a></span></span><span> </span><span id="local-6989586621679581491"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581491"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-68"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndef"><span class="hs-identifier hs-var">ifndef</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581493"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; Maybe [String] -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#define"><span class="hs-identifier hs-var">define</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581493"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe [String]
+</span><a href="#local-6989586621679581492"><span class="hs-identifier hs-var">params</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581491"><span class="hs-identifier hs-var">str</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#ifndefDefineStr"><span class="hs-identifier hs-type">ifndefDefineStr</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#HeaderLines"><span class="hs-identifier hs-type">HeaderLines</span></a></span><span>
+</span><span id="line-71"></span><span id="ifndefDefineStr"><span class="annot"><span class="annottext">ifndefDefineStr :: String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefineStr"><span class="hs-identifier hs-var hs-var">ifndefDefineStr</span></a></span></span><span> </span><span id="local-6989586621679581489"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581489"><span class="hs-identifier hs-var">macro</span></a></span></span><span> </span><span id="local-6989586621679581488"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581488"><span class="hs-identifier hs-var">str</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndef"><span class="hs-identifier hs-var">ifndef</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581489"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#defineStr"><span class="hs-identifier hs-var">defineStr</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581489"><span class="hs-identifier hs-var">macro</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581488"><span class="hs-identifier hs-var">str</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- | The contents of the @cabal_macros.h@ for the given configured package.</span><span>
+</span><span id="line-75"></span><span class="hs-comment">--</span><span>
+</span><span id="line-76"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generateCabalMacrosHeader"><span class="hs-identifier hs-type">generateCabalMacrosHeader</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Types.PackageDescription.html#PackageDescription"><span class="hs-identifier hs-type">PackageDescription</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.LocalBuildInfo.html#LocalBuildInfo"><span class="hs-identifier hs-type">LocalBuildInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.ComponentLocalBuildInfo.html#ComponentLocalBuildInfo"><span class="hs-identifier hs-type">ComponentLocalBuildInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-77"></span><span id="generateCabalMacrosHeader"><span class="annot"><span class="annottext">generateCabalMacrosHeader :: PackageDescription
+-&gt; LocalBuildInfo -&gt; ComponentLocalBuildInfo -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateCabalMacrosHeader"><span class="hs-identifier hs-var hs-var">generateCabalMacrosHeader</span></a></span></span><span> </span><span id="local-6989586621679581487"><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679581487"><span class="hs-identifier hs-var">pkg_descr</span></a></span></span><span> </span><span id="local-6989586621679581486"><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679581486"><span class="hs-identifier hs-var">lbi</span></a></span></span><span> </span><span id="local-6989586621679581485"><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581485"><span class="hs-identifier hs-var">clbi</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-78"></span><span>  </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;/* DO NOT EDIT: This file is automatically generated by Cabal */\n\n&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-79"></span><span>  </span><span class="annot"><span class="annottext">[PackageId] -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generatePackageVersionMacros"><span class="hs-identifier hs-var">generatePackageVersionMacros</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PackageDescription -&gt; PackageId
+</span><a href="Distribution.Types.PackageDescription.html#package"><span class="hs-identifier hs-var hs-var">package</span></a></span><span> </span><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679581487"><span class="hs-identifier hs-var">pkg_descr</span></a></span><span> </span><span class="annot"><span class="annottext">PackageId -&gt; [PackageId] -&gt; [PackageId]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">((UnitId, MungedPackageId) -&gt; PackageId)
+-&gt; [(UnitId, MungedPackageId)] -&gt; [PackageId]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(UnitId, MungedPackageId) -&gt; PackageId
+forall a. (a, MungedPackageId) -&gt; PackageId
+</span><a href="#local-6989586621679581483"><span class="hs-identifier hs-var">getPid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ComponentLocalBuildInfo -&gt; [(UnitId, MungedPackageId)]
+</span><a href="Distribution.Types.ComponentLocalBuildInfo.html#componentPackageDeps"><span class="hs-identifier hs-var hs-var">componentPackageDeps</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581485"><span class="hs-identifier hs-var">clbi</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-81"></span><span>  </span><span class="annot"><span class="annottext">[ConfiguredProgram] -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateToolVersionMacros"><span class="hs-identifier hs-var">generateToolVersionMacros</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ProgramDb -&gt; [ConfiguredProgram]
+</span><a href="Distribution.Simple.Program.Db.html#configuredPrograms"><span class="hs-identifier hs-var">configuredPrograms</span></a></span><span> </span><span class="annot"><span class="annottext">(ProgramDb -&gt; [ConfiguredProgram])
+-&gt; (LocalBuildInfo -&gt; ProgramDb)
+-&gt; LocalBuildInfo
+-&gt; [ConfiguredProgram]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; ProgramDb
+</span><a href="Distribution.Types.LocalBuildInfo.html#withPrograms"><span class="hs-identifier hs-var hs-var">withPrograms</span></a></span><span> </span><span class="annot"><span class="annottext">(LocalBuildInfo -&gt; [ConfiguredProgram])
+-&gt; LocalBuildInfo -&gt; [ConfiguredProgram]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679581486"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-82"></span><span>  </span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; ComponentLocalBuildInfo -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateComponentIdMacro"><span class="hs-identifier hs-var">generateComponentIdMacro</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679581486"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581485"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-83"></span><span>  </span><span class="annot"><span class="annottext">PackageDescription -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateCurrentPackageVersion"><span class="hs-identifier hs-var">generateCurrentPackageVersion</span></a></span><span> </span><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679581487"><span class="hs-identifier hs-var">pkg_descr</span></a></span><span>
+</span><span id="line-84"></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-85"></span><span>  </span><span id="local-6989586621679581483"><span class="annot"><span class="annottext">getPid :: (a, MungedPackageId) -&gt; PackageId
+</span><a href="#local-6989586621679581483"><span class="hs-identifier hs-var hs-var">getPid</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Distribution.Types.MungedPackageId.html#MungedPackageId"><span class="hs-identifier hs-type">MungedPackageId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Types.MungedPackageName.html#MungedPackageName"><span class="hs-identifier hs-type">MungedPackageName</span></a></span><span> </span><span id="local-6989586621679581473"><span class="annot"><span class="annottext">PackageName
+</span><a href="#local-6989586621679581473"><span class="hs-identifier hs-var">pn</span></a></span></span><span> </span><span class="annot"><span class="annottext">LibraryName
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679581472"><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581472"><span class="hs-identifier hs-var">v</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-comment">-- NB: Drop the library name! We're just reporting package versions.</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-comment">-- This would have to be revisited if you are allowed to depend</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-comment">-- on different versions of the same package</span><span>
+</span><span id="line-89"></span><span>    </span><span class="annot"><span class="annottext">PackageName -&gt; Version -&gt; PackageId
+</span><a href="Distribution.Types.PackageId.html#PackageIdentifier"><span class="hs-identifier hs-var">PackageIdentifier</span></a></span><span> </span><span class="annot"><span class="annottext">PackageName
+</span><a href="#local-6989586621679581473"><span class="hs-identifier hs-var">pn</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581472"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- | Helper function that generates just the @VERSION_pkg@ and @MIN_VERSION_pkg@</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- macros for a list of package ids (usually used with the specific deps of</span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- a configured package).</span><span>
+</span><span id="line-94"></span><span class="hs-comment">--</span><span>
+</span><span id="line-95"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generatePackageVersionMacros"><span class="hs-identifier hs-type">generatePackageVersionMacros</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Distribution.Types.PackageId.html#PackageId"><span class="hs-identifier hs-type">PackageId</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-96"></span><span id="generatePackageVersionMacros"><span class="annot"><span class="annottext">generatePackageVersionMacros :: [PackageId] -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generatePackageVersionMacros"><span class="hs-identifier hs-var hs-var">generatePackageVersionMacros</span></a></span></span><span> </span><span id="local-6989586621679581470"><span class="annot"><span class="annottext">[PackageId]
+</span><a href="#local-6989586621679581470"><span class="hs-identifier hs-var">pkgids</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">concat</span></a></span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-var">line</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;/* package &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">PackageId -&gt; String
+forall a. Pretty a =&gt; a -&gt; String
+</span><a href="Distribution.Pretty.html#prettyShow"><span class="hs-identifier hs-var">prettyShow</span></a></span><span> </span><span class="annot"><span class="annottext">PackageId
+</span><a href="#local-6989586621679581467"><span class="hs-identifier hs-var">pkgid</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; */&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-98"></span><span>  </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; Version -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateMacros"><span class="hs-identifier hs-var">generateMacros</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581465"><span class="hs-identifier hs-var">pkgname</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581464"><span class="hs-identifier hs-var">version</span></a></span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679581467"><span class="annot"><span class="annottext">pkgid :: PackageId
+</span><a href="#local-6989586621679581467"><span class="hs-identifier hs-var">pkgid</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Types.PackageId.html#PackageIdentifier"><span class="hs-identifier hs-type">PackageIdentifier</span></a></span><span> </span><span id="local-6989586621679581463"><span class="annot"><span class="annottext">PackageName
+</span><a href="#local-6989586621679581463"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679581464"><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581464"><span class="hs-identifier hs-var">version</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[PackageId]
+</span><a href="#local-6989586621679581470"><span class="hs-identifier hs-var">pkgids</span></a></span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679581465"><span class="annot"><span class="annottext">pkgname :: String
+</span><a href="#local-6989586621679581465"><span class="hs-identifier hs-var hs-var">pkgname</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Char) -&gt; String -&gt; String
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char
+</span><a href="Distribution.Simple.Build.Macros.html#fixchar"><span class="hs-identifier hs-var">fixchar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PackageName -&gt; String
+forall a. Pretty a =&gt; a -&gt; String
+</span><a href="Distribution.Pretty.html#prettyShow"><span class="hs-identifier hs-var">prettyShow</span></a></span><span> </span><span class="annot"><span class="annottext">PackageName
+</span><a href="#local-6989586621679581463"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-special">]</span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- | Helper function that generates just the @TOOL_VERSION_pkg@ and</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- @MIN_TOOL_VERSION_pkg@ macros for a list of configured programs.</span><span>
+</span><span id="line-105"></span><span class="hs-comment">--</span><span>
+</span><span id="line-106"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generateToolVersionMacros"><span class="hs-identifier hs-type">generateToolVersionMacros</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Distribution.Simple.Program.Types.html#ConfiguredProgram"><span class="hs-identifier hs-type">ConfiguredProgram</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-107"></span><span id="generateToolVersionMacros"><span class="annot"><span class="annottext">generateToolVersionMacros :: [ConfiguredProgram] -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateToolVersionMacros"><span class="hs-identifier hs-var hs-var">generateToolVersionMacros</span></a></span></span><span> </span><span id="local-6989586621679581461"><span class="annot"><span class="annottext">[ConfiguredProgram]
+</span><a href="#local-6989586621679581461"><span class="hs-identifier hs-var">progs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">concat</span></a></span><span>
+</span><span id="line-108"></span><span>  </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#line"><span class="hs-identifier hs-var">line</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;/* tool &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581460"><span class="hs-identifier hs-var">progid</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; */&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span>  </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; Version -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateMacros"><span class="hs-identifier hs-var">generateMacros</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;TOOL_&quot;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581459"><span class="hs-identifier hs-var">progname</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581458"><span class="hs-identifier hs-var">version</span></a></span><span>
+</span><span id="line-110"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679581457"><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679581457"><span class="hs-identifier hs-var">prog</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[ConfiguredProgram]
+</span><a href="#local-6989586621679581461"><span class="hs-identifier hs-var">progs</span></a></span><span>
+</span><span id="line-111"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe Version -&gt; Bool
+forall a. Maybe a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">isJust</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe Version -&gt; Bool)
+-&gt; (ConfiguredProgram -&gt; Maybe Version)
+-&gt; ConfiguredProgram
+-&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram -&gt; Maybe Version
+</span><a href="Distribution.Simple.Program.Types.html#programVersion"><span class="hs-identifier hs-var hs-var">programVersion</span></a></span><span> </span><span class="annot"><span class="annottext">(ConfiguredProgram -&gt; Bool) -&gt; ConfiguredProgram -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679581457"><span class="hs-identifier hs-var">prog</span></a></span><span>
+</span><span id="line-112"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679581460"><span class="annot"><span class="annottext">progid :: String
+</span><a href="#local-6989586621679581460"><span class="hs-identifier hs-var hs-var">progid</span></a></span></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram -&gt; String
+</span><a href="Distribution.Simple.Program.Types.html#programId"><span class="hs-identifier hs-var hs-var">programId</span></a></span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679581457"><span class="hs-identifier hs-var">prog</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;-&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">Version -&gt; String
+forall a. Pretty a =&gt; a -&gt; String
+</span><a href="Distribution.Pretty.html#prettyShow"><span class="hs-identifier hs-var">prettyShow</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581458"><span class="hs-identifier hs-var">version</span></a></span><span>
+</span><span id="line-113"></span><span>        </span><span id="local-6989586621679581459"><span class="annot"><span class="annottext">progname :: String
+</span><a href="#local-6989586621679581459"><span class="hs-identifier hs-var hs-var">progname</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Char) -&gt; String -&gt; String
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char
+</span><a href="Distribution.Simple.Build.Macros.html#fixchar"><span class="hs-identifier hs-var">fixchar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ConfiguredProgram -&gt; String
+</span><a href="Distribution.Simple.Program.Types.html#programId"><span class="hs-identifier hs-var hs-var">programId</span></a></span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679581457"><span class="hs-identifier hs-var">prog</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>        </span><span id="local-6989586621679581458"><span class="annot"><span class="annottext">version :: Version
+</span><a href="#local-6989586621679581458"><span class="hs-identifier hs-var hs-var">version</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Version -&gt; Maybe Version -&gt; Version
+forall a. a -&gt; Maybe a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="Distribution.Types.Version.html#version0"><span class="hs-identifier hs-var">version0</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ConfiguredProgram -&gt; Maybe Version
+</span><a href="Distribution.Simple.Program.Types.html#programVersion"><span class="hs-identifier hs-var hs-var">programVersion</span></a></span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679581457"><span class="hs-identifier hs-var">prog</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span>  </span><span class="hs-special">]</span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- | Common implementation of 'generatePackageVersionMacros' and</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- 'generateToolVersionMacros'.</span><span>
+</span><span id="line-119"></span><span class="hs-comment">--</span><span>
+</span><span id="line-120"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generateMacros"><span class="hs-identifier hs-type">generateMacros</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.Version.html#Version"><span class="hs-identifier hs-type">Version</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-121"></span><span id="generateMacros"><span class="annot"><span class="annottext">generateMacros :: String -&gt; String -&gt; Version -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateMacros"><span class="hs-identifier hs-var hs-var">generateMacros</span></a></span></span><span> </span><span id="local-6989586621679581451"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581451"><span class="hs-identifier hs-var">macro_prefix</span></a></span></span><span> </span><span id="local-6989586621679581450"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581450"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679581449"><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581449"><span class="hs-identifier hs-var">version</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-122"></span><span>  </span><span class="annot"><span class="annottext">[String] -&gt; String
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">concat</span></a></span><span>
+</span><span id="line-123"></span><span>  </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefineStr"><span class="hs-identifier hs-var">ifndefDefineStr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581451"><span class="hs-identifier hs-var">macro_prefix</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;VERSION_&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581450"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Version -&gt; String
+forall a. Pretty a =&gt; a -&gt; String
+</span><a href="Distribution.Pretty.html#prettyShow"><span class="hs-identifier hs-var">prettyShow</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581449"><span class="hs-identifier hs-var">version</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-special">,</span><span class="annot"><span class="annottext">String -&gt; Maybe [String] -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefine"><span class="hs-identifier hs-var">ifndefDefine</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;MIN_&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581451"><span class="hs-identifier hs-var">macro_prefix</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;VERSION_&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581450"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>                </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[String] -&gt; Maybe [String]
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;major1&quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;major2&quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;minor&quot;</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-126"></span><span>    </span><span class="annot"><span class="annottext">(String -&gt; String) -&gt; String -&gt; String
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">concat</span></a></span><span> </span><span class="hs-special">[</span><span>
+</span><span id="line-127"></span><span>       </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;(\\\n&quot;</span></span><span>
+</span><span id="line-128"></span><span>      </span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;  (major1) &lt;  &quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581448"><span class="hs-identifier hs-var">major1</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; || \\\n&quot;</span></span><span>
+</span><span id="line-129"></span><span>      </span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;  (major1) == &quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581448"><span class="hs-identifier hs-var">major1</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; &amp;&amp; (major2) &lt;  &quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581447"><span class="hs-identifier hs-var">major2</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; || \\\n&quot;</span></span><span>
+</span><span id="line-130"></span><span>      </span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;  (major1) == &quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581448"><span class="hs-identifier hs-var">major1</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; &amp;&amp; (major2) == &quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581447"><span class="hs-identifier hs-var">major2</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; &amp;&amp; (minor) &lt;= &quot;</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581446"><span class="hs-identifier hs-var">minor</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;)&quot;</span></span><span>
+</span><span id="line-131"></span><span>    </span><span class="hs-special">]</span><span>
+</span><span id="line-132"></span><span>  </span><span class="hs-special">,</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;\n&quot;</span></span><span class="hs-special">]</span><span>
+</span><span id="line-133"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-134"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621679581448"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581448"><span class="hs-identifier hs-var">major1</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679581447"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581447"><span class="hs-identifier hs-var">major2</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679581446"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581446"><span class="hs-identifier hs-var">minor</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; String) -&gt; [Int] -&gt; [String]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Version -&gt; [Int]
+</span><a href="Distribution.Types.Version.html#versionNumbers"><span class="hs-identifier hs-var">versionNumbers</span></a></span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679581449"><span class="hs-identifier hs-var">version</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-135"></span><span>        </span><span class="hs-special">[</span><span class="hs-special">]</span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;0&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;0&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;0&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-136"></span><span>        </span><span class="hs-special">[</span><span id="local-6989586621679581444"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581444"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">]</span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581444"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;0&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;0&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-137"></span><span>        </span><span class="hs-special">[</span><span id="local-6989586621679581443"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581443"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679581442"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581442"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">]</span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581443"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581442"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;0&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-138"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621679581441"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581441"><span class="hs-identifier hs-var">x</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679581440"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581440"><span class="hs-identifier hs-var">y</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679581439"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581439"><span class="hs-identifier hs-var">z</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span class="annot"><span class="annottext">[String]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581441"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581440"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679581439"><span class="hs-identifier hs-var">z</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-139"></span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- | Generate the @CURRENT_COMPONENT_ID@ definition for the component ID</span><span>
+</span><span id="line-141"></span><span class="hs-comment">--   of the current package.</span><span>
+</span><span id="line-142"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generateComponentIdMacro"><span class="hs-identifier hs-type">generateComponentIdMacro</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Types.LocalBuildInfo.html#LocalBuildInfo"><span class="hs-identifier hs-type">LocalBuildInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.ComponentLocalBuildInfo.html#ComponentLocalBuildInfo"><span class="hs-identifier hs-type">ComponentLocalBuildInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-143"></span><span id="generateComponentIdMacro"><span class="annot"><span class="annottext">generateComponentIdMacro :: LocalBuildInfo -&gt; ComponentLocalBuildInfo -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateComponentIdMacro"><span class="hs-identifier hs-var hs-var">generateComponentIdMacro</span></a></span></span><span> </span><span id="local-6989586621679581438"><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679581438"><span class="hs-identifier hs-var">_lbi</span></a></span></span><span> </span><span id="local-6989586621679581437"><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581437"><span class="hs-identifier hs-var">clbi</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-144"></span><span>  </span><span class="annot"><span class="annottext">[String] -&gt; String
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">concat</span></a></span><span> </span><span class="annot"><span class="annottext">([String] -&gt; String) -&gt; [String] -&gt; String
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-145"></span><span>      </span><span class="hs-special">[</span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581437"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-146"></span><span>        </span><span class="annot"><a href="Distribution.Types.ComponentLocalBuildInfo.html#LibComponentLocalBuildInfo"><span class="hs-identifier hs-type">LibComponentLocalBuildInfo</span></a></span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-147"></span><span>          </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefineStr"><span class="hs-identifier hs-var">ifndefDefineStr</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;CURRENT_PACKAGE_KEY&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ComponentLocalBuildInfo -&gt; String
+</span><a href="Distribution.Types.ComponentLocalBuildInfo.html#componentCompatPackageKey"><span class="hs-identifier hs-var hs-var">componentCompatPackageKey</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581437"><span class="hs-identifier hs-var">clbi</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-148"></span><span>        </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-149"></span><span>      </span><span class="hs-special">,</span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefineStr"><span class="hs-identifier hs-var">ifndefDefineStr</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;CURRENT_COMPONENT_ID&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ComponentId -&gt; String
+forall a. Pretty a =&gt; a -&gt; String
+</span><a href="Distribution.Pretty.html#prettyShow"><span class="hs-identifier hs-var">prettyShow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ComponentLocalBuildInfo -&gt; ComponentId
+</span><a href="Distribution.Types.ComponentLocalBuildInfo.html#componentComponentId"><span class="hs-identifier hs-var hs-var">componentComponentId</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679581437"><span class="hs-identifier hs-var">clbi</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>      </span><span class="hs-special">]</span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- | Generate the @CURRENT_PACKAGE_VERSION@ definition for the declared version</span><span>
+</span><span id="line-153"></span><span class="hs-comment">--   of the current package.</span><span>
+</span><span id="line-154"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#generateCurrentPackageVersion"><span class="hs-identifier hs-type">generateCurrentPackageVersion</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Types.PackageDescription.html#PackageDescription"><span class="hs-identifier hs-type">PackageDescription</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-155"></span><span id="generateCurrentPackageVersion"><span class="annot"><span class="annottext">generateCurrentPackageVersion :: PackageDescription -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#generateCurrentPackageVersion"><span class="hs-identifier hs-var hs-var">generateCurrentPackageVersion</span></a></span></span><span> </span><span id="local-6989586621679581433"><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679581433"><span class="hs-identifier hs-var">pd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-156"></span><span>  </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="Distribution.Simple.Build.Macros.html#ifndefDefineStr"><span class="hs-identifier hs-var">ifndefDefineStr</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;CURRENT_PACKAGE_VERSION&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Version -&gt; String
+forall a. Pretty a =&gt; a -&gt; String
+</span><a href="Distribution.Pretty.html#prettyShow"><span class="hs-identifier hs-var">prettyShow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PackageId -&gt; Version
+</span><a href="Distribution.Types.PackageId.html#pkgVersion"><span class="hs-identifier hs-var hs-var">pkgVersion</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PackageDescription -&gt; PackageId
+</span><a href="Distribution.Types.PackageDescription.html#package"><span class="hs-identifier hs-var hs-var">package</span></a></span><span> </span><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679581433"><span class="hs-identifier hs-var">pd</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#fixchar"><span class="hs-identifier hs-type">fixchar</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-159"></span><span id="fixchar"><span class="annot"><span class="annottext">fixchar :: Char -&gt; Char
+</span><a href="Distribution.Simple.Build.Macros.html#fixchar"><span class="hs-identifier hs-var hs-var">fixchar</span></a></span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'-'</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'_'</span></span><span>
+</span><span id="line-160"></span><span class="annot"><a href="Distribution.Simple.Build.Macros.html#fixchar"><span class="hs-identifier hs-var">fixchar</span></a></span><span> </span><span id="local-6989586621679581431"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679581431"><span class="hs-identifier hs-var">c</span></a></span></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679581431"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-161"></span></pre></body></html>

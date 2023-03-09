@@ -1,0 +1,276 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings  #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Module:      Database.PostgreSQL.Simple.Cursor</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Copyright:   (c) 2011-2012 Leon P Smith</span><span>
+</span><span id="line-7"></span><span class="hs-comment">--              (c) 2017 Bardur Arantsson</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- License:     BSD3</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Maintainer:  Leon P Smith &lt;leon@melding-monads.com&gt;</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.PostgreSQL.Simple.Cursor</span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">(</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Types</span></span><span>
+</span><span id="line-16"></span><span>      </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier">Cursor</span></a></span><span>
+</span><span id="line-17"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Cursor management</span></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#declareCursor"><span class="hs-identifier">declareCursor</span></a></span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#closeCursor"><span class="hs-identifier">closeCursor</span></a></span><span>
+</span><span id="line-20"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Folding over rows from a cursor</span></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#foldForward"><span class="hs-identifier">foldForward</span></a></span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#foldForwardWithParser"><span class="hs-identifier">foldForwardWithParser</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">intDec</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Applicative</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(&lt;$&gt;)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">E</span></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">unless</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">void</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Monoid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">mconcat</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.Compat.html"><span class="hs-identifier">Database.PostgreSQL.Simple.Compat</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(&lt;&gt;)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Compat.html#toByteString"><span class="hs-identifier">toByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.FromRow.html"><span class="hs-identifier">Database.PostgreSQL.Simple.FromRow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.FromRow.html#FromRow"><span class="hs-identifier">FromRow</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.Types.html"><span class="hs-identifier">Database.PostgreSQL.Simple.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.Types.html#Query"><span class="hs-identifier">Query</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html"><span class="hs-identifier">Database.PostgreSQL.Simple.Internal</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Base</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#result"><span class="hs-identifier">result</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#row"><span class="hs-identifier">row</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.PQResultUtils.html"><span class="hs-identifier">Database.PostgreSQL.Simple.Internal.PQResultUtils</span></a></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.Transaction.html"><span class="hs-identifier">Database.PostgreSQL.Simple.Transaction</span></a></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier">Database.PostgreSQL.LibPQ</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">PQ</span></span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- | Cursor within a transaction.</span><span>
+</span><span id="line-39"></span><span class="hs-keyword">data</span><span> </span><span id="Cursor"><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Cursor"><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Database.PostgreSQL.Simple.Types.html#Query"><span class="hs-identifier hs-type">Query</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#Connection"><span class="hs-identifier hs-type">Connection</span></a></span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- | Declare a temporary cursor. The cursor is given a</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- unique name for the given connection.</span><span>
+</span><span id="line-43"></span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#declareCursor"><span class="hs-identifier hs-type">declareCursor</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#Connection"><span class="hs-identifier hs-type">Connection</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Types.html#Query"><span class="hs-identifier hs-type">Query</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-44"></span><span id="declareCursor"><span class="annot"><span class="annottext">declareCursor :: Connection -&gt; Query -&gt; IO Cursor
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#declareCursor"><span class="hs-identifier hs-var hs-var">declareCursor</span></a></span></span><span> </span><span id="local-6989586621679134308"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134308"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span id="local-6989586621679134307"><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134307"><span class="hs-identifier hs-var">q</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-45"></span><span>  </span><span id="local-6989586621679134306"><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134306"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO Query
+</span><a href="Database.PostgreSQL.Simple.Internal.html#newTempName"><span class="hs-identifier hs-var">newTempName</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134308"><span class="hs-identifier hs-var">conn</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="annot"><span class="annottext">IO Int64 -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Int64 -&gt; IO ()) -&gt; IO Int64 -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Connection -&gt; Query -&gt; IO Int64
+</span><a href="Database.PostgreSQL.Simple.Internal.html#execute_"><span class="hs-identifier hs-var">execute_</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134308"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">(Query -&gt; IO Int64) -&gt; Query -&gt; IO Int64
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Query] -&gt; Query
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mconcat</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot;DECLARE &quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134306"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot; NO SCROLL CURSOR FOR &quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134307"><span class="hs-identifier hs-var">q</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-47"></span><span>  </span><span class="annot"><span class="annottext">Cursor -&gt; IO Cursor
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Cursor -&gt; IO Cursor) -&gt; Cursor -&gt; IO Cursor
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Query -&gt; Connection -&gt; Cursor
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134306"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134308"><span class="hs-identifier hs-var">conn</span></a></span><span>
+</span><span id="line-48"></span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- | Close the given cursor.</span><span>
+</span><span id="line-50"></span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#closeCursor"><span class="hs-identifier hs-type">closeCursor</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span id="closeCursor"><span class="annot"><span class="annottext">closeCursor :: Cursor -&gt; IO ()
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#closeCursor"><span class="hs-identifier hs-var hs-var">closeCursor</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679134303"><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134303"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679134302"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134302"><span class="hs-identifier hs-var">conn</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO Int64 -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Int64 -&gt; IO ()) -&gt; IO Int64 -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Connection -&gt; Query -&gt; IO Int64
+</span><a href="Database.PostgreSQL.Simple.Internal.html#execute_"><span class="hs-identifier hs-var">execute_</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134302"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot;CLOSE &quot;</span></span><span> </span><span class="annot"><span class="annottext">Query -&gt; Query -&gt; Query
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134303"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; (SqlError -&gt; IO ()) -&gt; IO ()
+forall e a. Exception e =&gt; IO a -&gt; (e -&gt; IO a) -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`E.catch`</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679134300"><span class="annot"><span class="annottext">SqlError
+</span><a href="#local-6989586621679134300"><span class="hs-identifier hs-var">ex</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-53"></span><span>     </span><span class="hs-comment">-- Don't throw exception if CLOSE failed because the transaction is</span><span>
+</span><span id="line-54"></span><span>     </span><span class="hs-comment">-- aborted.  Otherwise, it will throw away the original error.</span><span>
+</span><span id="line-55"></span><span>     </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unless</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SqlError -&gt; Bool
+</span><a href="Database.PostgreSQL.Simple.Errors.html#isFailedTransactionError"><span class="hs-identifier hs-var">isFailedTransactionError</span></a></span><span> </span><span class="annot"><span class="annottext">SqlError
+</span><a href="#local-6989586621679134300"><span class="hs-identifier hs-var">ex</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ()) -&gt; IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">SqlError -&gt; IO ()
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">SqlError
+</span><a href="#local-6989586621679134300"><span class="hs-identifier hs-var">ex</span></a></span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- | Fold over a chunk of rows from the given cursor, calling the</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- supplied fold-like function on each row as it is received. In case</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- the cursor is exhausted, a 'Left' value is returned, otherwise a</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- 'Right' value is returned.</span><span>
+</span><span id="line-61"></span><span id="local-6989586621679134325"><span id="local-6989586621679134326"><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#foldForwardWithParser"><span class="hs-identifier hs-type">foldForwardWithParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#RowParser"><span class="hs-identifier hs-type">RowParser</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134326"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679134325"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134326"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134325"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134325"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134325"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134325"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-62"></span><span id="foldForwardWithParser"><span class="annot"><span class="annottext">foldForwardWithParser :: Cursor
+-&gt; RowParser r -&gt; Int -&gt; (a -&gt; r -&gt; IO a) -&gt; a -&gt; IO (Either a a)
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#foldForwardWithParser"><span class="hs-identifier hs-var hs-var">foldForwardWithParser</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679134297"><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134297"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679134296"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134296"><span class="hs-identifier hs-var">conn</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679134295"><span class="annot"><span class="annottext">RowParser r
+</span><a href="#local-6989586621679134295"><span class="hs-identifier hs-var">parser</span></a></span></span><span> </span><span id="local-6989586621679134294"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679134294"><span class="hs-identifier hs-var">chunkSize</span></a></span></span><span> </span><span id="local-6989586621679134293"><span class="annot"><span class="annottext">a -&gt; r -&gt; IO a
+</span><a href="#local-6989586621679134293"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679134292"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134292"><span class="hs-identifier hs-var">a0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679134291"><span class="annot"><span class="annottext">q :: ByteString
+</span><a href="#local-6989586621679134291"><span class="hs-identifier hs-var hs-var">q</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;FETCH FORWARD &quot;</span></span><span>
+</span><span id="line-64"></span><span>            </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Builder -&gt; ByteString
+</span><a href="Database.PostgreSQL.Simple.Compat.html#toByteString"><span class="hs-identifier hs-var">toByteString</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; ByteString) -&gt; Builder -&gt; ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">intDec</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679134294"><span class="hs-identifier hs-var">chunkSize</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>            </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot; FROM &quot;</span></span><span>
+</span><span id="line-66"></span><span>            </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Query -&gt; ByteString
+</span><a href="Database.PostgreSQL.Simple.Types.html#fromQuery"><span class="hs-identifier hs-var hs-var">fromQuery</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679134297"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-67"></span><span>  </span><span id="local-6989586621679134289"><span class="annot"><span class="annottext">Result
+</span><a href="#local-6989586621679134289"><span class="hs-identifier hs-var">result</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; ByteString -&gt; IO Result
+</span><a href="Database.PostgreSQL.Simple.Internal.html#exec"><span class="hs-identifier hs-var">exec</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134296"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679134291"><span class="hs-identifier hs-var">q</span></a></span><span>
+</span><span id="line-68"></span><span>  </span><span id="local-6989586621679134287"><span class="annot"><span class="annottext">ExecStatus
+</span><a href="#local-6989586621679134287"><span class="hs-identifier hs-var">status</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Result -&gt; IO ExecStatus
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.resultStatus</span></a></span><span> </span><span class="annot"><span class="annottext">Result
+</span><a href="#local-6989586621679134289"><span class="hs-identifier hs-var">result</span></a></span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ExecStatus
+</span><a href="#local-6989586621679134287"><span class="hs-identifier hs-var">status</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-70"></span><span>      </span><span class="annot"><span class="annottext">ExecStatus
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.TuplesOk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-71"></span><span>          </span><span id="local-6989586621679134284"><span class="annot"><span class="annottext">Row
+</span><a href="#local-6989586621679134284"><span class="hs-identifier hs-var">nrows</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Result -&gt; IO Row
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.ntuples</span></a></span><span> </span><span class="annot"><span class="annottext">Result
+</span><a href="#local-6989586621679134289"><span class="hs-identifier hs-var">result</span></a></span><span>
+</span><span id="line-72"></span><span>          </span><span id="local-6989586621679134282"><span class="annot"><span class="annottext">Column
+</span><a href="#local-6989586621679134282"><span class="hs-identifier hs-var">ncols</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Result -&gt; IO Column
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.nfields</span></a></span><span> </span><span class="annot"><span class="annottext">Result
+</span><a href="#local-6989586621679134289"><span class="hs-identifier hs-var">result</span></a></span><span>
+</span><span id="line-73"></span><span>          </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Row
+</span><a href="#local-6989586621679134284"><span class="hs-identifier hs-var">nrows</span></a></span><span> </span><span class="annot"><span class="annottext">Row -&gt; Row -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Row
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-74"></span><span>          </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-75"></span><span>              </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679134279"><span class="annot"><span class="annottext">inner :: a -&gt; Row -&gt; IO a
+</span><a href="#local-6989586621679134279"><span class="hs-identifier hs-var hs-var">inner</span></a></span></span><span> </span><span id="local-6989586621679134278"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134278"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679134277"><span class="annot"><span class="annottext">Row
+</span><a href="#local-6989586621679134277"><span class="hs-identifier hs-var">row</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-76"></span><span>                    </span><span id="local-6989586621679134276"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679134276"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">RowParser r -&gt; Row -&gt; Column -&gt; Connection -&gt; Result -&gt; IO r
+forall r.
+RowParser r -&gt; Row -&gt; Column -&gt; Connection -&gt; Result -&gt; IO r
+</span><a href="Database.PostgreSQL.Simple.Internal.PQResultUtils.html#getRowWith"><span class="hs-identifier hs-var">getRowWith</span></a></span><span> </span><span class="annot"><span class="annottext">RowParser r
+</span><a href="#local-6989586621679134295"><span class="hs-identifier hs-var">parser</span></a></span><span> </span><span class="annot"><span class="annottext">Row
+</span><a href="#local-6989586621679134277"><span class="hs-identifier hs-var">row</span></a></span><span> </span><span class="annot"><span class="annottext">Column
+</span><a href="#local-6989586621679134282"><span class="hs-identifier hs-var">ncols</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679134296"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Result
+</span><a href="#local-6989586621679134289"><span class="hs-identifier hs-var">result</span></a></span><span>
+</span><span id="line-77"></span><span>                    </span><span class="annot"><span class="annottext">a -&gt; r -&gt; IO a
+</span><a href="#local-6989586621679134293"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134278"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679134276"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-78"></span><span>              </span><span class="annot"><span class="annottext">a -&gt; Either a a
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; Either a a) -&gt; IO a -&gt; IO (Either a a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; Row -&gt; IO a) -&gt; a -&gt; Row -&gt; Row -&gt; IO a
+forall n a.
+(Ord n, Num n) =&gt;
+(a -&gt; n -&gt; IO a) -&gt; a -&gt; n -&gt; n -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#foldM%27"><span class="hs-identifier hs-var">foldM'</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Row -&gt; IO a
+</span><a href="#local-6989586621679134279"><span class="hs-identifier hs-var">inner</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134292"><span class="hs-identifier hs-var">a0</span></a></span><span> </span><span class="annot"><span class="annottext">Row
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Row
+</span><a href="#local-6989586621679134284"><span class="hs-identifier hs-var">nrows</span></a></span><span> </span><span class="annot"><span class="annottext">Row -&gt; Row -&gt; Row
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Row
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>          </span><span class="hs-keyword">else</span><span>
+</span><span id="line-80"></span><span>            </span><span class="annot"><span class="annottext">Either a a -&gt; IO (Either a a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Either a a -&gt; IO (Either a a)) -&gt; Either a a -&gt; IO (Either a a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Either a a
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134292"><span class="hs-identifier hs-var">a0</span></a></span><span>
+</span><span id="line-81"></span><span>      </span><span class="annot"><span class="annottext">ExecStatus
+</span><span class="hs-identifier">_</span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Result -&gt; ExecStatus -&gt; IO (Either a a)
+forall a. ByteString -&gt; Result -&gt; ExecStatus -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Internal.html#throwResultError"><span class="hs-identifier hs-var">throwResultError</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;foldForwardWithParser&quot;</span></span><span> </span><span class="annot"><span class="annottext">Result
+</span><a href="#local-6989586621679134289"><span class="hs-identifier hs-var">result</span></a></span><span> </span><span class="annot"><span class="annottext">ExecStatus
+</span><a href="#local-6989586621679134287"><span class="hs-identifier hs-var">status</span></a></span><span>
+</span><span id="line-82"></span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- | Fold over a chunk of rows, calling the supplied fold-like function</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- on each row as it is received. In case the cursor is exhausted,</span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- a 'Left' value is returned, otherwise a 'Right' value is returned.</span><span>
+</span><span id="line-86"></span><span id="local-6989586621679134271"><span id="local-6989586621679134272"><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#foldForward"><span class="hs-identifier hs-type">foldForward</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.FromRow.html#FromRow"><span class="hs-identifier hs-type">FromRow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134272"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679134271"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134272"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134271"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134271"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134271"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134271"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-87"></span><span id="foldForward"><span class="annot"><span class="annottext">foldForward :: Cursor -&gt; Int -&gt; (a -&gt; r -&gt; IO a) -&gt; a -&gt; IO (Either a a)
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#foldForward"><span class="hs-identifier hs-var hs-var">foldForward</span></a></span></span><span> </span><span id="local-6989586621679134270"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679134270"><span class="hs-identifier hs-var">cursor</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor
+-&gt; RowParser r -&gt; Int -&gt; (a -&gt; r -&gt; IO a) -&gt; a -&gt; IO (Either a a)
+forall r a.
+Cursor
+-&gt; RowParser r -&gt; Int -&gt; (a -&gt; r -&gt; IO a) -&gt; a -&gt; IO (Either a a)
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#foldForwardWithParser"><span class="hs-identifier hs-var">foldForwardWithParser</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679134270"><span class="hs-identifier hs-var">cursor</span></a></span><span> </span><span class="annot"><span class="annottext">RowParser r
+forall a. FromRow a =&gt; RowParser a
+</span><a href="Database.PostgreSQL.Simple.FromRow.html#fromRow"><span class="hs-identifier hs-var">fromRow</span></a></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span id="local-6989586621679134331"><span id="local-6989586621679134332"><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#foldM%27"><span class="hs-identifier hs-type">foldM'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134332"><span class="hs-identifier hs-type">n</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Num</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134332"><span class="hs-identifier hs-type">n</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679134331"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134332"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134331"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134331"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134332"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679134332"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679134331"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-91"></span><span id="foldM%27"><span class="annot"><span class="annottext">foldM' :: (a -&gt; n -&gt; IO a) -&gt; a -&gt; n -&gt; n -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Cursor.html#foldM%27"><span class="hs-identifier hs-var hs-var">foldM'</span></a></span></span><span> </span><span id="local-6989586621679134268"><span class="annot"><span class="annottext">a -&gt; n -&gt; IO a
+</span><a href="#local-6989586621679134268"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679134267"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134267"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679134266"><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134266"><span class="hs-identifier hs-var">lo</span></a></span></span><span> </span><span id="local-6989586621679134265"><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134265"><span class="hs-identifier hs-var">hi</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; n -&gt; IO a
+</span><a href="#local-6989586621679134264"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134267"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134266"><span class="hs-identifier hs-var">lo</span></a></span><span>
+</span><span id="line-92"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-93"></span><span>    </span><span id="local-6989586621679134264"><span class="annot"><span class="annottext">loop :: a -&gt; n -&gt; IO a
+</span><a href="#local-6989586621679134264"><span class="hs-identifier hs-var hs-var">loop</span></a></span></span><span> </span><span id="local-6989586621679134263"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134263"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679134262"><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134262"><span class="hs-identifier hs-var">n</span></a></span></span><span>
+</span><span id="line-94"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134262"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">n -&gt; n -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134265"><span class="hs-identifier hs-var">hi</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; IO a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134263"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-95"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-96"></span><span>           </span><span id="local-6989586621679134261"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134261"><span class="hs-identifier hs-var">x'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">a -&gt; n -&gt; IO a
+</span><a href="#local-6989586621679134268"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134263"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134262"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-97"></span><span>           </span><span class="annot"><span class="annottext">a -&gt; n -&gt; IO a
+</span><a href="#local-6989586621679134264"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679134261"><span class="hs-identifier hs-var">x'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">n
+</span><a href="#local-6989586621679134262"><span class="hs-identifier hs-var">n</span></a></span><span class="annot"><span class="annottext">n -&gt; n -&gt; n
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">n
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-98"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Cursor.html#foldM%27"><span class="hs-pragma hs-type">foldM'</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-99"></span></pre></body></html>

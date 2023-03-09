@@ -1,0 +1,271 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE RankNTypes #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.Vector.Shuffle</span><span>
+</span><span id="line-5"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Simple</span></span><span>
+</span><span id="line-6"></span><span>      </span><span class="annot"><a href="Data.Vector.Shuffle.html#shuffle"><span class="hs-identifier">shuffle</span></a></span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span>      </span><span class="annot"><span class="hs-comment">-- * Advanced</span></span><span>
+</span><span id="line-9"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Vector.Shuffle.html#mkSeed"><span class="hs-identifier">mkSeed</span></a></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Vector.Shuffle.html#shuffleWith"><span class="hs-identifier">shuffleWith</span></a></span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forM_</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">Control.Monad.Trans.Class</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">lift</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">Control.Monad.Trans.State.Strict</span></a></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">evalStateT</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">state</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Crypto.Hash</span></a></span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">hash</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Crypto.Hash.Algorithms</span></a></span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">MD5</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../vector/html/src"><span class="hs-identifier">Data.Vector.Mutable</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../vector/html/src"><span class="hs-identifier">IOVector</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Word</span></a></span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Word8</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">System.Random</span></a></span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">RandomGen</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">newStdGen</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">randomR</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../memory/html/src"><span class="hs-identifier">Data.ByteArray</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BA</span></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Encoding</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../vector/html/src"><span class="hs-identifier">Data.Vector</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">V</span></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../vector/html/src"><span class="hs-identifier">Data.Vector.Mutable</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">MV</span></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- | Generate a random generator seed from a text string</span><span>
+</span><span id="line-42"></span><span class="annot"><a href="Data.Vector.Shuffle.html#mkSeed"><span class="hs-identifier hs-type">mkSeed</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-43"></span><span id="mkSeed"><span class="annot"><span class="annottext">mkSeed :: Text -&gt; Int
+</span><a href="Data.Vector.Shuffle.html#mkSeed"><span class="hs-identifier hs-var hs-var">mkSeed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><a href="#local-6989586621682478905"><span class="hs-identifier hs-var">toInt</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Int) -&gt; (Text -&gt; ByteString) -&gt; Text -&gt; Int
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><a href="#local-6989586621682478903"><span class="hs-identifier hs-var">quickHash</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString)
+-&gt; (Text -&gt; ByteString) -&gt; Text -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.encodeUtf16LE</span></a></span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-45"></span><span>    </span><span id="local-6989586621682478903"><span class="annot"><span class="annottext">quickHash :: ByteString -&gt; ByteString
+</span><a href="#local-6989586621682478903"><span class="hs-identifier hs-var hs-var">quickHash</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Digest MD5 -&gt; ByteString
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.convert</span></a></span><span> </span><span class="annot"><span class="annottext">(Digest MD5 -&gt; ByteString)
+-&gt; (ByteString -&gt; Digest MD5) -&gt; ByteString -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteArrayAccess ByteString, HashAlgorithm MD5) =&gt;
+ByteString -&gt; Digest MD5
+forall ba a.
+(ByteArrayAccess ba, HashAlgorithm a) =&gt;
+ba -&gt; Digest a
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-var">hash</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-type">MD5</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span id="local-6989586621682478905"><span class="annot"><span class="annottext">toInt :: ByteString -&gt; Int
+</span><a href="#local-6989586621682478905"><span class="hs-identifier hs-var hs-var">toInt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Int)
+-&gt; (ByteString -&gt; (Int, Int)) -&gt; ByteString -&gt; Int
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Word8 -&gt; (Int, Int))
+-&gt; (Int, Int) -&gt; ByteString -&gt; (Int, Int)
+forall a. (a -&gt; Word8 -&gt; a) -&gt; a -&gt; ByteString -&gt; a
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.foldl'</span></a></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Word8 -&gt; (Int, Int)
+</span><a href="#local-6989586621682478899"><span class="hs-identifier hs-var">exponentiation</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-48"></span><span>        </span><span class="annot"><a href="#local-6989586621682478899"><span class="hs-identifier hs-type">exponentiation</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span>        </span><span id="local-6989586621682478899"><span class="annot"><span class="annottext">exponentiation :: (Int, Int) -&gt; Word8 -&gt; (Int, Int)
+</span><a href="#local-6989586621682478899"><span class="hs-identifier hs-var hs-var">exponentiation</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621682478898"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478898"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682478897"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478897"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621682478896"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621682478896"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478898"><span class="hs-identifier hs-var">e</span></a></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478897"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Int
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621682478896"><span class="hs-identifier hs-var">i</span></a></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">2</span></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a b. (Num a, Integral b) =&gt; a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">^</span></a></span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478898"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- | Shuffles a list of elements.</span><span>
+</span><span id="line-52"></span><span class="hs-comment">--</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- &gt;&gt;&gt; shuffle (outputs coinSel)</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- [...]</span><span>
+</span><span id="line-55"></span><span id="local-6989586621682478892"><span class="annot"><a href="Data.Vector.Shuffle.html#shuffle"><span class="hs-identifier hs-type">shuffle</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621682478892"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621682478892"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-56"></span><span id="shuffle"><span class="annot"><span class="annottext">shuffle :: [a] -&gt; IO [a]
+</span><a href="Data.Vector.Shuffle.html#shuffle"><span class="hs-identifier hs-var hs-var">shuffle</span></a></span></span><span> </span><span id="local-6989586621682478891"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621682478891"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO StdGen
+forall (m :: * -&gt; *). MonadIO m =&gt; m StdGen
+</span><a href="../../../../random/html/src"><span class="hs-identifier hs-var">newStdGen</span></a></span><span> </span><span class="annot"><span class="annottext">IO StdGen -&gt; (StdGen -&gt; IO [a]) -&gt; IO [a]
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(StdGen -&gt; [a] -&gt; IO [a]) -&gt; [a] -&gt; StdGen -&gt; IO [a]
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">StdGen -&gt; [a] -&gt; IO [a]
+forall g a. RandomGen g =&gt; g -&gt; [a] -&gt; IO [a]
+</span><a href="Data.Vector.Shuffle.html#shuffleWith"><span class="hs-identifier hs-var">shuffleWith</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621682478891"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- | Like 'shuffle', but from a given seed. 'shuffle' will use a randomly</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- generate seed using 'newStdGen' from @System.Random@.</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- __Properties:__</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- - @shuffleWith g es == shuffleWith g es@</span><span>
+</span><span id="line-64"></span><span class="hs-comment">-- - @&#8707;&#916;&gt; 1. g &#8800;g', length es &gt; &#916;&#8658; shuffleWith g es &#8800;shuffleWith g' es@</span><span>
+</span><span id="line-65"></span><span id="local-6989586621682478963"><span id="local-6989586621682478965"><span class="annot"><a href="Data.Vector.Shuffle.html#shuffleWith"><span class="hs-identifier hs-type">shuffleWith</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier hs-type">RandomGen</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682478965"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682478965"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621682478963"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621682478963"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span></span></span><span>
+</span><span id="line-66"></span><span id="shuffleWith"><span class="annot"><span class="annottext">shuffleWith :: g -&gt; [a] -&gt; IO [a]
+</span><a href="Data.Vector.Shuffle.html#shuffleWith"><span class="hs-identifier hs-var hs-var">shuffleWith</span></a></span></span><span> </span><span id="local-6989586621682478889"><span class="annot"><span class="annottext">g
+</span><a href="#local-6989586621682478889"><span class="hs-identifier hs-var">seed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(IOVector a -&gt; IO ()) -&gt; [a] -&gt; IO [a]
+forall a. (IOVector a -&gt; IO ()) -&gt; [a] -&gt; IO [a]
+</span><a href="#local-6989586621682478888"><span class="hs-identifier hs-var">modifyInPlace</span></a></span><span> </span><span class="annot"><span class="annottext">((IOVector a -&gt; IO ()) -&gt; [a] -&gt; IO [a])
+-&gt; (IOVector a -&gt; IO ()) -&gt; [a] -&gt; IO [a]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682478887"><span class="annot"><span class="annottext">IOVector a
+</span><a href="#local-6989586621682478887"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(StateT g IO () -&gt; g -&gt; IO ()) -&gt; g -&gt; StateT g IO () -&gt; IO ()
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">StateT g IO () -&gt; g -&gt; IO ()
+forall (m :: * -&gt; *) s a. Monad m =&gt; StateT s m a -&gt; s -&gt; m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">evalStateT</span></a></span><span> </span><span class="annot"><span class="annottext">g
+</span><a href="#local-6989586621682478889"><span class="hs-identifier hs-var">seed</span></a></span><span> </span><span class="annot"><span class="annottext">(StateT g IO () -&gt; IO ()) -&gt; StateT g IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682478886"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478886"><span class="hs-identifier hs-var">lo</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682478885"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478885"><span class="hs-identifier hs-var">hi</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">IOVector a -&gt; Int
+forall s a. MVector s a -&gt; Int
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">MV.length</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+</span><a href="#local-6989586621682478887"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span>    </span><span class="annot"><span class="annottext">[Int] -&gt; (Int -&gt; StateT g IO ()) -&gt; StateT g IO ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM_</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478886"><span class="hs-identifier hs-var">lo</span></a></span><span> </span><span class="hs-glyph">..</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478885"><span class="hs-identifier hs-var">hi</span></a></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">((Int -&gt; StateT g IO ()) -&gt; StateT g IO ())
+-&gt; (Int -&gt; StateT g IO ()) -&gt; StateT g IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682478883"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478883"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-69"></span><span>      </span><span id="local-6989586621682478882"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478882"><span class="hs-identifier hs-var">j</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Integer -&gt; Int
+forall a. Num a =&gt; Integer -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromInteger</span></a></span><span> </span><span class="annot"><span class="annottext">(Integer -&gt; Int) -&gt; StateT g IO Integer -&gt; StateT g IO Int
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(g -&gt; (Integer, g)) -&gt; StateT g IO Integer
+forall (m :: * -&gt; *) s a. Monad m =&gt; (s -&gt; (a, s)) -&gt; StateT s m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">state</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Integer, Integer) -&gt; g -&gt; (Integer, g)
+forall a g. (Random a, RandomGen g) =&gt; (a, a) -&gt; g -&gt; (a, g)
+</span><a href="../../../../random/html/src"><span class="hs-identifier hs-var">randomR</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Integer
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478886"><span class="hs-identifier hs-var">lo</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Integer
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478885"><span class="hs-identifier hs-var">hi</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span>      </span><span class="annot"><span class="annottext">IO () -&gt; StateT g IO ()
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; StateT g IO ()) -&gt; IO () -&gt; StateT g IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a -&gt; Int -&gt; Int -&gt; IO ()
+forall a. IOVector a -&gt; Int -&gt; Int -&gt; IO ()
+</span><a href="#local-6989586621682478880"><span class="hs-identifier hs-var">swapElems</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+</span><a href="#local-6989586621682478887"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478883"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478882"><span class="hs-identifier hs-var">j</span></a></span><span>
+</span><span id="line-71"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-72"></span><span>    </span><span id="local-6989586621682478931"><span class="annot"><a href="#local-6989586621682478880"><span class="hs-identifier hs-type">swapElems</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../vector/html/src"><span class="hs-identifier hs-type">IOVector</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682478931"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621682478880"><span class="annot"><span class="annottext">swapElems :: IOVector a -&gt; Int -&gt; Int -&gt; IO ()
+</span><a href="#local-6989586621682478880"><span class="hs-identifier hs-var hs-var">swapElems</span></a></span></span><span> </span><span id="local-6989586621682478879"><span class="annot"><span class="annottext">IOVector a
+</span><a href="#local-6989586621682478879"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span id="local-6989586621682478878"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478878"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621682478877"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478877"><span class="hs-identifier hs-var">j</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-74"></span><span>        </span><span id="local-6989586621682478876"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682478876"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MVector (PrimState IO) a -&gt; Int -&gt; IO a
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MVector (PrimState m) a -&gt; Int -&gt; m a
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">MV.read</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+MVector (PrimState IO) a
+</span><a href="#local-6989586621682478879"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478878"><span class="hs-identifier hs-var">i</span></a></span><span>
+</span><span id="line-75"></span><span>        </span><span id="local-6989586621682478874"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682478874"><span class="hs-identifier hs-var">y</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MVector (PrimState IO) a -&gt; Int -&gt; IO a
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MVector (PrimState m) a -&gt; Int -&gt; m a
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">MV.read</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+MVector (PrimState IO) a
+</span><a href="#local-6989586621682478879"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478877"><span class="hs-identifier hs-var">j</span></a></span><span>
+</span><span id="line-76"></span><span>        </span><span class="annot"><span class="annottext">MVector (PrimState IO) a -&gt; Int -&gt; a -&gt; IO ()
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MVector (PrimState m) a -&gt; Int -&gt; a -&gt; m ()
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">MV.write</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+MVector (PrimState IO) a
+</span><a href="#local-6989586621682478879"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478878"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682478874"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><span class="annottext">MVector (PrimState IO) a -&gt; Int -&gt; a -&gt; IO ()
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MVector (PrimState m) a -&gt; Int -&gt; a -&gt; m ()
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">MV.write</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+MVector (PrimState IO) a
+</span><a href="#local-6989586621682478879"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682478877"><span class="hs-identifier hs-var">j</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682478876"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span>    </span><span class="annot"><a href="#local-6989586621682478888"><span class="hs-identifier hs-type">modifyInPlace</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621682478959"><span class="annot"><a href="#local-6989586621682478959"><span class="hs-identifier hs-type">a</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../vector/html/src"><span class="hs-identifier hs-type">IOVector</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682478959"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621682478959"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621682478959"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621682478888"><span class="annot"><span class="annottext">modifyInPlace :: (IOVector a -&gt; IO ()) -&gt; [a] -&gt; IO [a]
+</span><a href="#local-6989586621682478888"><span class="hs-identifier hs-var hs-var">modifyInPlace</span></a></span></span><span> </span><span id="local-6989586621682478872"><span class="annot"><span class="annottext">IOVector a -&gt; IO ()
+</span><a href="#local-6989586621682478872"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621682478871"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621682478871"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-81"></span><span>        </span><span id="local-6989586621682478870"><span class="annot"><span class="annottext">IOVector a
+</span><a href="#local-6989586621682478870"><span class="hs-identifier hs-var">v'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Vector a -&gt; IO (MVector (PrimState IO) a)
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+Vector a -&gt; m (MVector (PrimState m) a)
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">V.thaw</span></a></span><span> </span><span class="annot"><span class="annottext">(Vector a -&gt; IO (MVector (PrimState IO) a))
+-&gt; Vector a -&gt; IO (MVector (PrimState IO) a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[a] -&gt; Vector a
+forall a. [a] -&gt; Vector a
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">V.fromList</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621682478871"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-82"></span><span>        </span><span class="annot"><span class="annottext">IOVector a -&gt; IO ()
+</span><a href="#local-6989586621682478872"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+</span><a href="#local-6989586621682478870"><span class="hs-identifier hs-var">v'</span></a></span><span>
+</span><span id="line-83"></span><span>        </span><span class="annot"><span class="annottext">Vector a -&gt; [a]
+forall a. Vector a -&gt; [a]
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">V.toList</span></a></span><span> </span><span class="annot"><span class="annottext">(Vector a -&gt; [a]) -&gt; IO (Vector a) -&gt; IO [a]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">MVector (PrimState IO) a -&gt; IO (Vector a)
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MVector (PrimState m) a -&gt; m (Vector a)
+</span><a href="../../../../vector/html/src"><span class="hs-identifier hs-var">V.freeze</span></a></span><span> </span><span class="annot"><span class="annottext">IOVector a
+MVector (PrimState IO) a
+</span><a href="#local-6989586621682478870"><span class="hs-identifier hs-var">v'</span></a></span><span>
+</span><span id="line-84"></span></pre></body></html>

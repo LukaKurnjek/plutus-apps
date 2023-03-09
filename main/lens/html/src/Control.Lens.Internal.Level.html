@@ -1,0 +1,670 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span id="%24con2tag_Da6l1MdZOke1EOem8gFcph"></span><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE GADTs #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE Rank2Types #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses #-}</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Module      :  Control.Lens.Internal.Level</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Copyright   :  (C) 2012-2016 Edward Kmett</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- License     :  BSD-style (see the file LICENSE)</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- Maintainer  :  Edward Kmett &lt;ekmett@gmail.com&gt;</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- Stability   :  experimental</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- Portability :  non-portable</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- This module provides implementation details of the combinators in</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- &quot;Control.Lens.Level&quot;, which provides for the breadth-first 'Control.Lens.Traversal.Traversal' of</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- an arbitrary 'Control.Lens.Traversal.Traversal'.</span><span>
+</span><span id="line-20"></span><span class="hs-comment">----------------------------------------------------------------------------</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Control.Lens.Internal.Level</span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-special">(</span><span>
+</span><span id="line-23"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Levels</span></span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier">Level</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier">Deepening</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#deepening"><span class="hs-identifier">deepening</span></a></span><span>
+</span><span id="line-26"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier">Flows</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Prelude.html"><span class="hs-identifier">Control.Lens.Internal.Prelude</span></a></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../semigroupoids/html/src"><span class="hs-identifier">Data.Functor.Apply</span></a></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier">Data.Functor.WithIndex</span></a></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier">Data.Foldable.WithIndex</span></a></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier">Data.Traversable.WithIndex</span></a></span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- Levels</span><span>
+</span><span id="line-39"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- | This data type represents a path-compressed copy of one level of a source</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- data structure. We can safely use path-compression because we know the depth</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- of the tree.</span><span>
+</span><span id="line-44"></span><span class="hs-comment">--</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- Path compression is performed by viewing a 'Level' as a PATRICIA trie of the</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- paths into the structure to leaves at a given depth, similar in many ways</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- to a 'Data.IntMap.IntMap', but unlike a regular PATRICIA trie we do not need</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- to store the mask bits merely the depth of the fork.</span><span>
+</span><span id="line-49"></span><span class="hs-comment">--</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- One invariant of this structure is that underneath a 'Two' node you will not</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- find any 'Zero' nodes, so 'Zero' can only occur at the root.</span><span>
+</span><span id="line-52"></span><span class="hs-keyword">data</span><span> </span><span id="Level"><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-var">Level</span></a></span></span><span> </span><span id="local-6989586621679317985"><span class="annot"><a href="#local-6989586621679317985"><span class="hs-identifier hs-type">i</span></a></span></span><span> </span><span id="local-6989586621679317984"><span class="annot"><a href="#local-6989586621679317984"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="Two"><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span></span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Word</span></a></span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317985"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317984"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317985"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317984"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="One"><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-var">One</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679317985"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317984"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-55"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="Zero"><span class="annot"><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679317765"><span id="local-6989586621679317767"><span class="annot"><span class="annottext">Level i a -&gt; Level i a -&gt; Bool
+(Level i a -&gt; Level i a -&gt; Bool)
+-&gt; (Level i a -&gt; Level i a -&gt; Bool) -&gt; Eq (Level i a)
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+forall i a. (Eq i, Eq a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+/= :: Level i a -&gt; Level i a -&gt; Bool
+$c/= :: forall i a. (Eq i, Eq a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+== :: Level i a -&gt; Level i a -&gt; Bool
+$c== :: forall i a. (Eq i, Eq a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span id="local-6989586621679317749"><span id="local-6989586621679317751"><span id="local-6989586621679317753"><span id="local-6989586621679317755"><span id="local-6989586621679317757"><span id="local-6989586621679317759"><span id="local-6989586621679317761"><span class="annot"><span class="annottext">Eq (Level i a)
+Eq (Level i a)
+-&gt; (Level i a -&gt; Level i a -&gt; Ordering)
+-&gt; (Level i a -&gt; Level i a -&gt; Bool)
+-&gt; (Level i a -&gt; Level i a -&gt; Bool)
+-&gt; (Level i a -&gt; Level i a -&gt; Bool)
+-&gt; (Level i a -&gt; Level i a -&gt; Bool)
+-&gt; (Level i a -&gt; Level i a -&gt; Level i a)
+-&gt; (Level i a -&gt; Level i a -&gt; Level i a)
+-&gt; Ord (Level i a)
+Level i a -&gt; Level i a -&gt; Bool
+Level i a -&gt; Level i a -&gt; Ordering
+Level i a -&gt; Level i a -&gt; Level i a
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+forall i a. (Ord i, Ord a) =&gt; Eq (Level i a)
+forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Ordering
+forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Level i a
+min :: Level i a -&gt; Level i a -&gt; Level i a
+$cmin :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Level i a
+max :: Level i a -&gt; Level i a -&gt; Level i a
+$cmax :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Level i a
+&gt;= :: Level i a -&gt; Level i a -&gt; Bool
+$c&gt;= :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+&gt; :: Level i a -&gt; Level i a -&gt; Bool
+$c&gt; :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+&lt;= :: Level i a -&gt; Level i a -&gt; Bool
+$c&lt;= :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+&lt; :: Level i a -&gt; Level i a -&gt; Bool
+$c&lt; :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Bool
+compare :: Level i a -&gt; Level i a -&gt; Ordering
+$ccompare :: forall i a. (Ord i, Ord a) =&gt; Level i a -&gt; Level i a -&gt; Ordering
+$cp1Ord :: forall i a. (Ord i, Ord a) =&gt; Eq (Level i a)
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></a></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679317742"><span id="local-6989586621679317744"><span id="local-6989586621679317746"><span class="annot"><span class="annottext">Int -&gt; Level i a -&gt; ShowS
+[Level i a] -&gt; ShowS
+Level i a -&gt; String
+(Int -&gt; Level i a -&gt; ShowS)
+-&gt; (Level i a -&gt; String)
+-&gt; ([Level i a] -&gt; ShowS)
+-&gt; Show (Level i a)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall i a. (Show i, Show a) =&gt; Int -&gt; Level i a -&gt; ShowS
+forall i a. (Show i, Show a) =&gt; [Level i a] -&gt; ShowS
+forall i a. (Show i, Show a) =&gt; Level i a -&gt; String
+showList :: [Level i a] -&gt; ShowS
+$cshowList :: forall i a. (Show i, Show a) =&gt; [Level i a] -&gt; ShowS
+show :: Level i a -&gt; String
+$cshow :: forall i a. (Show i, Show a) =&gt; Level i a -&gt; String
+showsPrec :: Int -&gt; Level i a -&gt; ShowS
+$cshowsPrec :: forall i a. (Show i, Show a) =&gt; Int -&gt; Level i a -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679317733"><span id="local-6989586621679317735"><span id="local-6989586621679317737"><span id="local-6989586621679317739"><span class="annot"><span class="annottext">ReadPrec [Level i a]
+ReadPrec (Level i a)
+Int -&gt; ReadS (Level i a)
+ReadS [Level i a]
+(Int -&gt; ReadS (Level i a))
+-&gt; ReadS [Level i a]
+-&gt; ReadPrec (Level i a)
+-&gt; ReadPrec [Level i a]
+-&gt; Read (Level i a)
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+forall i a. (Read i, Read a) =&gt; ReadPrec [Level i a]
+forall i a. (Read i, Read a) =&gt; ReadPrec (Level i a)
+forall i a. (Read i, Read a) =&gt; Int -&gt; ReadS (Level i a)
+forall i a. (Read i, Read a) =&gt; ReadS [Level i a]
+readListPrec :: ReadPrec [Level i a]
+$creadListPrec :: forall i a. (Read i, Read a) =&gt; ReadPrec [Level i a]
+readPrec :: ReadPrec (Level i a)
+$creadPrec :: forall i a. (Read i, Read a) =&gt; ReadPrec (Level i a)
+readList :: ReadS [Level i a]
+$creadList :: forall i a. (Read i, Read a) =&gt; ReadS [Level i a]
+readsPrec :: Int -&gt; ReadS (Level i a)
+$creadsPrec :: forall i a. (Read i, Read a) =&gt; Int -&gt; ReadS (Level i a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- | Append a pair of 'Level' values to get a new 'Level' with path compression.</span><span>
+</span><span id="line-59"></span><span class="hs-comment">--</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- As the 'Level' type is user-visible, we do not expose this as an illegal</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- 'Semigroup' instance, and just use it directly in 'Deepening' as needed.</span><span>
+</span><span id="line-62"></span><span id="local-6989586621679317846"><span id="local-6989586621679317847"><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-type">lappend</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317847"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317846"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317847"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317846"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317847"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317846"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-63"></span><span id="lappend"><span class="annot"><span class="annottext">lappend :: Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var hs-var">lappend</span></a></span></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>
+</span><span id="line-64"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var">lappend</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span id="local-6989586621679317730"><span class="annot"><span class="annottext">r :: Level i a
+</span><a href="#local-6989586621679317730"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-glyph">@</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span class="hs-special">{</span><span class="hs-special">}</span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317730"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-65"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var">lappend</span></a></span><span> </span><span id="local-6989586621679317729"><span class="annot"><span class="annottext">l :: Level i a
+</span><a href="#local-6989586621679317729"><span class="hs-identifier hs-var">l</span></a></span></span><span class="hs-glyph">@</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span class="hs-special">{</span><span class="hs-special">}</span><span>     </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317729"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-66"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var">lappend</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317728"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317728"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317727"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317727"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317726"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317726"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317728"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Word -&gt; Word -&gt; Word
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317727"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317726"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-67"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var">lappend</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317724"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317724"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317723"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317723"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317722"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317722"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317724"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Word -&gt; Word -&gt; Word
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317723"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317722"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-68"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var">lappend</span></a></span><span> </span><span id="local-6989586621679317721"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317721"><span class="hs-identifier hs-var">l</span></a></span></span><span>           </span><span id="local-6989586621679317720"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317720"><span class="hs-identifier hs-var">r</span></a></span></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317721"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317720"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-69"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-pragma hs-type">lappend</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span id="local-6989586621679317719"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317716"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Functor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317719"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-72"></span><span>  </span><span id="local-6989586621679317714"><span class="annot"><span class="annottext">fmap :: (a -&gt; b) -&gt; Level i a -&gt; Level i b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">fmap</span></a></span></span><span> </span><span id="local-6989586621679317713"><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679317713"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317712"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621679317712"><span class="annot"><span class="annottext">go :: Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317712"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317711"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317711"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317710"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317710"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317709"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317709"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i b -&gt; Level i b -&gt; Level i b
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317711"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317712"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317710"><span class="hs-identifier hs-var">l</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317712"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317709"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span>    </span><span class="annot"><a href="#local-6989586621679317712"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span> </span><span id="local-6989586621679317708"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317708"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679317707"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317707"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; b -&gt; Level i b
+forall i a. i -&gt; a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-var">One</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317708"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679317713"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317707"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><a href="#local-6989586621679317712"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>
+</span><span id="line-76"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">fmap</span></a></span><span> </span><span class="hs-pragma">#-}</span></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span id="local-6989586621679317706"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317673"><span id="local-6989586621679317675"><span id="local-6989586621679317677"><span id="local-6989586621679317679"><span id="local-6989586621679317681"><span id="local-6989586621679317683"><span id="local-6989586621679317685"><span id="local-6989586621679317687"><span id="local-6989586621679317689"><span id="local-6989586621679317691"><span id="local-6989586621679317693"><span id="local-6989586621679317695"><span id="local-6989586621679317697"><span id="local-6989586621679317699"><span id="local-6989586621679317701"><span id="local-6989586621679317704"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Foldable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317706"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-79"></span><span>  </span><span id="local-6989586621679317671"><span class="annot"><span class="annottext">foldMap :: (a -&gt; m) -&gt; Level i a -&gt; m
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">foldMap</span></a></span></span><span> </span><span id="local-6989586621679317669"><span class="annot"><span class="annottext">a -&gt; m
+</span><a href="#local-6989586621679317669"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; m
+</span><a href="#local-6989586621679317668"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621679317668"><span class="annot"><span class="annottext">go :: Level i a -&gt; m
+</span><a href="#local-6989586621679317668"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679317667"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317667"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317666"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317666"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; m
+</span><a href="#local-6989586621679317668"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317667"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">m -&gt; m -&gt; m
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; m
+</span><a href="#local-6989586621679317668"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317666"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><a href="#local-6989586621679317668"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679317665"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317665"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; m
+</span><a href="#local-6989586621679317669"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317665"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-82"></span><span>    </span><span class="annot"><a href="#local-6989586621679317668"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-83"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">foldMap</span></a></span><span> </span><span class="hs-pragma">#-}</span></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span id="local-6989586621679317664"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317655"><span id="local-6989586621679317657"><span id="local-6989586621679317659"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Traversable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317664"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-86"></span><span>  </span><span id="local-6989586621679317653"><span class="annot"><span class="annottext">traverse :: (a -&gt; f b) -&gt; Level i a -&gt; f (Level i b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">traverse</span></a></span></span><span> </span><span id="local-6989586621679317651"><span class="annot"><span class="annottext">a -&gt; f b
+</span><a href="#local-6989586621679317651"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317650"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-87"></span><span>    </span><span id="local-6989586621679317650"><span class="annot"><span class="annottext">go :: Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317650"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317649"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317649"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317648"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317648"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317647"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317647"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i b -&gt; Level i b -&gt; Level i b
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317649"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">(Level i b -&gt; Level i b -&gt; Level i b)
+-&gt; f (Level i b) -&gt; f (Level i b -&gt; Level i b)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317650"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317648"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">f (Level i b -&gt; Level i b) -&gt; f (Level i b) -&gt; f (Level i b)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317650"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317647"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-88"></span><span>    </span><span class="annot"><a href="#local-6989586621679317650"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span> </span><span id="local-6989586621679317645"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317645"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679317644"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317644"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; b -&gt; Level i b
+forall i a. i -&gt; a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-var">One</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317645"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">(b -&gt; Level i b) -&gt; f b -&gt; f (Level i b)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; f b
+</span><a href="#local-6989586621679317651"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317644"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-89"></span><span>    </span><span class="annot"><a href="#local-6989586621679317650"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b -&gt; f (Level i b)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Level i b
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">traverse</span></a></span><span> </span><span class="hs-pragma">#-}</span></span><span>
+</span><span id="line-91"></span><span>
+</span><span id="line-92"></span><span id="local-6989586621679317643"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier hs-type">FunctorWithIndex</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317643"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317643"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-93"></span><span>  </span><span id="local-6989586621679317639"><span class="annot"><span class="annottext">imap :: (i -&gt; a -&gt; b) -&gt; Level i a -&gt; Level i b
+</span><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">imap</span></a></span></span><span> </span><span id="local-6989586621679317637"><span class="annot"><span class="annottext">i -&gt; a -&gt; b
+</span><a href="#local-6989586621679317637"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317636"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-94"></span><span>    </span><span id="local-6989586621679317636"><span class="annot"><span class="annottext">go :: Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317636"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317635"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317635"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317634"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317634"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317633"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317633"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i b -&gt; Level i b -&gt; Level i b
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317635"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317636"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317634"><span class="hs-identifier hs-var">l</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i a -&gt; Level i b
+</span><a href="#local-6989586621679317636"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317633"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span>    </span><span class="annot"><a href="#local-6989586621679317636"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span> </span><span id="local-6989586621679317632"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317632"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679317631"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317631"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; b -&gt; Level i b
+forall i a. i -&gt; a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-var">One</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317632"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">i -&gt; a -&gt; b
+</span><a href="#local-6989586621679317637"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317632"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317631"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>    </span><span class="annot"><a href="#local-6989586621679317636"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-pragma hs-type">imap</span></a></span><span> </span><span class="hs-pragma">#-}</span></span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span id="local-6989586621679317630"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317618"><span id="local-6989586621679317620"><span id="local-6989586621679317622"><span id="local-6989586621679317624"><span id="local-6989586621679317626"><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier hs-type">FoldableWithIndex</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317630"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317630"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span></span></span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-100"></span><span>  </span><span id="local-6989586621679317616"><span class="annot"><span class="annottext">ifoldMap :: (i -&gt; a -&gt; m) -&gt; Level i a -&gt; m
+</span><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">ifoldMap</span></a></span></span><span> </span><span id="local-6989586621679317614"><span class="annot"><span class="annottext">i -&gt; a -&gt; m
+</span><a href="#local-6989586621679317614"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; m
+</span><a href="#local-6989586621679317613"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-101"></span><span>    </span><span id="local-6989586621679317613"><span class="annot"><span class="annottext">go :: Level i a -&gt; m
+</span><a href="#local-6989586621679317613"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679317612"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317612"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317611"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317611"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; m
+</span><a href="#local-6989586621679317613"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317612"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">m -&gt; m -&gt; m
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; m
+</span><a href="#local-6989586621679317613"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317611"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-102"></span><span>    </span><span class="annot"><a href="#local-6989586621679317613"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span> </span><span id="local-6989586621679317610"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317610"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679317609"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317609"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; a -&gt; m
+</span><a href="#local-6989586621679317614"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317610"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317609"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-103"></span><span>    </span><span class="annot"><a href="#local-6989586621679317613"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-104"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-pragma hs-type">ifoldMap</span></a></span><span> </span><span class="hs-pragma">#-}</span></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span id="local-6989586621679317608"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier hs-type">TraversableWithIndex</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317608"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317608"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-107"></span><span>  </span><span id="local-6989586621679317602"><span class="annot"><span class="annottext">itraverse :: (i -&gt; a -&gt; f b) -&gt; Level i a -&gt; f (Level i b)
+</span><a href="../../../../indexed-traversable/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">itraverse</span></a></span></span><span> </span><span id="local-6989586621679317600"><span class="annot"><span class="annottext">i -&gt; a -&gt; f b
+</span><a href="#local-6989586621679317600"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317599"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-108"></span><span>    </span><span id="local-6989586621679317599"><span class="annot"><span class="annottext">go :: Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317599"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317598"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317598"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317597"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317597"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317596"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317596"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i b -&gt; Level i b -&gt; Level i b
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317598"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">(Level i b -&gt; Level i b -&gt; Level i b)
+-&gt; f (Level i b) -&gt; f (Level i b -&gt; Level i b)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317599"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317597"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">f (Level i b -&gt; Level i b) -&gt; f (Level i b) -&gt; f (Level i b)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; f (Level i b)
+</span><a href="#local-6989586621679317599"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317596"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-109"></span><span>    </span><span class="annot"><a href="#local-6989586621679317599"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-type">One</span></a></span><span> </span><span id="local-6989586621679317595"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317595"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679317594"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317594"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; b -&gt; Level i b
+forall i a. i -&gt; a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-var">One</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317595"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">(b -&gt; Level i b) -&gt; f b -&gt; f (Level i b)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">i -&gt; a -&gt; f b
+</span><a href="#local-6989586621679317600"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317595"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317594"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-110"></span><span>    </span><span class="annot"><a href="#local-6989586621679317599"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b -&gt; f (Level i b)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Level i b
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span>
+</span><span id="line-111"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../indexed-traversable/html/src"><span class="hs-pragma hs-type">itraverse</span></a></span><span> </span><span class="hs-pragma">#-}</span></span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- Generating Levels</span><span>
+</span><span id="line-115"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- | This is an illegal 'Monoid' used to construct a single 'Level'.</span><span>
+</span><span id="line-118"></span><span class="hs-keyword">newtype</span><span> </span><span id="Deepening"><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-var">Deepening</span></a></span></span><span> </span><span id="local-6989586621679317853"><span class="annot"><a href="#local-6989586621679317853"><span class="hs-identifier hs-type">i</span></a></span></span><span> </span><span id="local-6989586621679317852"><span class="annot"><a href="#local-6989586621679317852"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Deepening"><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-var">Deepening</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="runDeepening"><span class="annot"><span class="annottext">Deepening i a -&gt; forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+</span><a href="Control.Lens.Internal.Level.html#runDeepening"><span class="hs-identifier hs-var hs-var">runDeepening</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679317860"><span class="annot"><a href="#local-6989586621679317860"><span class="hs-identifier hs-type">r</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317853"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317852"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679317860"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679317860"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-119"></span><span>
+</span><span id="line-120"></span><span id="local-6989586621679317590"><span id="local-6989586621679317591"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317585"><span id="local-6989586621679317587"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-type">Deepening</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317591"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317590"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-121"></span><span>  </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-type">Deepening</span></a></span><span> </span><span id="local-6989586621679317583"><span class="annot"><span class="annottext">forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+</span><a href="#local-6989586621679317583"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317582"><span class="annot"><span class="annottext">&lt;&gt; :: Deepening i a -&gt; Deepening i a -&gt; Deepening i a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;&gt;</span></a></span></span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-type">Deepening</span></a></span><span> </span><span id="local-6989586621679317581"><span class="annot"><span class="annottext">forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+</span><a href="#local-6989586621679317581"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a
+forall i a.
+(forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a
+</span><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-var">Deepening</span></a></span><span> </span><span class="annot"><span class="annottext">((forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a)
+-&gt; (forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r)
+-&gt; Deepening i a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span> </span><span id="local-6989586621679317580"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317580"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317579"><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317579"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317580"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-122"></span><span>    </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317579"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-123"></span><span>    </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679317578"><span class="annot"><span class="annottext">n' :: Int
+</span><a href="#local-6989586621679317578"><span class="hs-identifier hs-var hs-var">n'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317580"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+</span><a href="#local-6989586621679317583"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317578"><span class="hs-identifier hs-var">n'</span></a></span><span> </span><span class="annot"><span class="annottext">((Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679317577"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317577"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679317576"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679317576"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+</span><a href="#local-6989586621679317581"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317578"><span class="hs-identifier hs-var">n'</span></a></span><span> </span><span class="annot"><span class="annottext">((Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679317575"><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317575"><span class="hs-identifier hs-var">y</span></a></span></span><span> </span><span id="local-6989586621679317574"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679317574"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317579"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i a -&gt; Level i a -&gt; Level i a
+forall i a. Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#lappend"><span class="hs-identifier hs-var">lappend</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317577"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+</span><a href="#local-6989586621679317575"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679317576"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679317574"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="hs-pragma">(</span><span class="hs-pragma">&lt;&gt;</span><span class="hs-pragma">)</span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- | This is an illegal 'Monoid'.</span><span>
+</span><span id="line-127"></span><span id="local-6989586621679317571"><span id="local-6989586621679317572"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317565"><span id="local-6989586621679317567"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-type">Deepening</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317572"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317571"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-128"></span><span>  </span><span id="local-6989586621679317563"><span class="annot"><span class="annottext">mempty :: Deepening i a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a
+forall i a.
+(forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a
+</span><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-var">Deepening</span></a></span><span> </span><span class="annot"><span class="annottext">((forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a)
+-&gt; (forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r)
+-&gt; Deepening i a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679317562"><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317562"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317562"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Level i a
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-129"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">mempty</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span class="hs-cpp">
+#if !(MIN_VERSION_base(4,11,0))
+</span><span>  </span><span class="hs-identifier">mappend</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Deepening</span><span> </span><span class="hs-identifier">l</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Deepening</span><span> </span><span class="hs-identifier">r</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">Deepening</span><span> </span><span class="hs-operator">$</span><span> </span><span class="hs-glyph">\</span><span> </span><span class="hs-identifier">n</span><span> </span><span class="hs-identifier">k</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="hs-identifier">n</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-number">0</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">k</span><span> </span><span class="hs-identifier">Zero</span><span> </span><span class="hs-identifier">True</span><span>
+</span><span id="line-133"></span><span>    </span><span class="hs-identifier">_</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">let</span><span> </span><span class="hs-identifier">n'</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">n</span><span> </span><span class="hs-glyph">-</span><span> </span><span class="hs-number">1</span><span> </span><span class="hs-keyword">in</span><span> </span><span class="hs-identifier">l</span><span> </span><span class="hs-identifier">n'</span><span> </span><span class="hs-operator">$</span><span> </span><span class="hs-glyph">\</span><span class="hs-identifier">x</span><span> </span><span class="hs-identifier">a</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">r</span><span> </span><span class="hs-identifier">n'</span><span> </span><span class="hs-operator">$</span><span> </span><span class="hs-glyph">\</span><span class="hs-identifier">y</span><span> </span><span class="hs-identifier">b</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">k</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">lappend</span><span> </span><span class="hs-identifier">x</span><span> </span><span class="hs-identifier">y</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">a</span><span> </span><span class="hs-operator">||</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span>
+</span><span id="line-134"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="hs-pragma">mappend</span><span> </span><span class="hs-pragma">#-}</span><span class="hs-cpp">
+#endif
+</span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- | Generate the leaf of a given 'Deepening' based on whether or not we're at the correct depth.</span><span>
+</span><span id="line-138"></span><span id="local-6989586621679317560"><span id="local-6989586621679317561"><span class="annot"><a href="Control.Lens.Internal.Level.html#deepening"><span class="hs-identifier hs-type">deepening</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679317561"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679317560"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-type">Deepening</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317561"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317560"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-139"></span><span id="deepening"><span class="annot"><span class="annottext">deepening :: i -&gt; a -&gt; Deepening i a
+</span><a href="Control.Lens.Internal.Level.html#deepening"><span class="hs-identifier hs-var hs-var">deepening</span></a></span></span><span> </span><span id="local-6989586621679317559"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317559"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679317558"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317558"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a
+forall i a.
+(forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a
+</span><a href="Control.Lens.Internal.Level.html#Deepening"><span class="hs-identifier hs-var">Deepening</span></a></span><span> </span><span class="annot"><span class="annottext">((forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r) -&gt; Deepening i a)
+-&gt; (forall r. Int -&gt; (Level i a -&gt; Bool -&gt; r) -&gt; r)
+-&gt; Deepening i a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679317557"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317557"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317556"><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317556"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Level i a -&gt; Bool -&gt; r
+</span><a href="#local-6989586621679317556"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679317557"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">i -&gt; a -&gt; Level i a
+forall i a. i -&gt; a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#One"><span class="hs-identifier hs-var">One</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679317559"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317558"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Level i a
+forall i a. Level i a
+</span><a href="Control.Lens.Internal.Level.html#Zero"><span class="hs-identifier hs-var">Zero</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-140"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#deepening"><span class="hs-pragma hs-type">deepening</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-141"></span><span>
+</span><span id="line-142"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-143"></span><span class="hs-comment">-- Reassembling Levels</span><span>
+</span><span id="line-144"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-145"></span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- | This is an illegal 'Applicative' used to replace the contents of a list of consecutive 'Level' values</span><span>
+</span><span id="line-147"></span><span class="hs-comment">-- representing each layer of a structure into the original shape that they were derived from.</span><span>
+</span><span id="line-148"></span><span class="hs-comment">--</span><span>
+</span><span id="line-149"></span><span class="hs-comment">-- Attempting to 'Flow' something back into a shape other than the one it was taken from will fail.</span><span>
+</span><span id="line-150"></span><span class="hs-keyword">newtype</span><span> </span><span id="Flows"><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-var">Flows</span></a></span></span><span> </span><span id="local-6989586621679317829"><span class="annot"><a href="#local-6989586621679317829"><span class="hs-identifier hs-type">i</span></a></span></span><span> </span><span id="local-6989586621679317828"><span class="annot"><a href="#local-6989586621679317828"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span id="local-6989586621679317827"><span class="annot"><a href="#local-6989586621679317827"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Flows"><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-var">Flows</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="runFlows"><span class="annot"><span class="annottext">Flows i b a -&gt; [Level i b] -&gt; a
+</span><a href="Control.Lens.Internal.Level.html#runFlows"><span class="hs-identifier hs-var hs-var">runFlows</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317829"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317828"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679317827"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span id="local-6989586621679317552"><span id="local-6989586621679317553"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317549"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Functor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317553"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317552"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-153"></span><span>  </span><span id="local-6989586621679317548"><span class="annot"><span class="annottext">fmap :: (a -&gt; b) -&gt; Flows i b a -&gt; Flows i b b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">fmap</span></a></span></span><span> </span><span id="local-6989586621679317547"><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679317547"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span id="local-6989586621679317546"><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317546"><span class="hs-identifier hs-var">g</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Level i b] -&gt; b) -&gt; Flows i b b
+forall i b a. ([Level i b] -&gt; a) -&gt; Flows i b a
+</span><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-var">Flows</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679317547"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; b) -&gt; ([Level i b] -&gt; a) -&gt; [Level i b] -&gt; b
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317546"><span class="hs-identifier hs-var">g</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-154"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">fmap</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-155"></span><span>
+</span><span id="line-156"></span><span class="hs-comment">-- | Walk down one constructor in a 'Level', veering left.</span><span>
+</span><span id="line-157"></span><span id="local-6989586621679317795"><span id="local-6989586621679317796"><span class="annot"><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-identifier hs-type">triml</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317796"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317795"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317796"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317795"><span class="hs-identifier hs-type">b</span></a></span></span></span><span>
+</span><span id="line-158"></span><span id="triml"><span class="annot"><span class="annottext">triml :: Level i b -&gt; Level i b
+</span><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-identifier hs-var hs-var">triml</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">0</span></span><span> </span><span id="local-6989586621679317543"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317543"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317543"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-159"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-identifier hs-var">triml</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317542"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317542"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317541"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317541"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317540"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317540"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i b -&gt; Level i b -&gt; Level i b
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317542"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Word -&gt; Word -&gt; Word
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317541"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317540"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-160"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-identifier hs-var">triml</span></a></span><span> </span><span id="local-6989586621679317539"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317539"><span class="hs-identifier hs-var">x</span></a></span></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317539"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-161"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-pragma hs-type">triml</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-162"></span><span>
+</span><span id="line-163"></span><span class="hs-comment">-- | Walk down one constructor in a 'Level', veering right.</span><span>
+</span><span id="line-164"></span><span id="local-6989586621679317537"><span id="local-6989586621679317538"><span class="annot"><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-identifier hs-type">trimr</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317538"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317537"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Level"><span class="hs-identifier hs-type">Level</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317538"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317537"><span class="hs-identifier hs-type">b</span></a></span></span></span><span>
+</span><span id="line-165"></span><span id="trimr"><span class="annot"><span class="annottext">trimr :: Level i b -&gt; Level i b
+</span><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-identifier hs-var hs-var">trimr</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679317535"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317535"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317535"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-166"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-identifier hs-var">trimr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-type">Two</span></a></span><span> </span><span id="local-6989586621679317534"><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317534"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679317533"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317533"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679317532"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317532"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word -&gt; Level i b -&gt; Level i b -&gt; Level i b
+forall i a. Word -&gt; Level i a -&gt; Level i a -&gt; Level i a
+</span><a href="Control.Lens.Internal.Level.html#Two"><span class="hs-identifier hs-var">Two</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word
+</span><a href="#local-6989586621679317534"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Word -&gt; Word -&gt; Word
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Word
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317533"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317532"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-167"></span><span class="annot"><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-identifier hs-var">trimr</span></a></span><span> </span><span id="local-6989586621679317531"><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317531"><span class="hs-identifier hs-var">x</span></a></span></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Level i b
+</span><a href="#local-6989586621679317531"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-168"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-pragma hs-type">trimr</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span id="local-6989586621679317529"><span id="local-6989586621679317530"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317521"><span id="local-6989586621679317523"><span id="local-6989586621679317525"><span class="annot"><a href="../../../../semigroupoids/html/src"><span class="hs-identifier hs-type">Apply</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317530"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317529"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-171"></span><span>  </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span id="local-6989586621679317519"><span class="annot"><span class="annottext">[Level i b] -&gt; a -&gt; b
+</span><a href="#local-6989586621679317519"><span class="hs-identifier hs-var">mf</span></a></span></span><span> </span><span id="local-6989586621679317518"><span class="annot"><span class="annottext">&lt;.&gt; :: Flows i b (a -&gt; b) -&gt; Flows i b a -&gt; Flows i b b
+</span><a href="../../../../semigroupoids/html/src"><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;.&gt;</span></a></span></span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span id="local-6989586621679317516"><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317516"><span class="hs-identifier hs-var">ma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Level i b] -&gt; b) -&gt; Flows i b b
+forall i b a. ([Level i b] -&gt; a) -&gt; Flows i b a
+</span><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-var">Flows</span></a></span><span> </span><span class="annot"><span class="annottext">(([Level i b] -&gt; b) -&gt; Flows i b b)
+-&gt; ([Level i b] -&gt; b) -&gt; Flows i b b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span> </span><span id="local-6989586621679317515"><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317515"><span class="hs-identifier hs-var">xss</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317515"><span class="hs-identifier hs-var">xss</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-172"></span><span>    </span><span class="hs-special">[</span><span class="hs-special">]</span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a -&gt; b
+</span><a href="#local-6989586621679317519"><span class="hs-identifier hs-var">mf</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317516"><span class="hs-identifier hs-var">ma</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i b
+</span><span class="hs-identifier">_</span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679317514"><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317514"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a -&gt; b
+</span><a href="#local-6989586621679317519"><span class="hs-identifier hs-var">mf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i b -&gt; Level i b
+forall i b. Level i b -&gt; Level i b
+</span><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-identifier hs-var">triml</span></a></span><span> </span><span class="annot"><span class="annottext">(Level i b -&gt; Level i b) -&gt; [Level i b] -&gt; [Level i b]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317514"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(a -&gt; b) -&gt; a -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317516"><span class="hs-identifier hs-var">ma</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i b -&gt; Level i b
+forall i b. Level i b -&gt; Level i b
+</span><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-identifier hs-var">trimr</span></a></span><span> </span><span class="annot"><span class="annottext">(Level i b -&gt; Level i b) -&gt; [Level i b] -&gt; [Level i b]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317514"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-174"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="hs-pragma">(</span><span class="hs-pragma">&lt;.&gt;</span><span class="hs-pragma">)</span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-175"></span><span>
+</span><span id="line-176"></span><span class="hs-comment">-- | This is an illegal 'Applicative'.</span><span>
+</span><span id="line-177"></span><span id="local-6989586621679317512"><span id="local-6989586621679317513"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679317503"><span id="local-6989586621679317505"><span id="local-6989586621679317507"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Applicative</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317513"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679317512"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-178"></span><span>  </span><span id="local-6989586621679317501"><span class="annot"><span class="annottext">pure :: a -&gt; Flows i b a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">pure</span></a></span></span><span> </span><span id="local-6989586621679317500"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317500"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Level i b] -&gt; a) -&gt; Flows i b a
+forall i b a. ([Level i b] -&gt; a) -&gt; Flows i b a
+</span><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-var">Flows</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; [Level i b] -&gt; a
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679317500"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-179"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">pure</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-180"></span><span>  </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span id="local-6989586621679317498"><span class="annot"><span class="annottext">[Level i b] -&gt; a -&gt; b
+</span><a href="#local-6989586621679317498"><span class="hs-identifier hs-var">mf</span></a></span></span><span> </span><span id="local-6989586621679317497"><span class="annot"><span class="annottext">&lt;*&gt; :: Flows i b (a -&gt; b) -&gt; Flows i b a -&gt; Flows i b b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;*&gt;</span></a></span></span><span> </span><span class="annot"><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-type">Flows</span></a></span><span> </span><span id="local-6989586621679317496"><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317496"><span class="hs-identifier hs-var">ma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Level i b] -&gt; b) -&gt; Flows i b b
+forall i b a. ([Level i b] -&gt; a) -&gt; Flows i b a
+</span><a href="Control.Lens.Internal.Level.html#Flows"><span class="hs-identifier hs-var">Flows</span></a></span><span> </span><span class="annot"><span class="annottext">(([Level i b] -&gt; b) -&gt; Flows i b b)
+-&gt; ([Level i b] -&gt; b) -&gt; Flows i b b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span> </span><span id="local-6989586621679317495"><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317495"><span class="hs-identifier hs-var">xss</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317495"><span class="hs-identifier hs-var">xss</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-181"></span><span>    </span><span class="hs-special">[</span><span class="hs-special">]</span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a -&gt; b
+</span><a href="#local-6989586621679317498"><span class="hs-identifier hs-var">mf</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317496"><span class="hs-identifier hs-var">ma</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-182"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i b
+</span><span class="hs-identifier">_</span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679317494"><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317494"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a -&gt; b
+</span><a href="#local-6989586621679317498"><span class="hs-identifier hs-var">mf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i b -&gt; Level i b
+forall i b. Level i b -&gt; Level i b
+</span><a href="Control.Lens.Internal.Level.html#triml"><span class="hs-identifier hs-var">triml</span></a></span><span> </span><span class="annot"><span class="annottext">(Level i b -&gt; Level i b) -&gt; [Level i b] -&gt; [Level i b]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317494"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(a -&gt; b) -&gt; a -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b] -&gt; a
+</span><a href="#local-6989586621679317496"><span class="hs-identifier hs-var">ma</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Level i b -&gt; Level i b
+forall i b. Level i b -&gt; Level i b
+</span><a href="Control.Lens.Internal.Level.html#trimr"><span class="hs-identifier hs-var">trimr</span></a></span><span> </span><span class="annot"><span class="annottext">(Level i b -&gt; Level i b) -&gt; [Level i b] -&gt; [Level i b]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Level i b]
+</span><a href="#local-6989586621679317494"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-183"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="hs-pragma">(</span><span class="hs-pragma">&lt;*&gt;</span><span class="hs-pragma">)</span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-184"></span></pre></body></html>

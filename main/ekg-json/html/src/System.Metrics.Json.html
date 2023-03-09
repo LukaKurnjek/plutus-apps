@@ -1,0 +1,381 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- | Encoding of ekg metrics as JSON. The encoding defined by the</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- functions in this module are standardized and used by the ekg web</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- UI. The purpose of this module is to let other web servers and</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- frameworks than the one used by the ekg package expose ekg metrics.</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">System.Metrics.Json</span><span>
+</span><span id="line-8"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Converting metrics to JSON values</span></span><span>
+</span><span id="line-9"></span><span>      </span><span class="annot"><a href="System.Metrics.Json.html#sampleToJson"><span class="hs-identifier">sampleToJson</span></a></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier">valueToJson</span></a></span><span>
+</span><span id="line-11"></span><span>
+</span><span id="line-12"></span><span>      </span><span class="annot"><span class="hs-comment">-- ** Newtype wrappers with instances</span></span><span>
+</span><span id="line-13"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#Sample"><span class="hs-identifier">Sample</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#Value"><span class="hs-identifier">Value</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-16"></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-operator">(.=)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson.Types</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">A</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson.KeyMap</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">M</span></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson.Key</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">K</span></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../unordered-containers/html/src"><span class="hs-identifier">Data.HashMap.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">HM</span></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Int</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Int64</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier">System.Metrics</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Metrics</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier">System.Metrics.Distribution</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Distribution</span></span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-comment">------------------------------------------------------------------------</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- * Converting metrics to JSON values</span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- | Encode metrics as nested JSON objects. Each &quot;.&quot; in the metric</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- name introduces a new level of nesting. For example, the metrics</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- @[(&quot;foo.bar&quot;, 10), (&quot;foo.baz&quot;, &quot;label&quot;)]@ are encoded as</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- &gt; {</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- &gt;   &quot;foo&quot;: {</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- &gt;     &quot;bar&quot;: {</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- &gt;       &quot;type:&quot;, &quot;c&quot;,</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- &gt;       &quot;val&quot;: 10</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- &gt;     },</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- &gt;     &quot;baz&quot;: {</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- &gt;       &quot;type&quot;: &quot;l&quot;,</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- &gt;       &quot;val&quot;: &quot;label&quot;</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- &gt;     }</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- &gt;   }</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- &gt; }</span><span>
+</span><span id="line-47"></span><span class="hs-comment">--</span><span>
+</span><span id="line-48"></span><span class="annot"><a href="System.Metrics.Json.html#sampleToJson"><span class="hs-identifier hs-type">sampleToJson</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Sample</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>
+</span><span id="line-49"></span><span id="sampleToJson"><span class="annot"><span class="annottext">sampleToJson :: Sample -&gt; Value
+</span><a href="System.Metrics.Json.html#sampleToJson"><span class="hs-identifier hs-var hs-var">sampleToJson</span></a></span></span><span> </span><span id="local-6989586621679070110"><span class="annot"><span class="annottext">Sample
+</span><a href="#local-6989586621679070110"><span class="hs-identifier hs-var">metrics</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-50"></span><span>    </span><span class="annot"><span class="annottext">Sample -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070109"><span class="hs-identifier hs-var">buildOne</span></a></span><span> </span><span class="annot"><span class="annottext">Sample
+</span><a href="#local-6989586621679070110"><span class="hs-identifier hs-var">metrics</span></a></span><span> </span><span class="annot"><span class="annottext">(Value -&gt; Value) -&gt; Value -&gt; Value
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.emptyObject</span></a></span><span>
+</span><span id="line-51"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-52"></span><span>    </span><span class="annot"><a href="#local-6989586621679070109"><span class="hs-identifier hs-type">buildOne</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../unordered-containers/html/src"><span class="hs-identifier hs-type">HM.HashMap</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">T.Text</span></a></span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span id="local-6989586621679070109"><span class="annot"><span class="annottext">buildOne :: Sample -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070109"><span class="hs-identifier hs-var hs-var">buildOne</span></a></span></span><span> </span><span id="local-6989586621679070107"><span class="annot"><span class="annottext">Sample
+</span><a href="#local-6989586621679070107"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span id="local-6989586621679070106"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070106"><span class="hs-identifier hs-var">o</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Value -&gt; Text -&gt; Value -&gt; Value) -&gt; Value -&gt; Sample -&gt; Value
+forall a k v. (a -&gt; k -&gt; v -&gt; a) -&gt; a -&gt; HashMap k v -&gt; a
+</span><a href="../../../../unordered-containers/html/src"><span class="hs-identifier hs-var">HM.foldlWithKey'</span></a></span><span> </span><span class="annot"><span class="annottext">Value -&gt; Text -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070104"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070106"><span class="hs-identifier hs-var">o</span></a></span><span> </span><span class="annot"><span class="annottext">Sample
+</span><a href="#local-6989586621679070107"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span>    </span><span class="annot"><a href="#local-6989586621679070104"><span class="hs-identifier hs-type">build</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">T.Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>
+</span><span id="line-56"></span><span>    </span><span id="local-6989586621679070104"><span class="annot"><span class="annottext">build :: Value -&gt; Text -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070104"><span class="hs-identifier hs-var hs-var">build</span></a></span></span><span> </span><span id="local-6989586621679070103"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070103"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span id="local-6989586621679070102"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679070102"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679070101"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070101"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Value -&gt; [Key] -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070100"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070103"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Text -&gt; Key) -&gt; [Text] -&gt; [Key]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Key
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">K.fromText</span></a></span><span> </span><span class="annot"><span class="annottext">([Text] -&gt; [Key]) -&gt; [Text] -&gt; [Key]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; [Text]
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.splitOn</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;.&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679070102"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070101"><span class="hs-identifier hs-var">val</span></a></span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span>    </span><span class="annot"><a href="#local-6989586621679070100"><span class="hs-identifier hs-type">go</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Key</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span id="local-6989586621679070100"><span class="annot"><span class="annottext">go :: Value -&gt; [Key] -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070100"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Object</span></a></span><span> </span><span id="local-6989586621679070096"><span class="annot"><span class="annottext">Object
+</span><a href="#local-6989586621679070096"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">[</span><span id="local-6989586621679070095"><span class="annot"><span class="annottext">Key
+</span><a href="#local-6989586621679070095"><span class="hs-identifier hs-var">str</span></a></span></span><span class="hs-special">]</span><span> </span><span id="local-6989586621679070094"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070094"><span class="hs-identifier hs-var">val</span></a></span></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Object -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.Object</span></a></span><span> </span><span class="annot"><span class="annottext">(Object -&gt; Value) -&gt; Object -&gt; Value
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Value -&gt; Object -&gt; Object
+forall v. Key -&gt; v -&gt; KeyMap v -&gt; KeyMap v
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">M.insert</span></a></span><span> </span><span class="annot"><span class="annottext">Key
+</span><a href="#local-6989586621679070095"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070092"><span class="hs-identifier hs-var">metric</span></a></span><span> </span><span class="annot"><span class="annottext">Object
+</span><a href="#local-6989586621679070096"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-60"></span><span>      </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679070092"><span class="annot"><span class="annottext">metric :: Value
+</span><a href="#local-6989586621679070092"><span class="hs-identifier hs-var hs-var">metric</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Value -&gt; Value
+</span><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-var">valueToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070094"><span class="hs-identifier hs-var">val</span></a></span><span>
+</span><span id="line-61"></span><span>    </span><span class="annot"><a href="#local-6989586621679070100"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Object</span></a></span><span> </span><span id="local-6989586621679070091"><span class="annot"><span class="annottext">Object
+</span><a href="#local-6989586621679070091"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070090"><span class="annot"><span class="annottext">Key
+</span><a href="#local-6989586621679070090"><span class="hs-identifier hs-var">str</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679070089"><span class="annot"><span class="annottext">[Key]
+</span><a href="#local-6989586621679070089"><span class="hs-identifier hs-var">rest</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679070088"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070088"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Key -&gt; Object -&gt; Maybe Value
+forall v. Key -&gt; KeyMap v -&gt; Maybe v
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">M.lookup</span></a></span><span> </span><span class="annot"><span class="annottext">Key
+</span><a href="#local-6989586621679070090"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="annot"><span class="annottext">Object
+</span><a href="#local-6989586621679070091"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-62"></span><span>        </span><span class="annot"><span class="annottext">Maybe Value
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Object -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.Object</span></a></span><span> </span><span class="annot"><span class="annottext">(Object -&gt; Value) -&gt; Object -&gt; Value
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Value -&gt; Object -&gt; Object
+forall v. Key -&gt; v -&gt; KeyMap v -&gt; KeyMap v
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">M.insert</span></a></span><span> </span><span class="annot"><span class="annottext">Key
+</span><a href="#local-6989586621679070090"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Value -&gt; [Key] -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070100"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.emptyObject</span></a></span><span> </span><span class="annot"><span class="annottext">[Key]
+</span><a href="#local-6989586621679070089"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070088"><span class="hs-identifier hs-var">val</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Object
+</span><a href="#local-6989586621679070091"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-63"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679070086"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070086"><span class="hs-identifier hs-var">m'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Object -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.Object</span></a></span><span> </span><span class="annot"><span class="annottext">(Object -&gt; Value) -&gt; Object -&gt; Value
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Value -&gt; Object -&gt; Object
+forall v. Key -&gt; v -&gt; KeyMap v -&gt; KeyMap v
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">M.insert</span></a></span><span> </span><span class="annot"><span class="annottext">Key
+</span><a href="#local-6989586621679070090"><span class="hs-identifier hs-var">str</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Value -&gt; [Key] -&gt; Value -&gt; Value
+</span><a href="#local-6989586621679070100"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070086"><span class="hs-identifier hs-var">m'</span></a></span><span> </span><span class="annot"><span class="annottext">[Key]
+</span><a href="#local-6989586621679070089"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070088"><span class="hs-identifier hs-var">val</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Object
+</span><a href="#local-6989586621679070091"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="annot"><a href="#local-6989586621679070100"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span id="local-6989586621679070085"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070085"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="annot"><span class="annottext">[Key]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Value
+</span><span class="hs-identifier">_</span></span><span>                       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Value -&gt; Value
+forall a. String -&gt; Value -&gt; a
+</span><a href="System.Metrics.Json.html#typeMismatch"><span class="hs-identifier hs-var">typeMismatch</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Object&quot;</span></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070085"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-65"></span><span>
+</span><span id="line-66"></span><span id="local-6989586621679070135"><span class="annot"><a href="System.Metrics.Json.html#typeMismatch"><span class="hs-identifier hs-type">typeMismatch</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>   </span><span class="hs-comment">-- ^ The expected type</span><span>
+</span><span id="line-67"></span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>  </span><span class="hs-comment">-- ^ The actual value encountered</span><span>
+</span><span id="line-68"></span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070135"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-69"></span><span id="typeMismatch"><span class="annot"><span class="annottext">typeMismatch :: String -&gt; Value -&gt; a
+</span><a href="System.Metrics.Json.html#typeMismatch"><span class="hs-identifier hs-var hs-var">typeMismatch</span></a></span></span><span> </span><span id="local-6989586621679070083"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679070083"><span class="hs-identifier hs-var">expected</span></a></span></span><span> </span><span id="local-6989586621679070082"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070082"><span class="hs-identifier hs-var">actual</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; a
+forall a. HasCallStack =&gt; String -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">error</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; a) -&gt; String -&gt; a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;when expecting a &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679070083"><span class="hs-identifier hs-var">expected</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;, encountered &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679070080"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; instead&quot;</span></span><span>
+</span><span id="line-72"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621679070080"><span class="annot"><span class="annottext">name :: String
+</span><a href="#local-6989586621679070080"><span class="hs-identifier hs-var hs-var">name</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070082"><span class="hs-identifier hs-var">actual</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-74"></span><span>        </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Object</span></a></span><span> </span><span class="annot"><span class="annottext">Object
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Object&quot;</span></span><span>
+</span><span id="line-75"></span><span>        </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Array</span></a></span><span> </span><span class="annot"><span class="annottext">Array
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Array&quot;</span></span><span>
+</span><span id="line-76"></span><span>        </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.String</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;String&quot;</span></span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Number</span></a></span><span> </span><span class="annot"><span class="annottext">Scientific
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Number&quot;</span></span><span>
+</span><span id="line-78"></span><span>        </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Bool</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Boolean&quot;</span></span><span>
+</span><span id="line-79"></span><span>        </span><span class="annot"><span class="annottext">Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.Null</span></a></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Null&quot;</span></span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- | Encodes a single metric as a JSON object. Example:</span><span>
+</span><span id="line-82"></span><span class="hs-comment">--</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- &gt; {</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- &gt;   &quot;type&quot;: &quot;c&quot;,</span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- &gt;   &quot;val&quot;: 89460</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- &gt; }</span><span>
+</span><span id="line-87"></span><span class="hs-comment">--</span><span>
+</span><span id="line-88"></span><span class="annot"><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-type">valueToJson</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Value</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>
+</span><span id="line-89"></span><span id="valueToJson"><span class="annot"><span class="annottext">valueToJson :: Value -&gt; Value
+</span><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-var hs-var">valueToJson</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Counter</span></a></span><span> </span><span id="local-6989586621679070073"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679070073"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; MetricType -&gt; Value
+forall a. ToJSON a =&gt; a -&gt; MetricType -&gt; Value
+</span><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-identifier hs-var">scalarToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679070073"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#CounterType"><span class="hs-identifier hs-var">CounterType</span></a></span><span>
+</span><span id="line-90"></span><span class="annot"><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-var">valueToJson</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Gauge</span></a></span><span> </span><span id="local-6989586621679070069"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679070069"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; MetricType -&gt; Value
+forall a. ToJSON a =&gt; a -&gt; MetricType -&gt; Value
+</span><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-identifier hs-var">scalarToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679070069"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#GaugeType"><span class="hs-identifier hs-var">GaugeType</span></a></span><span>
+</span><span id="line-91"></span><span class="annot"><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-var">valueToJson</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Label</span></a></span><span> </span><span id="local-6989586621679070066"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679070066"><span class="hs-identifier hs-var">l</span></a></span></span><span class="hs-special">)</span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; MetricType -&gt; Value
+forall a. ToJSON a =&gt; a -&gt; MetricType -&gt; Value
+</span><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-identifier hs-var">scalarToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679070066"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#LabelType"><span class="hs-identifier hs-var">LabelType</span></a></span><span>
+</span><span id="line-92"></span><span class="annot"><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-var">valueToJson</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Distribution</span></a></span><span> </span><span id="local-6989586621679070063"><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070063"><span class="hs-identifier hs-var">l</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Value
+</span><a href="System.Metrics.Json.html#distrubtionToJson"><span class="hs-identifier hs-var">distrubtionToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070063"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- | Convert a scalar metric (i.e. counter, gauge, or label) to a JSON</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- value.</span><span>
+</span><span id="line-96"></span><span id="local-6989586621679070126"><span class="annot"><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-identifier hs-type">scalarToJson</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.ToJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070126"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070126"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#MetricType"><span class="hs-identifier hs-type">MetricType</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span></span><span>
+</span><span id="line-97"></span><span id="scalarToJson"><span class="annot"><span class="annottext">scalarToJson :: a -&gt; MetricType -&gt; Value
+</span><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-identifier hs-var hs-var">scalarToJson</span></a></span></span><span> </span><span id="local-6989586621679070061"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070061"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span id="local-6989586621679070060"><span class="annot"><span class="annottext">MetricType
+</span><a href="#local-6989586621679070060"><span class="hs-identifier hs-var">ty</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Pair] -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.object</span></a></span><span>
+</span><span id="line-98"></span><span>    </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;val&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; a -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070061"><span class="hs-identifier hs-var">val</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;type&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Text -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType -&gt; Text
+</span><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-var">metricType</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="#local-6989586621679070060"><span class="hs-identifier hs-var">ty</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-99"></span><span class="hs-pragma">{-# SPECIALIZE</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-pragma hs-type">scalarToJson</span></a></span><span> </span><span class="hs-pragma">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-pragma hs-type">Int64</span></a></span><span> </span><span class="hs-pragma">-&gt;</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#MetricType"><span class="hs-pragma hs-type">MetricType</span></a></span><span> </span><span class="hs-pragma">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-pragma hs-type">A.Value</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-100"></span><span class="hs-pragma">{-# SPECIALIZE</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#scalarToJson"><span class="hs-pragma hs-type">scalarToJson</span></a></span><span> </span><span class="hs-pragma">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-pragma hs-type">T.Text</span></a></span><span> </span><span class="hs-pragma">-&gt;</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#MetricType"><span class="hs-pragma hs-type">MetricType</span></a></span><span> </span><span class="hs-pragma">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-pragma hs-type">A.Value</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-101"></span><span>
+</span><span id="line-102"></span><span class="hs-keyword">data</span><span> </span><span id="MetricType"><span class="annot"><a href="System.Metrics.Json.html#MetricType"><span class="hs-identifier hs-var">MetricType</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-103"></span><span>      </span><span id="CounterType"><span class="annot"><a href="System.Metrics.Json.html#CounterType"><span class="hs-identifier hs-var">CounterType</span></a></span></span><span>
+</span><span id="line-104"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="GaugeType"><span class="annot"><a href="System.Metrics.Json.html#GaugeType"><span class="hs-identifier hs-var">GaugeType</span></a></span></span><span>
+</span><span id="line-105"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="LabelType"><span class="annot"><a href="System.Metrics.Json.html#LabelType"><span class="hs-identifier hs-var">LabelType</span></a></span></span><span>
+</span><span id="line-106"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="DistributionType"><span class="annot"><a href="System.Metrics.Json.html#DistributionType"><span class="hs-identifier hs-var">DistributionType</span></a></span></span><span>
+</span><span id="line-107"></span><span>
+</span><span id="line-108"></span><span class="annot"><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-type">metricType</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.Metrics.Json.html#MetricType"><span class="hs-identifier hs-type">MetricType</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">T.Text</span></a></span><span>
+</span><span id="line-109"></span><span id="metricType"><span class="annot"><span class="annottext">metricType :: MetricType -&gt; Text
+</span><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-var hs-var">metricType</span></a></span></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#CounterType"><span class="hs-identifier hs-var">CounterType</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;c&quot;</span></span><span>
+</span><span id="line-110"></span><span class="annot"><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-var">metricType</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#GaugeType"><span class="hs-identifier hs-var">GaugeType</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;g&quot;</span></span><span>
+</span><span id="line-111"></span><span class="annot"><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-var">metricType</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#LabelType"><span class="hs-identifier hs-var">LabelType</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;l&quot;</span></span><span>
+</span><span id="line-112"></span><span class="annot"><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-var">metricType</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#DistributionType"><span class="hs-identifier hs-var">DistributionType</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;d&quot;</span></span><span>
+</span><span id="line-113"></span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- | Convert a distribution to a JSON value.</span><span>
+</span><span id="line-115"></span><span class="annot"><a href="System.Metrics.Json.html#distrubtionToJson"><span class="hs-identifier hs-type">distrubtionToJson</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Distribution.Stats</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.Value</span></a></span><span>
+</span><span id="line-116"></span><span id="distrubtionToJson"><span class="annot"><span class="annottext">distrubtionToJson :: Stats -&gt; Value
+</span><a href="System.Metrics.Json.html#distrubtionToJson"><span class="hs-identifier hs-var hs-var">distrubtionToJson</span></a></span></span><span> </span><span id="local-6989586621679070056"><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Pair] -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">A.object</span></a></span><span>
+</span><span id="line-117"></span><span>    </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;mean&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Double -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Double
+</span><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-var hs-var">Distribution.mean</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span><span>
+</span><span id="line-118"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;variance&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Double -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Double
+</span><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-var hs-var">Distribution.variance</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span><span>
+</span><span id="line-119"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;count&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Int64 -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Int64
+</span><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-var hs-var">Distribution.count</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span><span>
+</span><span id="line-120"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;sum&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Double -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Double
+</span><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-var hs-var">Distribution.sum</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span><span>
+</span><span id="line-121"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;min&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Double -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Double
+</span><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-var hs-var">Distribution.min</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;max&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Double -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">Stats -&gt; Double
+</span><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-var hs-var">Distribution.max</span></a></span><span> </span><span class="annot"><span class="annottext">Stats
+</span><a href="#local-6989586621679070056"><span class="hs-identifier hs-var">stats</span></a></span><span>
+</span><span id="line-123"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Key
+</span><span class="hs-string">&quot;type&quot;</span></span><span> </span><span class="annot"><span class="annottext">Key -&gt; Text -&gt; Pair
+forall kv v. (KeyValue kv, ToJSON v) =&gt; Key -&gt; v -&gt; kv
+</span><a href="../../../../aeson/html/src"><span class="hs-operator hs-var">.=</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType -&gt; Text
+</span><a href="System.Metrics.Json.html#metricType"><span class="hs-identifier hs-var">metricType</span></a></span><span> </span><span class="annot"><span class="annottext">MetricType
+</span><a href="System.Metrics.Json.html#DistributionType"><span class="hs-identifier hs-var">DistributionType</span></a></span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-special">]</span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span class="hs-comment">------------------------------------------------------------------------</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- ** Newtype wrappers with instances</span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- | Newtype wrapper that provides a 'A.ToJSON' instances for the</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- underlying 'Metrics.Sample' without creating an orphan instance.</span><span>
+</span><span id="line-131"></span><span class="hs-keyword">newtype</span><span> </span><span id="Sample"><span class="annot"><a href="System.Metrics.Json.html#Sample"><span class="hs-identifier hs-var">Sample</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Sample"><span class="annot"><a href="System.Metrics.Json.html#Sample"><span class="hs-identifier hs-var">Sample</span></a></span></span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Sample</span></a></span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679070043"><span id="local-6989586621679070045"><span id="local-6989586621679070047"><span class="annot"><span class="annottext">Int -&gt; Sample -&gt; String -&gt; String
+[Sample] -&gt; String -&gt; String
+Sample -&gt; String
+(Int -&gt; Sample -&gt; String -&gt; String)
+-&gt; (Sample -&gt; String)
+-&gt; ([Sample] -&gt; String -&gt; String)
+-&gt; Show Sample
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [Sample] -&gt; String -&gt; String
+$cshowList :: [Sample] -&gt; String -&gt; String
+show :: Sample -&gt; String
+$cshow :: Sample -&gt; String
+showsPrec :: Int -&gt; Sample -&gt; String -&gt; String
+$cshowsPrec :: Int -&gt; Sample -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span>
+</span><span id="line-133"></span><span>
+</span><span id="line-134"></span><span class="hs-comment">-- | Uses 'sampleToJson'.</span><span>
+</span><span id="line-135"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679070035"><span id="local-6989586621679070037"><span id="local-6989586621679070039"><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.ToJSON</span></a></span><span> </span><span class="annot"><a href="System.Metrics.Json.html#Sample"><span class="hs-identifier hs-type">Sample</span></a></span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-136"></span><span>    </span><span id="local-6989586621679070033"><span class="annot"><span class="annottext">toJSON :: Sample -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">toJSON</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.Metrics.Json.html#Sample"><span class="hs-identifier hs-type">Sample</span></a></span><span> </span><span id="local-6989586621679070031"><span class="annot"><span class="annottext">Sample
+</span><a href="#local-6989586621679070031"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Sample -&gt; Value
+</span><a href="System.Metrics.Json.html#sampleToJson"><span class="hs-identifier hs-var">sampleToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Sample
+</span><a href="#local-6989586621679070031"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-137"></span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- | Newtype wrapper that provides a 'A.ToJSON' instances for the</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- underlying 'Metrics.Value' without creating an orphan instance.</span><span>
+</span><span id="line-140"></span><span class="hs-keyword">newtype</span><span> </span><span id="Value"><span class="annot"><a href="System.Metrics.Json.html#Value"><span class="hs-identifier hs-var">Value</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Value"><span class="annot"><a href="System.Metrics.Json.html#Value"><span class="hs-identifier hs-var">Value</span></a></span></span><span> </span><span class="annot"><a href="../../../../ekg-core/html/src"><span class="hs-identifier hs-type">Metrics.Value</span></a></span><span>
+</span><span id="line-141"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679070024"><span id="local-6989586621679070026"><span id="local-6989586621679070028"><span class="annot"><span class="annottext">Int -&gt; Value -&gt; String -&gt; String
+[Value] -&gt; String -&gt; String
+Value -&gt; String
+(Int -&gt; Value -&gt; String -&gt; String)
+-&gt; (Value -&gt; String) -&gt; ([Value] -&gt; String -&gt; String) -&gt; Show Value
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [Value] -&gt; String -&gt; String
+$cshowList :: [Value] -&gt; String -&gt; String
+show :: Value -&gt; String
+$cshow :: Value -&gt; String
+showsPrec :: Int -&gt; Value -&gt; String -&gt; String
+$cshowsPrec :: Int -&gt; Value -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span>
+</span><span id="line-142"></span><span>
+</span><span id="line-143"></span><span class="hs-comment">-- | Uses 'valueToJson'.</span><span>
+</span><span id="line-144"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679070017"><span id="local-6989586621679070019"><span id="local-6989586621679070021"><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">A.ToJSON</span></a></span><span> </span><span class="annot"><a href="System.Metrics.Json.html#Value"><span class="hs-identifier hs-type">Value</span></a></span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-145"></span><span>    </span><span id="local-6989586621679070016"><span class="annot"><span class="annottext">toJSON :: Value -&gt; Value
+</span><a href="#local-6989586621679070016"><span class="hs-identifier hs-var hs-var hs-var hs-var">toJSON</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.Metrics.Json.html#Value"><span class="hs-identifier hs-type">Value</span></a></span><span> </span><span id="local-6989586621679070015"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070015"><span class="hs-identifier hs-var">v</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Value -&gt; Value
+</span><a href="System.Metrics.Json.html#valueToJson"><span class="hs-identifier hs-var">valueToJson</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679070015"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-146"></span></pre></body></html>

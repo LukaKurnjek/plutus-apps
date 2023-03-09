@@ -1,0 +1,610 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- | Interface to @zlib@ and @gzip@ compression for 'Bytestring's and 'Builder's</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE GeneralizedNewtypeDeriving #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">System.IO.Streams.Zlib</span><span>
+</span><span id="line-6"></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * ByteString decompression</span></span><span>
+</span><span id="line-7"></span><span>   </span><span class="annot"><a href="System.IO.Streams.Zlib.html#gunzip"><span class="hs-identifier">gunzip</span></a></span><span>
+</span><span id="line-8"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#decompress"><span class="hs-identifier">decompress</span></a></span><span>
+</span><span id="line-9"></span><span>   </span><span class="annot"><span class="hs-comment">-- * ByteString compression</span></span><span>
+</span><span id="line-10"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#gzip"><span class="hs-identifier">gzip</span></a></span><span>
+</span><span id="line-11"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#compress"><span class="hs-identifier">compress</span></a></span><span>
+</span><span id="line-12"></span><span>   </span><span class="annot"><span class="hs-comment">-- * Builder compression</span></span><span>
+</span><span id="line-13"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#gzipBuilder"><span class="hs-identifier">gzipBuilder</span></a></span><span>
+</span><span id="line-14"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#compressBuilder"><span class="hs-identifier">compressBuilder</span></a></span><span>
+</span><span id="line-15"></span><span>   </span><span class="annot"><span class="hs-comment">-- * Compression level</span></span><span>
+</span><span id="line-16"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier">CompressionLevel</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#defaultCompressionLevel"><span class="hs-identifier">defaultCompressionLevel</span></a></span><span>
+</span><span id="line-18"></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>                  </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>                  </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.IORef</span></a></span><span>                       </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">newIORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">readIORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">writeIORef</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>                          </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">read</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">Codec.Zlib</span></a></span><span>                       </span><span class="hs-special">(</span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">Deflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">Inflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">Popper</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib/html/src"><span class="hs-identifier">WindowBits</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">feedDeflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">feedInflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">finishDeflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">finishInflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">flushDeflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">flushInflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">initDeflate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier">initInflate</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder</span></a></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Builder</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">byteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder.Extra</span></a></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">defaultChunkSize</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">flush</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder.Internal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">newBuffer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="System.IO.Streams.Builder.html"><span class="hs-identifier">System.IO.Streams.Builder</span></a></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Builder.html#unsafeBuilderStream"><span class="hs-identifier">unsafeBuilderStream</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="System.IO.Streams.Internal.html"><span class="hs-identifier">System.IO.Streams.Internal</span></a></span><span>       </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier">InputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier">OutputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#makeInputStream"><span class="hs-identifier">makeInputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#makeOutputStream"><span class="hs-identifier">makeOutputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier">read</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#write"><span class="hs-identifier">write</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span>
+</span><span id="line-35"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-36"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#gzipBits"><span class="hs-identifier hs-type">gzipBits</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../zlib/html/src"><span class="hs-identifier hs-type">WindowBits</span></a></span><span>
+</span><span id="line-37"></span><span id="gzipBits"><span class="annot"><span class="annottext">gzipBits :: WindowBits
+</span><a href="System.IO.Streams.Zlib.html#gzipBits"><span class="hs-identifier hs-var hs-var">gzipBits</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; WindowBits
+</span><a href="../../../../zlib/html/src"><span class="hs-identifier hs-var">WindowBits</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">31</span></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-41"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#compressBits"><span class="hs-identifier hs-type">compressBits</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../zlib/html/src"><span class="hs-identifier hs-type">WindowBits</span></a></span><span>
+</span><span id="line-42"></span><span id="compressBits"><span class="annot"><span class="annottext">compressBits :: WindowBits
+</span><a href="System.IO.Streams.Zlib.html#compressBits"><span class="hs-identifier hs-var hs-var">compressBits</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; WindowBits
+</span><a href="../../../../zlib/html/src"><span class="hs-identifier hs-var">WindowBits</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">15</span></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | Decompress an 'InputStream' of strict 'ByteString's from the @gzip@ format</span><span>
+</span><span id="line-47"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#gunzip"><span class="hs-identifier hs-type">gunzip</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span id="gunzip"><span class="annot"><span class="annottext">gunzip :: InputStream ByteString -&gt; IO (InputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#gunzip"><span class="hs-identifier hs-var hs-var">gunzip</span></a></span></span><span> </span><span id="local-6989586621679083849"><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083849"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">WindowBits -&gt; IO Inflate
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">initInflate</span></a></span><span> </span><span class="annot"><span class="annottext">WindowBits
+</span><a href="System.IO.Streams.Zlib.html#gzipBits"><span class="hs-identifier hs-var">gzipBits</span></a></span><span> </span><span class="annot"><span class="annottext">IO Inflate
+-&gt; (Inflate -&gt; IO (InputStream ByteString))
+-&gt; IO (InputStream ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString -&gt; Inflate -&gt; IO (InputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#inflate"><span class="hs-identifier hs-var">inflate</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083849"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- | Decompress an 'InputStream' of strict 'ByteString's from the @zlib@ format</span><span>
+</span><span id="line-53"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#decompress"><span class="hs-identifier hs-type">decompress</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span id="decompress"><span class="annot"><span class="annottext">decompress :: InputStream ByteString -&gt; IO (InputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#decompress"><span class="hs-identifier hs-var hs-var">decompress</span></a></span></span><span> </span><span id="local-6989586621679083847"><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083847"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">WindowBits -&gt; IO Inflate
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">initInflate</span></a></span><span> </span><span class="annot"><span class="annottext">WindowBits
+</span><a href="System.IO.Streams.Zlib.html#compressBits"><span class="hs-identifier hs-var">compressBits</span></a></span><span> </span><span class="annot"><span class="annottext">IO Inflate
+-&gt; (Inflate -&gt; IO (InputStream ByteString))
+-&gt; IO (InputStream ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString -&gt; Inflate -&gt; IO (InputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#inflate"><span class="hs-identifier hs-var">inflate</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083847"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- Note: bytes pushed back to this input stream are not propagated back to the</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- source InputStream.</span><span>
+</span><span id="line-60"></span><span class="hs-keyword">data</span><span> </span><span id="IS"><span class="annot"><a href="System.IO.Streams.Zlib.html#IS"><span class="hs-identifier hs-var">IS</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Input"><span class="annot"><a href="System.IO.Streams.Zlib.html#Input"><span class="hs-identifier hs-var">Input</span></a></span></span><span>
+</span><span id="line-61"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span id="Popper"><span class="annot"><a href="System.IO.Streams.Zlib.html#Popper"><span class="hs-identifier hs-var">Popper</span></a></span></span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-type">Popper</span></a></span><span>
+</span><span id="line-62"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span id="Done"><span class="annot"><a href="System.IO.Streams.Zlib.html#Done"><span class="hs-identifier hs-var">Done</span></a></span></span><span>
+</span><span id="line-63"></span><span>
+</span><span id="line-64"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#inflate"><span class="hs-identifier hs-type">inflate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-type">Inflate</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span id="inflate"><span class="annot"><span class="annottext">inflate :: InputStream ByteString -&gt; Inflate -&gt; IO (InputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#inflate"><span class="hs-identifier hs-var hs-var">inflate</span></a></span></span><span> </span><span id="local-6989586621679083843"><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083843"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span id="local-6989586621679083842"><span class="annot"><span class="annottext">Inflate
+</span><a href="#local-6989586621679083842"><span class="hs-identifier hs-var">state</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-66"></span><span>    </span><span id="local-6989586621679083841"><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083841"><span class="hs-identifier hs-var">ref</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IS -&gt; IO (IORef IS)
+forall a. a -&gt; IO (IORef a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">newIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IS
+</span><a href="System.IO.Streams.Zlib.html#Input"><span class="hs-identifier hs-var">Input</span></a></span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IO (InputStream ByteString)
+forall a. IO (Maybe a) -&gt; IO (InputStream a)
+</span><a href="System.IO.Streams.Internal.html#makeInputStream"><span class="hs-identifier hs-var">makeInputStream</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe ByteString) -&gt; IO (InputStream ByteString))
+-&gt; IO (Maybe ByteString) -&gt; IO (InputStream ByteString)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IORef IS -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083840"><span class="hs-identifier hs-var">stream</span></a></span><span> </span><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083841"><span class="hs-identifier hs-var">ref</span></a></span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-70"></span><span>    </span><span id="local-6989586621679083840"><span class="annot"><span class="annottext">stream :: IORef IS -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083840"><span class="hs-identifier hs-var hs-var">stream</span></a></span></span><span> </span><span id="local-6989586621679083839"><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083839"><span class="hs-identifier hs-var">ref</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083838"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-71"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-72"></span><span>        </span><span id="local-6989586621679083838"><span class="annot"><span class="annottext">go :: IO (Maybe ByteString)
+</span><a href="#local-6989586621679083838"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IORef IS -&gt; IO IS
+forall a. IORef a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">readIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083839"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">IO IS -&gt; (IS -&gt; IO (Maybe ByteString)) -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679083837"><span class="annot"><span class="annottext">IS
+</span><a href="#local-6989586621679083837"><span class="hs-identifier hs-var">st</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-73"></span><span>             </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">IS
+</span><a href="#local-6989586621679083837"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-74"></span><span>               </span><span class="annot"><span class="annottext">IS
+</span><a href="System.IO.Streams.Zlib.html#Input"><span class="hs-identifier hs-var">Input</span></a></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">InputStream ByteString -&gt; IO (Maybe ByteString)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083843"><span class="hs-identifier hs-var">input</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+-&gt; (Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+-&gt; (ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString
+-&gt; IO (Maybe ByteString)
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083835"><span class="hs-identifier hs-var">eof</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083834"><span class="hs-identifier hs-var">chunk</span></a></span><span>
+</span><span id="line-75"></span><span>               </span><span class="annot"><a href="System.IO.Streams.Zlib.html#Popper"><span class="hs-identifier hs-type">Popper</span></a></span><span> </span><span id="local-6989586621679083833"><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083833"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083832"><span class="hs-identifier hs-var">pop</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083833"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-76"></span><span>               </span><span class="annot"><span class="annottext">IS
+</span><a href="System.IO.Streams.Zlib.html#Done"><span class="hs-identifier hs-var">Done</span></a></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span>        </span><span id="local-6989586621679083835"><span class="annot"><span class="annottext">eof :: IO (Maybe ByteString)
+</span><a href="#local-6989586621679083835"><span class="hs-identifier hs-var hs-var">eof</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-79"></span><span>            </span><span id="local-6989586621679083831"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083831"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Inflate -&gt; IO ByteString
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">finishInflate</span></a></span><span> </span><span class="annot"><span class="annottext">Inflate
+</span><a href="#local-6989586621679083842"><span class="hs-identifier hs-var">state</span></a></span><span>
+</span><span id="line-80"></span><span>            </span><span class="annot"><span class="annottext">IORef IS -&gt; IS -&gt; IO ()
+forall a. IORef a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083839"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">IS
+</span><a href="System.IO.Streams.Zlib.html#Done"><span class="hs-identifier hs-var">Done</span></a></span><span>
+</span><span id="line-81"></span><span>            </span><span class="hs-keyword">if</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; Bool -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.null</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083831"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>              </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString -&gt; IO (Maybe ByteString)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083831"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-83"></span><span>              </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span>        </span><span id="local-6989586621679083834"><span class="annot"><span class="annottext">chunk :: ByteString -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083834"><span class="hs-identifier hs-var hs-var">chunk</span></a></span></span><span> </span><span id="local-6989586621679083827"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083827"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-86"></span><span>            </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.null</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083827"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-87"></span><span>              </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-88"></span><span>                  </span><span id="local-6989586621679083826"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083826"><span class="hs-identifier hs-var">out</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Inflate -&gt; IO ByteString
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">flushInflate</span></a></span><span> </span><span class="annot"><span class="annottext">Inflate
+</span><a href="#local-6989586621679083842"><span class="hs-identifier hs-var">state</span></a></span><span>
+</span><span id="line-89"></span><span>                  </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString -&gt; IO (Maybe ByteString)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083826"><span class="hs-identifier hs-var">out</span></a></span><span>
+</span><span id="line-90"></span><span>              </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Inflate -&gt; ByteString -&gt; IO (IO (Maybe ByteString))
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">feedInflate</span></a></span><span> </span><span class="annot"><span class="annottext">Inflate
+</span><a href="#local-6989586621679083842"><span class="hs-identifier hs-var">state</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083827"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">IO (IO (Maybe ByteString))
+-&gt; (IO (Maybe ByteString) -&gt; IO (Maybe ByteString))
+-&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679083825"><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083825"><span class="hs-identifier hs-var">popper</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-91"></span><span>                  </span><span class="annot"><span class="annottext">IORef IS -&gt; IS -&gt; IO ()
+forall a. IORef a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083839"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">(IS -&gt; IO ()) -&gt; IS -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IS
+</span><a href="System.IO.Streams.Zlib.html#Popper"><span class="hs-identifier hs-var">Popper</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083825"><span class="hs-identifier hs-var">popper</span></a></span><span>
+</span><span id="line-92"></span><span>                  </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083832"><span class="hs-identifier hs-var">pop</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083825"><span class="hs-identifier hs-var">popper</span></a></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span>        </span><span id="local-6989586621679083832"><span class="annot"><span class="annottext">pop :: IO (Maybe ByteString) -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083832"><span class="hs-identifier hs-var hs-var">pop</span></a></span></span><span> </span><span id="local-6989586621679083824"><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083824"><span class="hs-identifier hs-var">popper</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083824"><span class="hs-identifier hs-var">popper</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+-&gt; (Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+-&gt; (ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString
+-&gt; IO (Maybe ByteString)
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083823"><span class="hs-identifier hs-var">backToInput</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; (ByteString -&gt; Maybe ByteString)
+-&gt; ByteString
+-&gt; IO (Maybe ByteString)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span>        </span><span id="local-6989586621679083823"><span class="annot"><span class="annottext">backToInput :: IO (Maybe ByteString)
+</span><a href="#local-6989586621679083823"><span class="hs-identifier hs-var hs-var">backToInput</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IORef IS -&gt; IS -&gt; IO ()
+forall a. IORef a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef IS
+</span><a href="#local-6989586621679083839"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">IS
+</span><a href="System.IO.Streams.Zlib.html#Input"><span class="hs-identifier hs-var">Input</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO (Maybe ByteString) -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString -&gt; IO (Maybe ByteString)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083843"><span class="hs-identifier hs-var">input</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+-&gt; (Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+-&gt; (ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString
+-&gt; IO (Maybe ByteString)
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083835"><span class="hs-identifier hs-var">eof</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; IO (Maybe ByteString)
+</span><a href="#local-6989586621679083834"><span class="hs-identifier hs-var">chunk</span></a></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-99"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#deflateBuilder"><span class="hs-identifier hs-type">deflateBuilder</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-100"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-type">Deflate</span></a></span><span>
+</span><span id="line-101"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-102"></span><span id="deflateBuilder"><span class="annot"><span class="annottext">deflateBuilder :: OutputStream Builder -&gt; Deflate -&gt; IO (OutputStream Builder)
+</span><a href="System.IO.Streams.Zlib.html#deflateBuilder"><span class="hs-identifier hs-var hs-var">deflateBuilder</span></a></span></span><span> </span><span id="local-6989586621679083820"><span class="annot"><span class="annottext">OutputStream Builder
+</span><a href="#local-6989586621679083820"><span class="hs-identifier hs-var">stream</span></a></span></span><span> </span><span id="local-6989586621679083819"><span class="annot"><span class="annottext">Deflate
+</span><a href="#local-6989586621679083819"><span class="hs-identifier hs-var">state</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621679083818"><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083818"><span class="hs-identifier hs-var">zippedStr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO ()) -&gt; IO (OutputStream ByteString)
+forall a. (Maybe a -&gt; IO ()) -&gt; IO (OutputStream a)
+</span><a href="System.IO.Streams.Internal.html#makeOutputStream"><span class="hs-identifier hs-var">makeOutputStream</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO ()
+</span><a href="#local-6989586621679083817"><span class="hs-identifier hs-var">bytestringStream</span></a></span><span> </span><span class="annot"><span class="annottext">IO (OutputStream ByteString)
+-&gt; (OutputStream ByteString -&gt; IO (OutputStream ByteString))
+-&gt; IO (OutputStream ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span>
+</span><span id="line-104"></span><span>                 </span><span class="hs-glyph">\</span><span id="local-6989586621679083816"><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083816"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString -&gt; Deflate -&gt; IO (OutputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#deflate"><span class="hs-identifier hs-var">deflate</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083816"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Deflate
+</span><a href="#local-6989586621679083819"><span class="hs-identifier hs-var">state</span></a></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span>    </span><span class="hs-comment">-- we can use unsafeBuilderStream here because zlib is going to consume the</span><span>
+</span><span id="line-107"></span><span>    </span><span class="hs-comment">-- stream</span><span>
+</span><span id="line-108"></span><span>    </span><span class="annot"><span class="annottext">IO Buffer -&gt; OutputStream ByteString -&gt; IO (OutputStream Builder)
+</span><a href="System.IO.Streams.Builder.html#unsafeBuilderStream"><span class="hs-identifier hs-var">unsafeBuilderStream</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; IO Buffer
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">newBuffer</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">defaultChunkSize</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083818"><span class="hs-identifier hs-var">zippedStr</span></a></span><span>
+</span><span id="line-109"></span><span>
+</span><span id="line-110"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-111"></span><span>    </span><span id="local-6989586621679083817"><span class="annot"><span class="annottext">bytestringStream :: Maybe ByteString -&gt; IO ()
+</span><a href="#local-6989586621679083817"><span class="hs-identifier hs-var hs-var">bytestringStream</span></a></span></span><span> </span><span id="local-6989586621679083814"><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679083814"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Builder -&gt; OutputStream Builder -&gt; IO ()
+forall a. Maybe a -&gt; OutputStream a -&gt; IO ()
+</span><a href="System.IO.Streams.Internal.html#write"><span class="hs-identifier hs-var">write</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(ByteString -&gt; Builder) -&gt; Maybe ByteString -&gt; Maybe Builder
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="#local-6989586621679083813"><span class="hs-identifier hs-var">cvt</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679083814"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">OutputStream Builder
+</span><a href="#local-6989586621679083820"><span class="hs-identifier hs-var">stream</span></a></span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span>    </span><span id="local-6989586621679083813"><span class="annot"><span class="annottext">cvt :: ByteString -&gt; Builder
+</span><a href="#local-6989586621679083813"><span class="hs-identifier hs-var hs-var">cvt</span></a></span></span><span> </span><span id="local-6989586621679083812"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083812"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.null</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083812"><span class="hs-identifier hs-var">s</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">flush</span></a></span><span>
+</span><span id="line-114"></span><span>          </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083812"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-115"></span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- | Convert an 'OutputStream' that consumes compressed 'Builder's into an</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- 'OutputStream' that consumes uncompressed 'Builder's in the @gzip@ format</span><span>
+</span><span id="line-120"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#gzipBuilder"><span class="hs-identifier hs-type">gzipBuilder</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span>
+</span><span id="line-121"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-122"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span id="gzipBuilder"><span class="annot"><span class="annottext">gzipBuilder :: CompressionLevel
+-&gt; OutputStream Builder -&gt; IO (OutputStream Builder)
+</span><a href="System.IO.Streams.Zlib.html#gzipBuilder"><span class="hs-identifier hs-var hs-var">gzipBuilder</span></a></span></span><span> </span><span id="local-6989586621679083811"><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083811"><span class="hs-identifier hs-var">level</span></a></span></span><span> </span><span id="local-6989586621679083810"><span class="annot"><span class="annottext">OutputStream Builder
+</span><a href="#local-6989586621679083810"><span class="hs-identifier hs-var">output</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-124"></span><span>    </span><span class="annot"><span class="annottext">Int -&gt; WindowBits -&gt; IO Deflate
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">initDeflate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CompressionLevel -&gt; Int
+</span><a href="System.IO.Streams.Zlib.html#clamp"><span class="hs-identifier hs-var">clamp</span></a></span><span> </span><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083811"><span class="hs-identifier hs-var">level</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WindowBits
+</span><a href="System.IO.Streams.Zlib.html#gzipBits"><span class="hs-identifier hs-var">gzipBits</span></a></span><span> </span><span class="annot"><span class="annottext">IO Deflate
+-&gt; (Deflate -&gt; IO (OutputStream Builder))
+-&gt; IO (OutputStream Builder)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream Builder -&gt; Deflate -&gt; IO (OutputStream Builder)
+</span><a href="System.IO.Streams.Zlib.html#deflateBuilder"><span class="hs-identifier hs-var">deflateBuilder</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream Builder
+</span><a href="#local-6989586621679083810"><span class="hs-identifier hs-var">output</span></a></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span>
+</span><span id="line-127"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- | Convert an 'OutputStream' that consumes compressed 'Builder's into an</span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- 'OutputStream' that consumes uncompressed 'Builder's in the @zlib@ format</span><span>
+</span><span id="line-130"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#compressBuilder"><span class="hs-identifier hs-type">compressBuilder</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span>
+</span><span id="line-131"></span><span>                </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-132"></span><span>                </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span id="compressBuilder"><span class="annot"><span class="annottext">compressBuilder :: CompressionLevel
+-&gt; OutputStream Builder -&gt; IO (OutputStream Builder)
+</span><a href="System.IO.Streams.Zlib.html#compressBuilder"><span class="hs-identifier hs-var hs-var">compressBuilder</span></a></span></span><span> </span><span id="local-6989586621679083808"><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083808"><span class="hs-identifier hs-var">level</span></a></span></span><span> </span><span id="local-6989586621679083807"><span class="annot"><span class="annottext">OutputStream Builder
+</span><a href="#local-6989586621679083807"><span class="hs-identifier hs-var">output</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-134"></span><span>    </span><span class="annot"><span class="annottext">Int -&gt; WindowBits -&gt; IO Deflate
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">initDeflate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CompressionLevel -&gt; Int
+</span><a href="System.IO.Streams.Zlib.html#clamp"><span class="hs-identifier hs-var">clamp</span></a></span><span> </span><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083808"><span class="hs-identifier hs-var">level</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WindowBits
+</span><a href="System.IO.Streams.Zlib.html#compressBits"><span class="hs-identifier hs-var">compressBits</span></a></span><span> </span><span class="annot"><span class="annottext">IO Deflate
+-&gt; (Deflate -&gt; IO (OutputStream Builder))
+-&gt; IO (OutputStream Builder)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream Builder -&gt; Deflate -&gt; IO (OutputStream Builder)
+</span><a href="System.IO.Streams.Zlib.html#deflateBuilder"><span class="hs-identifier hs-var">deflateBuilder</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream Builder
+</span><a href="#local-6989586621679083807"><span class="hs-identifier hs-var">output</span></a></span><span>
+</span><span id="line-135"></span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-138"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#deflate"><span class="hs-identifier hs-type">deflate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-139"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-type">Deflate</span></a></span><span>
+</span><span id="line-140"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span id="deflate"><span class="annot"><span class="annottext">deflate :: OutputStream ByteString -&gt; Deflate -&gt; IO (OutputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#deflate"><span class="hs-identifier hs-var hs-var">deflate</span></a></span></span><span> </span><span id="local-6989586621679083806"><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083806"><span class="hs-identifier hs-var">output</span></a></span></span><span> </span><span id="local-6989586621679083805"><span class="annot"><span class="annottext">Deflate
+</span><a href="#local-6989586621679083805"><span class="hs-identifier hs-var">state</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO ()) -&gt; IO (OutputStream ByteString)
+forall a. (Maybe a -&gt; IO ()) -&gt; IO (OutputStream a)
+</span><a href="System.IO.Streams.Internal.html#makeOutputStream"><span class="hs-identifier hs-var">makeOutputStream</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO ()
+</span><a href="#local-6989586621679083804"><span class="hs-identifier hs-var">stream</span></a></span><span>
+</span><span id="line-142"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-143"></span><span>    </span><span id="local-6989586621679083804"><span class="annot"><span class="annottext">stream :: Maybe ByteString -&gt; IO ()
+</span><a href="#local-6989586621679083804"><span class="hs-identifier hs-var hs-var">stream</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IO ()
+</span><a href="#local-6989586621679083803"><span class="hs-identifier hs-var">popAll</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Deflate -&gt; IO (Maybe ByteString)
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">finishDeflate</span></a></span><span> </span><span class="annot"><span class="annottext">Deflate
+</span><a href="#local-6989586621679083805"><span class="hs-identifier hs-var">state</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO () -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; OutputStream ByteString -&gt; IO ()
+forall a. Maybe a -&gt; OutputStream a -&gt; IO ()
+</span><a href="System.IO.Streams.Internal.html#write"><span class="hs-identifier hs-var">write</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083806"><span class="hs-identifier hs-var">output</span></a></span><span>
+</span><span id="line-144"></span><span>
+</span><span id="line-145"></span><span>    </span><span class="annot"><a href="#local-6989586621679083804"><span class="hs-identifier hs-var">stream</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679083802"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083802"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-146"></span><span>        </span><span class="hs-comment">-- Empty string means flush</span><span>
+</span><span id="line-147"></span><span>        </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.null</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083802"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-148"></span><span>          </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-149"></span><span>              </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IO ()
+</span><a href="#local-6989586621679083803"><span class="hs-identifier hs-var">popAll</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Deflate -&gt; IO (Maybe ByteString)
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">flushDeflate</span></a></span><span> </span><span class="annot"><span class="annottext">Deflate
+</span><a href="#local-6989586621679083805"><span class="hs-identifier hs-var">state</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>              </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; OutputStream ByteString -&gt; IO ()
+forall a. Maybe a -&gt; OutputStream a -&gt; IO ()
+</span><a href="System.IO.Streams.Internal.html#write"><span class="hs-identifier hs-var">write</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.empty</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083806"><span class="hs-identifier hs-var">output</span></a></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span>          </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Deflate -&gt; ByteString -&gt; IO (IO (Maybe ByteString))
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">feedDeflate</span></a></span><span> </span><span class="annot"><span class="annottext">Deflate
+</span><a href="#local-6989586621679083805"><span class="hs-identifier hs-var">state</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083802"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">IO (IO (Maybe ByteString))
+-&gt; (IO (Maybe ByteString) -&gt; IO ()) -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; IO ()
+</span><a href="#local-6989586621679083803"><span class="hs-identifier hs-var">popAll</span></a></span><span>
+</span><span id="line-153"></span><span>
+</span><span id="line-154"></span><span>
+</span><span id="line-155"></span><span>    </span><span id="local-6989586621679083803"><span class="annot"><span class="annottext">popAll :: IO (Maybe ByteString) -&gt; IO ()
+</span><a href="#local-6989586621679083803"><span class="hs-identifier hs-var hs-var">popAll</span></a></span></span><span> </span><span id="local-6989586621679083800"><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083800"><span class="hs-identifier hs-var">popper</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679083799"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-156"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-157"></span><span>        </span><span id="local-6989586621679083799"><span class="annot"><span class="annottext">go :: IO ()
+</span><a href="#local-6989586621679083799"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString)
+</span><a href="#local-6989586621679083800"><span class="hs-identifier hs-var">popper</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; (Maybe ByteString -&gt; IO ()) -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; (ByteString -&gt; IO ()) -&gt; Maybe ByteString -&gt; IO ()
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(() -&gt; IO ()) -&gt; () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679083798"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083798"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; OutputStream ByteString -&gt; IO ()
+forall a. Maybe a -&gt; OutputStream a -&gt; IO ()
+</span><a href="System.IO.Streams.Internal.html#write"><span class="hs-identifier hs-var">write</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083798"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083806"><span class="hs-identifier hs-var">output</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO () -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679083799"><span class="hs-identifier hs-var">go</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span>
+</span><span id="line-160"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-161"></span><span class="hs-comment">-- | Parameter that defines the tradeoff between speed and compression ratio</span><span>
+</span><span id="line-162"></span><span class="hs-keyword">newtype</span><span> </span><span id="CompressionLevel"><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-var">CompressionLevel</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="CompressionLevel"><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-var">CompressionLevel</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-163"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679083789"><span id="local-6989586621679083791"><span id="local-6989586621679083793"><span id="local-6989586621679083795"><span class="annot"><span class="annottext">ReadPrec [CompressionLevel]
+ReadPrec CompressionLevel
+Int -&gt; ReadS CompressionLevel
+ReadS [CompressionLevel]
+(Int -&gt; ReadS CompressionLevel)
+-&gt; ReadS [CompressionLevel]
+-&gt; ReadPrec CompressionLevel
+-&gt; ReadPrec [CompressionLevel]
+-&gt; Read CompressionLevel
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+readListPrec :: ReadPrec [CompressionLevel]
+$creadListPrec :: ReadPrec [CompressionLevel]
+readPrec :: ReadPrec CompressionLevel
+$creadPrec :: ReadPrec CompressionLevel
+readList :: ReadS [CompressionLevel]
+$creadList :: ReadS [CompressionLevel]
+readsPrec :: Int -&gt; ReadS CompressionLevel
+$creadsPrec :: Int -&gt; ReadS CompressionLevel
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679083784"><span id="local-6989586621679083786"><span class="annot"><span class="annottext">CompressionLevel -&gt; CompressionLevel -&gt; Bool
+(CompressionLevel -&gt; CompressionLevel -&gt; Bool)
+-&gt; (CompressionLevel -&gt; CompressionLevel -&gt; Bool)
+-&gt; Eq CompressionLevel
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: CompressionLevel -&gt; CompressionLevel -&gt; Bool
+$c/= :: CompressionLevel -&gt; CompressionLevel -&gt; Bool
+== :: CompressionLevel -&gt; CompressionLevel -&gt; Bool
+$c== :: CompressionLevel -&gt; CompressionLevel -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679083777"><span id="local-6989586621679083779"><span id="local-6989586621679083781"><span class="annot"><span class="annottext">Int -&gt; CompressionLevel -&gt; ShowS
+[CompressionLevel] -&gt; ShowS
+CompressionLevel -&gt; String
+(Int -&gt; CompressionLevel -&gt; ShowS)
+-&gt; (CompressionLevel -&gt; String)
+-&gt; ([CompressionLevel] -&gt; ShowS)
+-&gt; Show CompressionLevel
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [CompressionLevel] -&gt; ShowS
+$cshowList :: [CompressionLevel] -&gt; ShowS
+show :: CompressionLevel -&gt; String
+$cshow :: CompressionLevel -&gt; String
+showsPrec :: Int -&gt; CompressionLevel -&gt; ShowS
+$cshowsPrec :: Int -&gt; CompressionLevel -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679083762"><span id="local-6989586621679083764"><span id="local-6989586621679083766"><span id="local-6989586621679083768"><span id="local-6989586621679083770"><span id="local-6989586621679083772"><span id="local-6989586621679083774"><span class="annot"><span class="annottext">Integer -&gt; CompressionLevel
+CompressionLevel -&gt; CompressionLevel
+CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
+(CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel)
+-&gt; (CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel)
+-&gt; (CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel)
+-&gt; (CompressionLevel -&gt; CompressionLevel)
+-&gt; (CompressionLevel -&gt; CompressionLevel)
+-&gt; (CompressionLevel -&gt; CompressionLevel)
+-&gt; (Integer -&gt; CompressionLevel)
+-&gt; Num CompressionLevel
+forall a.
+(a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a)
+-&gt; (a -&gt; a)
+-&gt; (a -&gt; a)
+-&gt; (Integer -&gt; a)
+-&gt; Num a
+fromInteger :: Integer -&gt; CompressionLevel
+$cfromInteger :: Integer -&gt; CompressionLevel
+signum :: CompressionLevel -&gt; CompressionLevel
+$csignum :: CompressionLevel -&gt; CompressionLevel
+abs :: CompressionLevel -&gt; CompressionLevel
+$cabs :: CompressionLevel -&gt; CompressionLevel
+negate :: CompressionLevel -&gt; CompressionLevel
+$cnegate :: CompressionLevel -&gt; CompressionLevel
+* :: CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
+$c* :: CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
+- :: CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
+$c- :: CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
++ :: CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
+$c+ :: CompressionLevel -&gt; CompressionLevel -&gt; CompressionLevel
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Num</span></a></span></span></span></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-164"></span><span>
+</span><span id="line-165"></span><span>
+</span><span id="line-166"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-167"></span><span class="hs-comment">-- | A compression level that balances speed with compression ratio</span><span>
+</span><span id="line-168"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#defaultCompressionLevel"><span class="hs-identifier hs-type">defaultCompressionLevel</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span>
+</span><span id="line-169"></span><span id="defaultCompressionLevel"><span class="annot"><span class="annottext">defaultCompressionLevel :: CompressionLevel
+</span><a href="System.IO.Streams.Zlib.html#defaultCompressionLevel"><span class="hs-identifier hs-var hs-var">defaultCompressionLevel</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; CompressionLevel
+</span><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-var">CompressionLevel</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">5</span></span><span>
+</span><span id="line-170"></span><span>
+</span><span id="line-171"></span><span>
+</span><span id="line-172"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-173"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#clamp"><span class="hs-identifier hs-type">clamp</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-174"></span><span id="clamp"><span class="annot"><span class="annottext">clamp :: CompressionLevel -&gt; Int
+</span><a href="System.IO.Streams.Zlib.html#clamp"><span class="hs-identifier hs-var hs-var">clamp</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span> </span><span id="local-6989586621679083760"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083760"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">9</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083760"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-175"></span><span>
+</span><span id="line-176"></span><span>
+</span><span id="line-177"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-178"></span><span class="hs-comment">-- | Convert an 'OutputStream' that consumes compressed 'ByteString's into an</span><span>
+</span><span id="line-179"></span><span class="hs-comment">-- 'OutputStream' that consumes uncompressed 'ByteString's in the @gzip@ format</span><span>
+</span><span id="line-180"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#gzip"><span class="hs-identifier hs-type">gzip</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span>
+</span><span id="line-181"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-182"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-183"></span><span id="gzip"><span class="annot"><span class="annottext">gzip :: CompressionLevel
+-&gt; OutputStream ByteString -&gt; IO (OutputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#gzip"><span class="hs-identifier hs-var hs-var">gzip</span></a></span></span><span> </span><span id="local-6989586621679083757"><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083757"><span class="hs-identifier hs-var">level</span></a></span></span><span> </span><span id="local-6989586621679083756"><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083756"><span class="hs-identifier hs-var">output</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; WindowBits -&gt; IO Deflate
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">initDeflate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CompressionLevel -&gt; Int
+</span><a href="System.IO.Streams.Zlib.html#clamp"><span class="hs-identifier hs-var">clamp</span></a></span><span> </span><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083757"><span class="hs-identifier hs-var">level</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WindowBits
+</span><a href="System.IO.Streams.Zlib.html#gzipBits"><span class="hs-identifier hs-var">gzipBits</span></a></span><span> </span><span class="annot"><span class="annottext">IO Deflate
+-&gt; (Deflate -&gt; IO (OutputStream ByteString))
+-&gt; IO (OutputStream ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString -&gt; Deflate -&gt; IO (OutputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#deflate"><span class="hs-identifier hs-var">deflate</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083756"><span class="hs-identifier hs-var">output</span></a></span><span>
+</span><span id="line-184"></span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-187"></span><span class="hs-comment">-- | Convert an 'OutputStream' that consumes compressed 'ByteString's into an</span><span>
+</span><span id="line-188"></span><span class="hs-comment">-- 'OutputStream' that consumes uncompressed 'ByteString's in the @zlib@ format</span><span>
+</span><span id="line-189"></span><span class="annot"><a href="System.IO.Streams.Zlib.html#compress"><span class="hs-identifier hs-type">compress</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Zlib.html#CompressionLevel"><span class="hs-identifier hs-type">CompressionLevel</span></a></span><span>
+</span><span id="line-190"></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-191"></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-192"></span><span id="compress"><span class="annot"><span class="annottext">compress :: CompressionLevel
+-&gt; OutputStream ByteString -&gt; IO (OutputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#compress"><span class="hs-identifier hs-var hs-var">compress</span></a></span></span><span> </span><span id="local-6989586621679083755"><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083755"><span class="hs-identifier hs-var">level</span></a></span></span><span> </span><span id="local-6989586621679083754"><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083754"><span class="hs-identifier hs-var">output</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; WindowBits -&gt; IO Deflate
+</span><a href="../../../../zlib-bindings/html/src"><span class="hs-identifier hs-var">initDeflate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CompressionLevel -&gt; Int
+</span><a href="System.IO.Streams.Zlib.html#clamp"><span class="hs-identifier hs-var">clamp</span></a></span><span> </span><span class="annot"><span class="annottext">CompressionLevel
+</span><a href="#local-6989586621679083755"><span class="hs-identifier hs-var">level</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WindowBits
+</span><a href="System.IO.Streams.Zlib.html#compressBits"><span class="hs-identifier hs-var">compressBits</span></a></span><span> </span><span class="annot"><span class="annottext">IO Deflate
+-&gt; (Deflate -&gt; IO (OutputStream ByteString))
+-&gt; IO (OutputStream ByteString)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span>
+</span><span id="line-193"></span><span>                        </span><span class="annot"><span class="annottext">OutputStream ByteString -&gt; Deflate -&gt; IO (OutputStream ByteString)
+</span><a href="System.IO.Streams.Zlib.html#deflate"><span class="hs-identifier hs-var">deflate</span></a></span><span> </span><span class="annot"><span class="annottext">OutputStream ByteString
+</span><a href="#local-6989586621679083754"><span class="hs-identifier hs-var">output</span></a></span><span>
+</span><span id="line-194"></span></pre></body></html>

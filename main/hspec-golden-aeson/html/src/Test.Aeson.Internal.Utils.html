@@ -1,0 +1,571 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">{-|
+Module      : Test.Aeson.Internal.Utils
+Description : Internal types, functions and values
+Copyright   : (c) Plow Technologies, 2016
+License     : BSD3
+Maintainer  : mchaver@gmail.com
+Stability   : Beta
+-}</span><span>
+</span><span id="line-9"></span><span>
+</span><span id="line-10"></span><span class="hs-pragma">{-# LANGUAGE NamedFieldPuns #-}</span><span>
+</span><span id="line-11"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-12"></span><span class="hs-pragma">{-# LANGUAGE RankNTypes          #-}</span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Test.Aeson.Internal.Utils</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson</span></a></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../aeson-pretty/html/src"><span class="hs-identifier">Data.Aeson.Encode.Pretty</span></a></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Lazy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Proxy</span></a></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Typeable</span></a></span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../hspec/html/src"><span class="hs-identifier">Test.Hspec</span></a></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier">Test.QuickCheck</span></a></span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- | Option to indicate whether to create a separate comparison file or overwrite the golden file.</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- A separate file allows you to use `diff` to compare.</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- Overwriting allows you to use source control tools for comparison.</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">data</span><span> </span><span id="ComparisonFile"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#ComparisonFile"><span class="hs-identifier hs-var">ComparisonFile</span></a></span></span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="FaultyFile"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#FaultyFile"><span class="hs-identifier hs-var">FaultyFile</span></a></span></span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-comment">-- ^ Create a new faulty file when tests fail</span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="OverwriteGoldenFile"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#OverwriteGoldenFile"><span class="hs-identifier hs-var">OverwriteGoldenFile</span></a></span></span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-comment">-- ^ Overwrite the golden file when tests fail</span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- | Option indicating whether to fail tests when the random seed does not produce the same values as in the golden file.</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- Default is to output a warning.</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">data</span><span> </span><span id="RandomMismatchOption"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#RandomMismatchOption"><span class="hs-identifier hs-var">RandomMismatchOption</span></a></span></span><span>
+</span><span id="line-41"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="RandomMismatchWarning"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#RandomMismatchWarning"><span class="hs-identifier hs-var">RandomMismatchWarning</span></a></span></span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-comment">-- ^ Only output a warning when the random seed does not produce the same values</span><span>
+</span><span id="line-43"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="RandomMismatchError"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#RandomMismatchError"><span class="hs-identifier hs-var">RandomMismatchError</span></a></span></span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-comment">-- ^ Fail the test when the random seed does not produce the same value</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-keyword">data</span><span> </span><span id="Settings"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#Settings"><span class="hs-identifier hs-var">Settings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Settings"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#Settings"><span class="hs-identifier hs-var">Settings</span></a></span></span><span> </span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="goldenDirectoryOption"><span class="annot"><span class="annottext">Settings -&gt; GoldenDirectoryOption
+</span><a href="Test.Aeson.Internal.Utils.html#goldenDirectoryOption"><span class="hs-identifier hs-var hs-var">goldenDirectoryOption</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#GoldenDirectoryOption"><span class="hs-identifier hs-type">GoldenDirectoryOption</span></a></span><span>
+</span><span id="line-48"></span><span>  </span><span class="hs-comment">-- ^ use a custom directory name or use the generic &quot;golden&quot; directory.</span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="useModuleNameAsSubDirectory"><span class="annot"><span class="annottext">Settings -&gt; Bool
+</span><a href="Test.Aeson.Internal.Utils.html#useModuleNameAsSubDirectory"><span class="hs-identifier hs-var hs-var">useModuleNameAsSubDirectory</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-comment">-- ^ If true, use the module name in the file path, otherwise ignore it.</span><span>
+</span><span id="line-51"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="sampleSize"><span class="annot"><span class="annottext">Settings -&gt; Int
+</span><a href="Test.Aeson.Internal.Utils.html#sampleSize"><span class="hs-identifier hs-var hs-var">sampleSize</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-comment">-- ^ How many instances of each type you want. If you use ADT versions than it will use the sample size for each constructor.</span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="comparisonFile"><span class="annot"><span class="annottext">Settings -&gt; ComparisonFile
+</span><a href="Test.Aeson.Internal.Utils.html#comparisonFile"><span class="hs-identifier hs-var hs-var">comparisonFile</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#ComparisonFile"><span class="hs-identifier hs-type">ComparisonFile</span></a></span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-comment">-- ^ Whether to create a separate comparison file or ovewrite the golden file.</span><span>
+</span><span id="line-55"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="randomMismatchOption"><span class="annot"><span class="annottext">Settings -&gt; RandomMismatchOption
+</span><a href="Test.Aeson.Internal.Utils.html#randomMismatchOption"><span class="hs-identifier hs-var hs-var">randomMismatchOption</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#RandomMismatchOption"><span class="hs-identifier hs-type">RandomMismatchOption</span></a></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-comment">-- ^ Whether to output a warning or fail the test when the random seed produces different values than the values in the golden file.</span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- | A custom directory name or a preselected directory name.</span><span>
+</span><span id="line-60"></span><span class="hs-keyword">data</span><span> </span><span id="GoldenDirectoryOption"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#GoldenDirectoryOption"><span class="hs-identifier hs-var">GoldenDirectoryOption</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="CustomDirectoryName"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#CustomDirectoryName"><span class="hs-identifier hs-var">CustomDirectoryName</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="GoldenDirectory"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#GoldenDirectory"><span class="hs-identifier hs-var">GoldenDirectory</span></a></span></span><span>
+</span><span id="line-61"></span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- | The default settings for general use cases.</span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#defaultSettings"><span class="hs-identifier hs-type">defaultSettings</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#Settings"><span class="hs-identifier hs-type">Settings</span></a></span><span>
+</span><span id="line-64"></span><span id="defaultSettings"><span class="annot"><span class="annottext">defaultSettings :: Settings
+</span><a href="Test.Aeson.Internal.Utils.html#defaultSettings"><span class="hs-identifier hs-var hs-var">defaultSettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">GoldenDirectoryOption
+-&gt; Bool
+-&gt; Int
+-&gt; ComparisonFile
+-&gt; RandomMismatchOption
+-&gt; Settings
+</span><a href="Test.Aeson.Internal.Utils.html#Settings"><span class="hs-identifier hs-var">Settings</span></a></span><span> </span><span class="annot"><span class="annottext">GoldenDirectoryOption
+</span><a href="Test.Aeson.Internal.Utils.html#GoldenDirectory"><span class="hs-identifier hs-var">GoldenDirectory</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">5</span></span><span> </span><span class="annot"><span class="annottext">ComparisonFile
+</span><a href="Test.Aeson.Internal.Utils.html#FaultyFile"><span class="hs-identifier hs-var">FaultyFile</span></a></span><span> </span><span class="annot"><span class="annottext">RandomMismatchOption
+</span><a href="Test.Aeson.Internal.Utils.html#RandomMismatchWarning"><span class="hs-identifier hs-var">RandomMismatchWarning</span></a></span><span>
+</span><span id="line-65"></span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- | put brackets around a String.</span><span>
+</span><span id="line-67"></span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#addBrackets"><span class="hs-identifier hs-type">addBrackets</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-68"></span><span id="addBrackets"><span class="annot"><span class="annottext">addBrackets :: String -&gt; String
+</span><a href="Test.Aeson.Internal.Utils.html#addBrackets"><span class="hs-identifier hs-var hs-var">addBrackets</span></a></span></span><span> </span><span id="local-6989586621679091799"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091799"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">' '</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; String -&gt; Bool
+forall (t :: * -&gt; *) a. (Foldable t, Eq a) =&gt; a -&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`elem`</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091799"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;(&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091799"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;)&quot;</span></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091799"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- | [hspec](http://hspec.github.io/) style combinator to easily write tests</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- that check the a given operation returns the same value it was given, e.g.</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- roundtrip tests.</span><span>
+</span><span id="line-76"></span><span id="local-6989586621679091797"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#shouldBeIdentity"><span class="hs-identifier hs-type">shouldBeIdentity</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Eq</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091797"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091797"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-type">Arbitrary</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091797"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-77"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Proxy</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091797"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679091797"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091797"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-type">Property</span></a></span></span><span>
+</span><span id="line-78"></span><span id="shouldBeIdentity"><span class="annot"><span class="annottext">shouldBeIdentity :: Proxy a -&gt; (a -&gt; IO a) -&gt; Property
+</span><a href="Test.Aeson.Internal.Utils.html#shouldBeIdentity"><span class="hs-identifier hs-var hs-var">shouldBeIdentity</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span id="local-6989586621679091794"><span class="annot"><span class="annottext">a -&gt; IO a
+</span><a href="#local-6989586621679091794"><span class="hs-identifier hs-var">func</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-79"></span><span>  </span><span class="annot"><span class="annottext">(a -&gt; Expectation) -&gt; Property
+forall prop. Testable prop =&gt; prop -&gt; Property
+</span><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-var">property</span></a></span><span> </span><span class="annot"><span class="annottext">((a -&gt; Expectation) -&gt; Property) -&gt; (a -&gt; Expectation) -&gt; Property
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679091792"><span id="local-6989586621679091791"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091791"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679091792"><span class="hs-identifier hs-type">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; IO a
+</span><a href="#local-6989586621679091794"><span class="hs-identifier hs-var">func</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091791"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">IO a -&gt; a -&gt; Expectation
+forall a. (HasCallStack, Show a, Eq a) =&gt; IO a -&gt; a -&gt; Expectation
+</span><a href="../../../../hspec-expectations/html/src"><span class="hs-operator hs-var">`shouldReturn`</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091791"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- | This function will compare one JSON encoding to a subsequent JSON encoding, thus eliminating the need for an Eq instance</span><span>
+</span><span id="line-82"></span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#checkAesonEncodingEquality"><span class="hs-identifier hs-type">checkAesonEncodingEquality</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679091788"><span class="annot"><a href="#local-6989586621679091788"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">ToJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091788"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">FromJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091788"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091788"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-83"></span><span id="checkAesonEncodingEquality"><span class="annot"><span class="annottext">checkAesonEncodingEquality :: JsonShow a -&gt; Bool
+</span><a href="Test.Aeson.Internal.Utils.html#checkAesonEncodingEquality"><span class="hs-identifier hs-var hs-var">checkAesonEncodingEquality</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span id="local-6989586621679091786"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091786"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>  </span><span>
+</span><span id="line-84"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679091785"><span class="annot"><span class="annottext">byteStrA :: ByteString
+</span><a href="#local-6989586621679091785"><span class="hs-identifier hs-var hs-var">byteStrA</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; ByteString
+forall a. ToJSON a =&gt; a -&gt; ByteString
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">encode</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091786"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-85"></span><span>      </span><span id="local-6989586621679091783"><span class="annot"><span class="annottext">decodedVal :: Either String a
+</span><a href="#local-6989586621679091783"><span class="hs-identifier hs-var hs-var">decodedVal</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Either String a
+forall a. FromJSON a =&gt; ByteString -&gt; Either String a
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">eitherDecode</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679091785"><span class="hs-identifier hs-var">byteStrA</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091788"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-86"></span><span>      </span><span id="local-6989586621679091781"><span class="annot"><span class="annottext">eitherByteStrB :: Either String ByteString
+</span><a href="#local-6989586621679091781"><span class="hs-identifier hs-var hs-var">eitherByteStrB</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; ByteString
+forall a. ToJSON a =&gt; a -&gt; ByteString
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">encode</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; ByteString) -&gt; Either String a -&gt; Either String ByteString
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Either String a
+</span><a href="#local-6989586621679091783"><span class="hs-identifier hs-var">decodedVal</span></a></span><span>  </span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Either String ByteString
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679091785"><span class="hs-identifier hs-var">byteStrA</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Either String ByteString -&gt; Either String ByteString -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Either String ByteString
+</span><a href="#local-6989586621679091781"><span class="hs-identifier hs-var">eitherByteStrB</span></a></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- | run decode in IO, if it returns Left then throw an error.</span><span>
+</span><span id="line-90"></span><span id="local-6989586621679091779"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#aesonDecodeIO"><span class="hs-identifier hs-type">aesonDecodeIO</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">FromJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091779"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091779"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-91"></span><span id="aesonDecodeIO"><span class="annot"><span class="annottext">aesonDecodeIO :: ByteString -&gt; IO a
+</span><a href="Test.Aeson.Internal.Utils.html#aesonDecodeIO"><span class="hs-identifier hs-var hs-var">aesonDecodeIO</span></a></span></span><span> </span><span id="local-6989586621679091777"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679091777"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Either String a
+forall a. FromJSON a =&gt; ByteString -&gt; Either String a
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">eitherDecode</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679091777"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-92"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679091776"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091776"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; IO a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091776"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-93"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679091775"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091775"><span class="hs-identifier hs-var">msg</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">AesonDecodeError -&gt; IO a
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">(AesonDecodeError -&gt; IO a) -&gt; AesonDecodeError -&gt; IO a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; AesonDecodeError
+</span><a href="Test.Aeson.Internal.Utils.html#AesonDecodeError"><span class="hs-identifier hs-var">AesonDecodeError</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091775"><span class="hs-identifier hs-var">msg</span></a></span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span class="hs-keyword">data</span><span> </span><span id="AesonDecodeError"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#AesonDecodeError"><span class="hs-identifier hs-var">AesonDecodeError</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="AesonDecodeError"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#AesonDecodeError"><span class="hs-identifier hs-var">AesonDecodeError</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679091767"><span id="local-6989586621679091769"><span id="local-6989586621679091771"><span class="annot"><span class="annottext">Int -&gt; AesonDecodeError -&gt; String -&gt; String
+[AesonDecodeError] -&gt; String -&gt; String
+AesonDecodeError -&gt; String
+(Int -&gt; AesonDecodeError -&gt; String -&gt; String)
+-&gt; (AesonDecodeError -&gt; String)
+-&gt; ([AesonDecodeError] -&gt; String -&gt; String)
+-&gt; Show AesonDecodeError
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [AesonDecodeError] -&gt; String -&gt; String
+$cshowList :: [AesonDecodeError] -&gt; String -&gt; String
+show :: AesonDecodeError -&gt; String
+$cshow :: AesonDecodeError -&gt; String
+showsPrec :: Int -&gt; AesonDecodeError -&gt; String -&gt; String
+$cshowsPrec :: Int -&gt; AesonDecodeError -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679091762"><span id="local-6989586621679091764"><span class="annot"><span class="annottext">AesonDecodeError -&gt; AesonDecodeError -&gt; Bool
+(AesonDecodeError -&gt; AesonDecodeError -&gt; Bool)
+-&gt; (AesonDecodeError -&gt; AesonDecodeError -&gt; Bool)
+-&gt; Eq AesonDecodeError
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: AesonDecodeError -&gt; AesonDecodeError -&gt; Bool
+$c/= :: AesonDecodeError -&gt; AesonDecodeError -&gt; Bool
+== :: AesonDecodeError -&gt; AesonDecodeError -&gt; Bool
+$c== :: AesonDecodeError -&gt; AesonDecodeError -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679091753"><span id="local-6989586621679091755"><span id="local-6989586621679091757"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Exception</span></a></span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#AesonDecodeError"><span class="hs-identifier hs-type">AesonDecodeError</span></a></span></span></span></span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- | Used to eliminate the need for an Eq instance</span><span>
+</span><span id="line-101"></span><span class="hs-keyword">newtype</span><span> </span><span id="JsonShow"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-var">JsonShow</span></a></span></span><span> </span><span id="local-6989586621679091845"><span class="annot"><a href="#local-6989586621679091845"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="JsonShow"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-var">JsonShow</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679091845"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span id="local-6989586621679091751"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679091746"><span id="local-6989586621679091749"><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">ToJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091751"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091751"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span> </span><span>
+</span><span id="line-104"></span><span>    </span><span id="local-6989586621679091745"><span class="annot"><span class="annottext">show :: JsonShow a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">show</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span id="local-6989586621679091743"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091743"><span class="hs-identifier hs-var">v</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; String) -&gt; (a -&gt; ByteString) -&gt; a -&gt; String
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; ByteString
+forall a. ToJSON a =&gt; a -&gt; ByteString
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">encode</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; String) -&gt; a -&gt; String
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091743"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span id="local-6989586621679091741"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679091734"><span id="local-6989586621679091736"><span id="local-6989586621679091738"><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">ToJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091741"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">ToJSON</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091741"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-107"></span><span>    </span><span id="local-6989586621679091732"><span class="annot"><span class="annottext">toJSON :: JsonShow a -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">toJSON</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span id="local-6989586621679091730"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091730"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; Value
+forall a. ToJSON a =&gt; a -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">toJSON</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091730"><span class="hs-identifier hs-var">a</span></a></span></span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span id="local-6989586621679091729"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679091726"><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">FromJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091729"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">FromJSON</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091729"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-110"></span><span>     </span><span id="local-6989586621679091724"><span class="annot"><span class="annottext">parseJSON :: Value -&gt; Parser (JsonShow a)
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">parseJSON</span></a></span></span><span> </span><span id="local-6989586621679091722"><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679091722"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; JsonShow a
+forall a. a -&gt; JsonShow a
+</span><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-var">JsonShow</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; JsonShow a) -&gt; Parser a -&gt; Parser (JsonShow a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Value -&gt; Parser a
+forall a. FromJSON a =&gt; Value -&gt; Parser a
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">parseJSON</span></a></span><span> </span><span class="annot"><span class="annottext">Value
+</span><a href="#local-6989586621679091722"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-111"></span><span>
+</span><span id="line-112"></span><span id="local-6989586621679091721"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679091718"><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-type">Arbitrary</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091721"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-type">Arbitrary</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-type">JsonShow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091721"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-113"></span><span>    </span><span id="local-6989586621679091716"><span class="annot"><span class="annottext">arbitrary :: Gen (JsonShow a)
+</span><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">arbitrary</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; JsonShow a
+forall a. a -&gt; JsonShow a
+</span><a href="Test.Aeson.Internal.Utils.html#JsonShow"><span class="hs-identifier hs-var">JsonShow</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; JsonShow a) -&gt; Gen a -&gt; Gen (JsonShow a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Gen a
+forall a. Arbitrary a =&gt; Gen a
+</span><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-var">arbitrary</span></a></span></span><span> </span><span>
+</span><span id="line-114"></span><span>
+</span><span id="line-115"></span><span class="hs-comment">--------------------------------------------------</span><span>
+</span><span id="line-116"></span><span class="hs-comment">-- Handle creating names</span><span>
+</span><span id="line-117"></span><span class="hs-comment">--------------------------------------------------</span><span>
+</span><span id="line-118"></span><span>
+</span><span id="line-119"></span><span class="hs-keyword">newtype</span><span> </span><span id="TopDir"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TopDir"><span class="hs-identifier hs-var">TopDir</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-120"></span><span>  </span><span id="TopDir"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TopDir"><span class="hs-identifier hs-var">TopDir</span></a></span></span><span>
+</span><span id="line-121"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="unTopDir"><span class="annot"><span class="annottext">TopDir -&gt; String
+</span><a href="Test.Aeson.Internal.Utils.html#unTopDir"><span class="hs-identifier hs-var hs-var">unTopDir</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679091708"><span id="local-6989586621679091710"><span class="annot"><span class="annottext">TopDir -&gt; TopDir -&gt; Bool
+(TopDir -&gt; TopDir -&gt; Bool)
+-&gt; (TopDir -&gt; TopDir -&gt; Bool) -&gt; Eq TopDir
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: TopDir -&gt; TopDir -&gt; Bool
+$c/= :: TopDir -&gt; TopDir -&gt; Bool
+== :: TopDir -&gt; TopDir -&gt; Bool
+$c== :: TopDir -&gt; TopDir -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091700"><span id="local-6989586621679091702"><span id="local-6989586621679091704"><span id="local-6989586621679091706"><span class="annot"><span class="annottext">ReadPrec [TopDir]
+ReadPrec TopDir
+Int -&gt; ReadS TopDir
+ReadS [TopDir]
+(Int -&gt; ReadS TopDir)
+-&gt; ReadS [TopDir]
+-&gt; ReadPrec TopDir
+-&gt; ReadPrec [TopDir]
+-&gt; Read TopDir
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+readListPrec :: ReadPrec [TopDir]
+$creadListPrec :: ReadPrec [TopDir]
+readPrec :: ReadPrec TopDir
+$creadPrec :: ReadPrec TopDir
+readList :: ReadS [TopDir]
+$creadList :: ReadS [TopDir]
+readsPrec :: Int -&gt; ReadS TopDir
+$creadsPrec :: Int -&gt; ReadS TopDir
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091693"><span id="local-6989586621679091695"><span id="local-6989586621679091697"><span class="annot"><span class="annottext">Int -&gt; TopDir -&gt; String -&gt; String
+[TopDir] -&gt; String -&gt; String
+TopDir -&gt; String
+(Int -&gt; TopDir -&gt; String -&gt; String)
+-&gt; (TopDir -&gt; String)
+-&gt; ([TopDir] -&gt; String -&gt; String)
+-&gt; Show TopDir
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [TopDir] -&gt; String -&gt; String
+$cshowList :: [TopDir] -&gt; String -&gt; String
+show :: TopDir -&gt; String
+$cshow :: TopDir -&gt; String
+showsPrec :: Int -&gt; TopDir -&gt; String -&gt; String
+$cshowsPrec :: Int -&gt; TopDir -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span class="hs-keyword">newtype</span><span> </span><span id="ModuleName"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#ModuleName"><span class="hs-identifier hs-var">ModuleName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-125"></span><span>  </span><span id="ModuleName"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#ModuleName"><span class="hs-identifier hs-var">ModuleName</span></a></span></span><span>
+</span><span id="line-126"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="unModuleName"><span class="annot"><span class="annottext">ModuleName -&gt; String
+</span><a href="Test.Aeson.Internal.Utils.html#unModuleName"><span class="hs-identifier hs-var hs-var">unModuleName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-127"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679091687"><span id="local-6989586621679091689"><span class="annot"><span class="annottext">ModuleName -&gt; ModuleName -&gt; Bool
+(ModuleName -&gt; ModuleName -&gt; Bool)
+-&gt; (ModuleName -&gt; ModuleName -&gt; Bool) -&gt; Eq ModuleName
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: ModuleName -&gt; ModuleName -&gt; Bool
+$c/= :: ModuleName -&gt; ModuleName -&gt; Bool
+== :: ModuleName -&gt; ModuleName -&gt; Bool
+$c== :: ModuleName -&gt; ModuleName -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091679"><span id="local-6989586621679091681"><span id="local-6989586621679091683"><span id="local-6989586621679091685"><span class="annot"><span class="annottext">ReadPrec [ModuleName]
+ReadPrec ModuleName
+Int -&gt; ReadS ModuleName
+ReadS [ModuleName]
+(Int -&gt; ReadS ModuleName)
+-&gt; ReadS [ModuleName]
+-&gt; ReadPrec ModuleName
+-&gt; ReadPrec [ModuleName]
+-&gt; Read ModuleName
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+readListPrec :: ReadPrec [ModuleName]
+$creadListPrec :: ReadPrec [ModuleName]
+readPrec :: ReadPrec ModuleName
+$creadPrec :: ReadPrec ModuleName
+readList :: ReadS [ModuleName]
+$creadList :: ReadS [ModuleName]
+readsPrec :: Int -&gt; ReadS ModuleName
+$creadsPrec :: Int -&gt; ReadS ModuleName
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091673"><span id="local-6989586621679091675"><span id="local-6989586621679091677"><span class="annot"><span class="annottext">Int -&gt; ModuleName -&gt; String -&gt; String
+[ModuleName] -&gt; String -&gt; String
+ModuleName -&gt; String
+(Int -&gt; ModuleName -&gt; String -&gt; String)
+-&gt; (ModuleName -&gt; String)
+-&gt; ([ModuleName] -&gt; String -&gt; String)
+-&gt; Show ModuleName
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [ModuleName] -&gt; String -&gt; String
+$cshowList :: [ModuleName] -&gt; String -&gt; String
+show :: ModuleName -&gt; String
+$cshow :: ModuleName -&gt; String
+showsPrec :: Int -&gt; ModuleName -&gt; String -&gt; String
+$cshowsPrec :: Int -&gt; ModuleName -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span class="hs-keyword">newtype</span><span> </span><span id="TypeName"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TypeName"><span class="hs-identifier hs-var">TypeName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-130"></span><span>  </span><span id="TypeName"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TypeName"><span class="hs-identifier hs-var">TypeName</span></a></span></span><span>
+</span><span id="line-131"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="unTypeName"><span class="annot"><span class="annottext">TypeName -&gt; String
+</span><a href="Test.Aeson.Internal.Utils.html#unTypeName"><span class="hs-identifier hs-var hs-var">unTypeName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679091667"><span id="local-6989586621679091669"><span class="annot"><span class="annottext">TypeName -&gt; TypeName -&gt; Bool
+(TypeName -&gt; TypeName -&gt; Bool)
+-&gt; (TypeName -&gt; TypeName -&gt; Bool) -&gt; Eq TypeName
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: TypeName -&gt; TypeName -&gt; Bool
+$c/= :: TypeName -&gt; TypeName -&gt; Bool
+== :: TypeName -&gt; TypeName -&gt; Bool
+$c== :: TypeName -&gt; TypeName -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091659"><span id="local-6989586621679091661"><span id="local-6989586621679091663"><span id="local-6989586621679091665"><span class="annot"><span class="annottext">ReadPrec [TypeName]
+ReadPrec TypeName
+Int -&gt; ReadS TypeName
+ReadS [TypeName]
+(Int -&gt; ReadS TypeName)
+-&gt; ReadS [TypeName]
+-&gt; ReadPrec TypeName
+-&gt; ReadPrec [TypeName]
+-&gt; Read TypeName
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+readListPrec :: ReadPrec [TypeName]
+$creadListPrec :: ReadPrec [TypeName]
+readPrec :: ReadPrec TypeName
+$creadPrec :: ReadPrec TypeName
+readList :: ReadS [TypeName]
+$creadList :: ReadS [TypeName]
+readsPrec :: Int -&gt; ReadS TypeName
+$creadsPrec :: Int -&gt; ReadS TypeName
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091653"><span id="local-6989586621679091655"><span id="local-6989586621679091657"><span class="annot"><span class="annottext">Int -&gt; TypeName -&gt; String -&gt; String
+[TypeName] -&gt; String -&gt; String
+TypeName -&gt; String
+(Int -&gt; TypeName -&gt; String -&gt; String)
+-&gt; (TypeName -&gt; String)
+-&gt; ([TypeName] -&gt; String -&gt; String)
+-&gt; Show TypeName
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [TypeName] -&gt; String -&gt; String
+$cshowList :: [TypeName] -&gt; String -&gt; String
+show :: TypeName -&gt; String
+$cshow :: TypeName -&gt; String
+showsPrec :: Int -&gt; TypeName -&gt; String -&gt; String
+$cshowsPrec :: Int -&gt; TypeName -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span>
+</span><span id="line-134"></span><span class="hs-keyword">data</span><span> </span><span id="TypeNameInfo"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TypeNameInfo"><span class="hs-identifier hs-var">TypeNameInfo</span></a></span></span><span> </span><span id="local-6989586621679091826"><span class="annot"><a href="#local-6989586621679091826"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-135"></span><span>  </span><span id="TypeNameInfo"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TypeNameInfo"><span class="hs-identifier hs-var">TypeNameInfo</span></a></span></span><span>
+</span><span id="line-136"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="typeNameTopDir"><span class="annot"><span class="annottext">TypeNameInfo a -&gt; TopDir
+</span><a href="Test.Aeson.Internal.Utils.html#typeNameTopDir"><span class="hs-identifier hs-var hs-var">typeNameTopDir</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TopDir"><span class="hs-identifier hs-type">TopDir</span></a></span><span>
+</span><span id="line-137"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="typeNameModuleName"><span class="annot"><span class="annottext">TypeNameInfo a -&gt; Maybe ModuleName
+</span><a href="Test.Aeson.Internal.Utils.html#typeNameModuleName"><span class="hs-identifier hs-var hs-var">typeNameModuleName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#ModuleName"><span class="hs-identifier hs-type">ModuleName</span></a></span><span>
+</span><span id="line-138"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="typeNameTypeName"><span class="annot"><span class="annottext">TypeNameInfo a -&gt; TypeName
+</span><a href="Test.Aeson.Internal.Utils.html#typeNameTypeName"><span class="hs-identifier hs-var hs-var">typeNameTypeName</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TypeName"><span class="hs-identifier hs-type">TypeName</span></a></span><span>
+</span><span id="line-139"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679091645"><span id="local-6989586621679091647"><span class="annot"><span class="annottext">TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool
+(TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool)
+-&gt; (TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool)
+-&gt; Eq (TypeNameInfo a)
+forall a. TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool
+$c/= :: forall a. TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool
+== :: TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool
+$c== :: forall a. TypeNameInfo a -&gt; TypeNameInfo a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091637"><span id="local-6989586621679091639"><span id="local-6989586621679091641"><span id="local-6989586621679091643"><span class="annot"><span class="annottext">ReadPrec [TypeNameInfo a]
+ReadPrec (TypeNameInfo a)
+Int -&gt; ReadS (TypeNameInfo a)
+ReadS [TypeNameInfo a]
+(Int -&gt; ReadS (TypeNameInfo a))
+-&gt; ReadS [TypeNameInfo a]
+-&gt; ReadPrec (TypeNameInfo a)
+-&gt; ReadPrec [TypeNameInfo a]
+-&gt; Read (TypeNameInfo a)
+forall a. ReadPrec [TypeNameInfo a]
+forall a. ReadPrec (TypeNameInfo a)
+forall a. Int -&gt; ReadS (TypeNameInfo a)
+forall a. ReadS [TypeNameInfo a]
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+readListPrec :: ReadPrec [TypeNameInfo a]
+$creadListPrec :: forall a. ReadPrec [TypeNameInfo a]
+readPrec :: ReadPrec (TypeNameInfo a)
+$creadPrec :: forall a. ReadPrec (TypeNameInfo a)
+readList :: ReadS [TypeNameInfo a]
+$creadList :: forall a. ReadS [TypeNameInfo a]
+readsPrec :: Int -&gt; ReadS (TypeNameInfo a)
+$creadsPrec :: forall a. Int -&gt; ReadS (TypeNameInfo a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679091631"><span id="local-6989586621679091633"><span id="local-6989586621679091635"><span class="annot"><span class="annottext">Int -&gt; TypeNameInfo a -&gt; String -&gt; String
+[TypeNameInfo a] -&gt; String -&gt; String
+TypeNameInfo a -&gt; String
+(Int -&gt; TypeNameInfo a -&gt; String -&gt; String)
+-&gt; (TypeNameInfo a -&gt; String)
+-&gt; ([TypeNameInfo a] -&gt; String -&gt; String)
+-&gt; Show (TypeNameInfo a)
+forall a. Int -&gt; TypeNameInfo a -&gt; String -&gt; String
+forall a. [TypeNameInfo a] -&gt; String -&gt; String
+forall a. TypeNameInfo a -&gt; String
+forall a.
+(Int -&gt; a -&gt; String -&gt; String)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; String -&gt; String) -&gt; Show a
+showList :: [TypeNameInfo a] -&gt; String -&gt; String
+$cshowList :: forall a. [TypeNameInfo a] -&gt; String -&gt; String
+show :: TypeNameInfo a -&gt; String
+$cshow :: forall a. TypeNameInfo a -&gt; String
+showsPrec :: Int -&gt; TypeNameInfo a -&gt; String -&gt; String
+$cshowsPrec :: forall a. Int -&gt; TypeNameInfo a -&gt; String -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span><span>
+</span><span id="line-141"></span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#mkTypeNameInfo"><span class="hs-identifier hs-type">mkTypeNameInfo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679091629"><span class="annot"><a href="#local-6989586621679091629"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-type">Arbitrary</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091629"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Typeable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091629"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#Settings"><span class="hs-identifier hs-type">Settings</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Proxy</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091629"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#TypeNameInfo"><span class="hs-identifier hs-type">TypeNameInfo</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091629"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-142"></span><span id="mkTypeNameInfo"><span class="annot"><span class="annottext">mkTypeNameInfo :: Settings -&gt; Proxy a -&gt; IO (TypeNameInfo a)
+</span><a href="Test.Aeson.Internal.Utils.html#mkTypeNameInfo"><span class="hs-identifier hs-var hs-var">mkTypeNameInfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#Settings"><span class="hs-identifier hs-type">Settings</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span id="local-6989586621679091628"><span class="annot"><span class="annottext">Bool
+useModuleNameAsSubDirectory :: Bool
+useModuleNameAsSubDirectory :: Settings -&gt; Bool
+</span><a href="#local-6989586621679091628"><span class="hs-identifier hs-var hs-var">useModuleNameAsSubDirectory</span></a></span></span><span>
+</span><span id="line-143"></span><span>                       </span><span class="hs-special">,</span><span> </span><span id="local-6989586621679091627"><span class="annot"><span class="annottext">GoldenDirectoryOption
+goldenDirectoryOption :: GoldenDirectoryOption
+goldenDirectoryOption :: Settings -&gt; GoldenDirectoryOption
+</span><a href="#local-6989586621679091627"><span class="hs-identifier hs-var hs-var">goldenDirectoryOption</span></a></span></span><span class="hs-special">}</span><span class="hs-special">)</span><span> </span><span id="local-6989586621679091626"><span class="annot"><span class="annottext">Proxy a
+</span><a href="#local-6989586621679091626"><span class="hs-identifier hs-var">proxy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-144"></span><span>  </span><span id="local-6989586621679091625"><span class="annot"><span class="annottext">Maybe String
+</span><a href="#local-6989586621679091625"><span class="hs-identifier hs-var">maybeModuleName</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Maybe String)
+</span><a href="#local-6989586621679091624"><span class="hs-identifier hs-var">maybeModuleNameIO</span></a></span><span>
+</span><span id="line-145"></span><span>  </span><span class="annot"><span class="annottext">TypeNameInfo a -&gt; IO (TypeNameInfo a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(TypeNameInfo a -&gt; IO (TypeNameInfo a))
+-&gt; TypeNameInfo a -&gt; IO (TypeNameInfo a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TopDir -&gt; Maybe ModuleName -&gt; TypeName -&gt; TypeNameInfo a
+forall a. TopDir -&gt; Maybe ModuleName -&gt; TypeName -&gt; TypeNameInfo a
+</span><a href="Test.Aeson.Internal.Utils.html#TypeNameInfo"><span class="hs-identifier hs-var">TypeNameInfo</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; TopDir
+</span><a href="Test.Aeson.Internal.Utils.html#TopDir"><span class="hs-identifier hs-var">TopDir</span></a></span><span>         </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091623"><span class="hs-identifier hs-var">topDir</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-146"></span><span>                        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; ModuleName
+</span><a href="Test.Aeson.Internal.Utils.html#ModuleName"><span class="hs-identifier hs-var">ModuleName</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; ModuleName) -&gt; Maybe String -&gt; Maybe ModuleName
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe String
+</span><a href="#local-6989586621679091625"><span class="hs-identifier hs-var">maybeModuleName</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-147"></span><span>                        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; TypeName
+</span><a href="Test.Aeson.Internal.Utils.html#TypeName"><span class="hs-identifier hs-var">TypeName</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091622"><span class="hs-identifier hs-var">typeName</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-148"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-149"></span><span>   </span><span id="local-6989586621679091622"><span class="annot"><span class="annottext">typeName :: String
+</span><a href="#local-6989586621679091622"><span class="hs-identifier hs-var hs-var">typeName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TypeRep -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy a -&gt; TypeRep
+forall k (proxy :: k -&gt; *) (a :: k).
+Typeable a =&gt;
+proxy a -&gt; TypeRep
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">typeRep</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy a
+</span><a href="#local-6989586621679091626"><span class="hs-identifier hs-var">proxy</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>   </span><span id="local-6989586621679091624"><span class="annot"><span class="annottext">maybeModuleNameIO :: IO (Maybe String)
+</span><a href="#local-6989586621679091624"><span class="hs-identifier hs-var hs-var">maybeModuleNameIO</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-151"></span><span>     </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679091628"><span class="hs-identifier hs-var">useModuleNameAsSubDirectory</span></a></span><span>
+</span><span id="line-152"></span><span>     </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-153"></span><span>       </span><span id="local-6989586621679091620"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091620"><span class="hs-identifier hs-var">arbA</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Gen a -&gt; IO a
+forall a. Gen a -&gt; IO a
+</span><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-var">generate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Gen a
+forall a. Arbitrary a =&gt; Gen a
+</span><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-var">arbitrary</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../QuickCheck/html/src"><span class="hs-identifier hs-type">Gen</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091629"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-154"></span><span>       </span><span class="annot"><span class="annottext">Maybe String -&gt; IO (Maybe String)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe String -&gt; IO (Maybe String))
+-&gt; Maybe String -&gt; IO (Maybe String)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe String
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Maybe String) -&gt; String -&gt; Maybe String
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TyCon -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">tyConModule</span></a></span><span> </span><span class="annot"><span class="annottext">(TyCon -&gt; String) -&gt; (a -&gt; TyCon) -&gt; a -&gt; String
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">TypeRep -&gt; TyCon
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">typeRepTyCon</span></a></span><span> </span><span class="annot"><span class="annottext">(TypeRep -&gt; TyCon) -&gt; (a -&gt; TypeRep) -&gt; a -&gt; TyCon
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; TypeRep
+forall a. Typeable a =&gt; a -&gt; TypeRep
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">typeOf</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; String) -&gt; a -&gt; String
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091620"><span class="hs-identifier hs-var">arbA</span></a></span><span>
+</span><span id="line-155"></span><span>     </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe String -&gt; IO (Maybe String)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe String
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-156"></span><span>
+</span><span id="line-157"></span><span>   </span><span id="local-6989586621679091623"><span class="annot"><span class="annottext">topDir :: String
+</span><a href="#local-6989586621679091623"><span class="hs-identifier hs-var hs-var">topDir</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-158"></span><span>     </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">GoldenDirectoryOption
+</span><a href="#local-6989586621679091627"><span class="hs-identifier hs-var">goldenDirectoryOption</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-159"></span><span>       </span><span class="annot"><span class="annottext">GoldenDirectoryOption
+</span><a href="Test.Aeson.Internal.Utils.html#GoldenDirectory"><span class="hs-identifier hs-var">GoldenDirectory</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;golden&quot;</span></span><span>
+</span><span id="line-160"></span><span>       </span><span class="annot"><a href="Test.Aeson.Internal.Utils.html#CustomDirectoryName"><span class="hs-identifier hs-type">CustomDirectoryName</span></a></span><span> </span><span id="local-6989586621679091615"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091615"><span class="hs-identifier hs-var">d</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679091615"><span class="hs-identifier hs-var">d</span></a></span><span>
+</span><span id="line-161"></span><span>
+</span><span id="line-162"></span><span id="local-6989586621679091614"><span class="annot"><a href="Test.Aeson.Internal.Utils.html#encodePrettySortedKeys"><span class="hs-identifier hs-type">encodePrettySortedKeys</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">ToJSON</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091614"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679091614"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span></span><span>
+</span><span id="line-163"></span><span id="encodePrettySortedKeys"><span class="annot"><span class="annottext">encodePrettySortedKeys :: a -&gt; ByteString
+</span><a href="Test.Aeson.Internal.Utils.html#encodePrettySortedKeys"><span class="hs-identifier hs-var hs-var">encodePrettySortedKeys</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Config -&gt; a -&gt; ByteString
+forall a. ToJSON a =&gt; Config -&gt; a -&gt; ByteString
+</span><a href="../../../../aeson-pretty/html/src"><span class="hs-identifier hs-var">encodePretty'</span></a></span><span> </span><span class="annot"><span class="annottext">Config
+</span><a href="../../../../aeson-pretty/html/src"><span class="hs-identifier hs-var">defConfig</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">confCompare :: Text -&gt; Text -&gt; Ordering
+</span><a href="../../../../aeson-pretty/html/src"><span class="hs-identifier hs-var">confCompare</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Ordering
+forall a. Ord a =&gt; a -&gt; a -&gt; Ordering
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">compare</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-164"></span></pre></body></html>

@@ -1,0 +1,726 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveGeneric    #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE RankNTypes       #-}</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Module      :  Distribution.Simple.Doctest</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Copyright   :  Moritz Angermann 2017</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- License     :  BSD3</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Maintainer  :  cabal-devel@haskell.org</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Portability :  portable</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- This module deals with the @doctest@ command.</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- Note: this module is modelled after Distribution.Simple.Haddock</span><span>
+</span><span id="line-16"></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Distribution.Simple.Doctest</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-18"></span><span>  </span><span class="annot"><a href="Distribution.Simple.Doctest.html#doctest"><span class="hs-identifier">doctest</span></a></span><span>
+</span><span id="line-19"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html"><span class="hs-identifier">Distribution.Compat.Prelude</span></a></span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Distribution.Simple.GHC.html"><span class="hs-identifier">Distribution.Simple.GHC</span></a></span><span>   </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">GHC</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Distribution.Simple.GHCJS.html"><span class="hs-identifier">Distribution.Simple.GHCJS</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">GHCJS</span></span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- local</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.PackageDescription.html"><span class="hs-identifier">Distribution.PackageDescription</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">PD</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Types.ConfVar.html#Flag"><span class="hs-identifier">Flag</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Compiler.html"><span class="hs-identifier">Distribution.Simple.Compiler</span></a></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Simple.Compiler.html#Flag"><span class="hs-identifier">Flag</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Program.GHC.html"><span class="hs-identifier">Distribution.Simple.Program.GHC</span></a></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Program.html"><span class="hs-identifier">Distribution.Simple.Program</span></a></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.PreProcess.html"><span class="hs-identifier">Distribution.Simple.PreProcess</span></a></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Setup.html"><span class="hs-identifier">Distribution.Simple.Setup</span></a></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Build.html"><span class="hs-identifier">Distribution.Simple.Build</span></a></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.LocalBuildInfo.html"><span class="hs-identifier">Distribution.Simple.LocalBuildInfo</span></a></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Simple.LocalBuildInfo.html#substPathTemplate"><span class="hs-identifier">substPathTemplate</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Register.html"><span class="hs-identifier">Distribution.Simple.Register</span></a></span><span>              </span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Simple.Register.html#internalPackageDBPath"><span class="hs-identifier">internalPackageDBPath</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.BuildPaths.html"><span class="hs-identifier">Distribution.Simple.BuildPaths</span></a></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Simple.Utils.html"><span class="hs-identifier">Distribution.Simple.Utils</span></a></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.System.html"><span class="hs-identifier">Distribution.System</span></a></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Version.html"><span class="hs-identifier">Distribution.Version</span></a></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Distribution.Verbosity.html"><span class="hs-identifier">Distribution.Verbosity</span></a></span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- -----------------------------------------------------------------------------</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- Types</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | A record that represents the arguments to the doctest executable.</span><span>
+</span><span id="line-47"></span><span id="local-6989586621679593077"><span id="local-6989586621679593078"></span></span><span class="hs-keyword">data</span><span> </span><span id="DoctestArgs"><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-var">DoctestArgs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="DoctestArgs"><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-var">DoctestArgs</span></a></span></span><span> </span><span class="hs-special">{</span><span>
+</span><span id="line-48"></span><span>    </span><span id="argTargets"><span class="annot"><span class="annottext">DoctestArgs -&gt; [FilePath]
+</span><a href="Distribution.Simple.Doctest.html#argTargets"><span class="hs-identifier hs-var hs-var">argTargets</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-comment">-- ^ Modules to process</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="argGhcOptions"><span class="annot"><span class="annottext">DoctestArgs -&gt; Flag (GhcOptions, Version)
+</span><a href="Distribution.Simple.Doctest.html#argGhcOptions"><span class="hs-identifier hs-var hs-var">argGhcOptions</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Simple.Flag.html#Flag"><span class="hs-identifier hs-type">Flag</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Distribution.Simple.Program.GHC.html#GhcOptions"><span class="hs-identifier hs-type">GhcOptions</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Distribution.Types.Version.html#Version"><span class="hs-identifier hs-type">Version</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679593068"><span id="local-6989586621679593070"><span id="local-6989586621679593072"><span class="annot"><span class="annottext">Int -&gt; DoctestArgs -&gt; ShowS
+[DoctestArgs] -&gt; ShowS
+DoctestArgs -&gt; FilePath
+(Int -&gt; DoctestArgs -&gt; ShowS)
+-&gt; (DoctestArgs -&gt; FilePath)
+-&gt; ([DoctestArgs] -&gt; ShowS)
+-&gt; Show DoctestArgs
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [DoctestArgs] -&gt; ShowS
+$cshowList :: [DoctestArgs] -&gt; ShowS
+show :: DoctestArgs -&gt; FilePath
+$cshow :: DoctestArgs -&gt; FilePath
+showsPrec :: Int -&gt; DoctestArgs -&gt; ShowS
+$cshowsPrec :: Int -&gt; DoctestArgs -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. DoctestArgs -&gt; Rep DoctestArgs x)
+-&gt; (forall x. Rep DoctestArgs x -&gt; DoctestArgs)
+-&gt; Generic DoctestArgs
+forall x. Rep DoctestArgs x -&gt; DoctestArgs
+forall x. DoctestArgs -&gt; Rep DoctestArgs x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cto :: forall x. Rep DoctestArgs x -&gt; DoctestArgs
+$cfrom :: forall x. DoctestArgs -&gt; Rep DoctestArgs x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- -----------------------------------------------------------------------------</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- Doctest support</span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="annot"><a href="Distribution.Simple.Doctest.html#doctest"><span class="hs-identifier hs-type">doctest</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Types.PackageDescription.html#PackageDescription"><span class="hs-identifier hs-type">PackageDescription</span></a></span><span>
+</span><span id="line-57"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.LocalBuildInfo.html#LocalBuildInfo"><span class="hs-identifier hs-type">LocalBuildInfo</span></a></span><span>
+</span><span id="line-58"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Distribution.Simple.PreProcess.html#PPSuffixHandler"><span class="hs-identifier hs-type">PPSuffixHandler</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-59"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Setup.html#DoctestFlags"><span class="hs-identifier hs-type">DoctestFlags</span></a></span><span>
+</span><span id="line-60"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html#IO"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span id="doctest"><span class="annot"><span class="annottext">doctest :: PackageDescription
+-&gt; LocalBuildInfo -&gt; [PPSuffixHandler] -&gt; DoctestFlags -&gt; IO ()
+</span><a href="Distribution.Simple.Doctest.html#doctest"><span class="hs-identifier hs-var hs-var">doctest</span></a></span></span><span> </span><span id="local-6989586621679593063"><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679593063"><span class="hs-identifier hs-var">pkg_descr</span></a></span></span><span> </span><span id="local-6989586621679593062"><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span></span><span> </span><span id="local-6989586621679593061"><span class="annot"><span class="annottext">[PPSuffixHandler]
+</span><a href="#local-6989586621679593061"><span class="hs-identifier hs-var">suffixes</span></a></span></span><span> </span><span id="local-6989586621679593060"><span class="annot"><span class="annottext">DoctestFlags
+</span><a href="#local-6989586621679593060"><span class="hs-identifier hs-var">doctestFlags</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679593059"><span class="annot"><span class="annottext">verbosity :: Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var hs-var">verbosity</span></a></span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(DoctestFlags -&gt; Flag Verbosity) -&gt; Verbosity
+forall a. (DoctestFlags -&gt; Flag a) -&gt; a
+</span><a href="#local-6989586621679593058"><span class="hs-identifier hs-var">flag</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestFlags -&gt; Flag Verbosity
+</span><a href="Distribution.Simple.Setup.html#doctestVerbosity"><span class="hs-identifier hs-var hs-var">doctestVerbosity</span></a></span><span>
+</span><span id="line-63"></span><span>      </span><span id="local-6989586621679593056"><span class="annot"><span class="annottext">distPref :: FilePath
+</span><a href="#local-6989586621679593056"><span class="hs-identifier hs-var hs-var">distPref</span></a></span></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(DoctestFlags -&gt; Flag FilePath) -&gt; FilePath
+forall a. (DoctestFlags -&gt; Flag a) -&gt; a
+</span><a href="#local-6989586621679593058"><span class="hs-identifier hs-var">flag</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestFlags -&gt; Flag FilePath
+</span><a href="Distribution.Simple.Setup.html#doctestDistPref"><span class="hs-identifier hs-var hs-var">doctestDistPref</span></a></span><span>
+</span><span id="line-64"></span><span>      </span><span id="local-6989586621679593058"><span class="annot"><span class="annottext">flag :: (DoctestFlags -&gt; Flag a) -&gt; a
+</span><a href="#local-6989586621679593058"><span class="hs-identifier hs-var hs-var">flag</span></a></span></span><span> </span><span id="local-6989586621679593054"><span class="annot"><span class="annottext">DoctestFlags -&gt; Flag a
+</span><a href="#local-6989586621679593054"><span class="hs-identifier hs-var">f</span></a></span></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Flag a -&gt; a
+forall a. WithCallStack (Flag a -&gt; a)
+</span><a href="Distribution.Simple.Flag.html#fromFlag"><span class="hs-identifier hs-var">fromFlag</span></a></span><span> </span><span class="annot"><span class="annottext">(Flag a -&gt; a) -&gt; Flag a -&gt; a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestFlags -&gt; Flag a
+</span><a href="#local-6989586621679593054"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestFlags
+</span><a href="#local-6989586621679593060"><span class="hs-identifier hs-var">doctestFlags</span></a></span><span>
+</span><span id="line-65"></span><span>      </span><span id="local-6989586621679593052"><span class="annot"><span class="annottext">tmpFileOpts :: TempFileOptions
+</span><a href="#local-6989586621679593052"><span class="hs-identifier hs-var hs-var">tmpFileOpts</span></a></span></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TempFileOptions
+</span><a href="Distribution.Simple.Utils.html#defaultTempFileOptions"><span class="hs-identifier hs-var">defaultTempFileOptions</span></a></span><span>
+</span><span id="line-66"></span><span>      </span><span id="local-6989586621679593050"><span class="annot"><span class="annottext">lbi' :: LocalBuildInfo
+</span><a href="#local-6989586621679593050"><span class="hs-identifier hs-var hs-var">lbi'</span></a></span></span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">withPackageDB :: PackageDBStack
+</span><a href="Distribution.Types.LocalBuildInfo.html#withPackageDB"><span class="hs-identifier hs-var">withPackageDB</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; PackageDBStack
+</span><a href="Distribution.Types.LocalBuildInfo.html#withPackageDB"><span class="hs-identifier hs-var hs-var">withPackageDB</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span>
+</span><span id="line-67"></span><span>                            </span><span class="annot"><span class="annottext">PackageDBStack -&gt; PackageDBStack -&gt; PackageDBStack
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">FilePath -&gt; PackageDB
+</span><a href="Distribution.Simple.Compiler.html#SpecificPackageDB"><span class="hs-identifier hs-var">SpecificPackageDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; ShowS
+</span><a href="Distribution.Simple.Register.html#internalPackageDBPath"><span class="hs-identifier hs-var">internalPackageDBPath</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593056"><span class="hs-identifier hs-var">distPref</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-special">(</span><span id="local-6989586621679593047"><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679593047"><span class="hs-identifier hs-var">doctestProg</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679593046"><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679593046"><span class="hs-identifier hs-var">_version</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ProgramDb
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><span class="annottext">Verbosity
+-&gt; Program
+-&gt; VersionRange
+-&gt; ProgramDb
+-&gt; IO (ConfiguredProgram, Version, ProgramDb)
+</span><a href="Distribution.Simple.Program.Db.html#requireProgramVersion"><span class="hs-identifier hs-var">requireProgramVersion</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">Program
+</span><a href="Distribution.Simple.Program.Builtin.html#doctestProgram"><span class="hs-identifier hs-var">doctestProgram</span></a></span><span>
+</span><span id="line-71"></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Version -&gt; VersionRange
+</span><a href="Distribution.Types.VersionRange.Internal.html#orLaterVersion"><span class="hs-identifier hs-var">orLaterVersion</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Int] -&gt; Version
+</span><a href="Distribution.Types.Version.html#mkVersion"><span class="hs-identifier hs-var">mkVersion</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">11</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">3</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; ProgramDb
+</span><a href="Distribution.Types.LocalBuildInfo.html#withPrograms"><span class="hs-identifier hs-var hs-var">withPrograms</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span>  </span><span class="annot"><span class="annottext">PackageDescription
+-&gt; LocalBuildInfo
+-&gt; (Component -&gt; ComponentLocalBuildInfo -&gt; IO ())
+-&gt; IO ()
+</span><a href="Distribution.Simple.LocalBuildInfo.html#withAllComponentsInBuildOrder"><span class="hs-identifier hs-var">withAllComponentsInBuildOrder</span></a></span><span> </span><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679593063"><span class="hs-identifier hs-var">pkg_descr</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">((Component -&gt; ComponentLocalBuildInfo -&gt; IO ()) -&gt; IO ())
+-&gt; (Component -&gt; ComponentLocalBuildInfo -&gt; IO ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679593039"><span class="annot"><span class="annottext">Component
+</span><a href="#local-6989586621679593039"><span class="hs-identifier hs-var">component</span></a></span></span><span> </span><span id="local-6989586621679593038"><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-74"></span><span>     </span><span class="annot"><span class="annottext">FilePath
+-&gt; PackageDescription
+-&gt; LocalBuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; Verbosity
+-&gt; IO ()
+</span><a href="Distribution.Simple.Build.html#componentInitialBuildSteps"><span class="hs-identifier hs-var">componentInitialBuildSteps</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593056"><span class="hs-identifier hs-var">distPref</span></a></span><span> </span><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679593063"><span class="hs-identifier hs-var">pkg_descr</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span>
+</span><span id="line-75"></span><span>     </span><span class="annot"><span class="annottext">PackageDescription
+-&gt; Component
+-&gt; LocalBuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; Bool
+-&gt; Verbosity
+-&gt; [PPSuffixHandler]
+-&gt; IO ()
+</span><a href="Distribution.Simple.PreProcess.html#preprocessComponent"><span class="hs-identifier hs-var">preprocessComponent</span></a></span><span> </span><span class="annot"><span class="annottext">PackageDescription
+</span><a href="#local-6989586621679593063"><span class="hs-identifier hs-var">pkg_descr</span></a></span><span> </span><span class="annot"><span class="annottext">Component
+</span><a href="#local-6989586621679593039"><span class="hs-identifier hs-var">component</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">[PPSuffixHandler]
+</span><a href="#local-6989586621679593061"><span class="hs-identifier hs-var">suffixes</span></a></span><span>
+</span><span id="line-76"></span><span>
+</span><span id="line-77"></span><span>     </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Component
+</span><a href="#local-6989586621679593039"><span class="hs-identifier hs-var">component</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-78"></span><span>       </span><span class="annot"><a href="Distribution.Types.Component.html#CLib"><span class="hs-identifier hs-type">CLib</span></a></span><span> </span><span id="local-6989586621679593034"><span class="annot"><span class="annottext">Library
+</span><a href="#local-6989586621679593034"><span class="hs-identifier hs-var">lib</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-79"></span><span>         </span><span class="annot"><span class="annottext">Verbosity
+-&gt; TempFileOptions
+-&gt; FilePath
+-&gt; FilePath
+-&gt; (FilePath -&gt; IO ())
+-&gt; IO ()
+forall a.
+Verbosity
+-&gt; TempFileOptions
+-&gt; FilePath
+-&gt; FilePath
+-&gt; (FilePath -&gt; IO a)
+-&gt; IO a
+</span><a href="Distribution.Simple.Utils.html#withTempDirectoryEx"><span class="hs-identifier hs-var">withTempDirectoryEx</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">TempFileOptions
+</span><a href="#local-6989586621679593052"><span class="hs-identifier hs-var">tmpFileOpts</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; FilePath
+</span><a href="Distribution.Types.LocalBuildInfo.html#buildDir"><span class="hs-identifier hs-var hs-var">buildDir</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;tmp&quot;</span></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; IO ()) -&gt; IO ()) -&gt; (FilePath -&gt; IO ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-80"></span><span>           </span><span class="hs-glyph">\</span><span id="local-6989586621679593031"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593031"><span class="hs-identifier hs-var">tmp</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-81"></span><span>             </span><span id="local-6989586621679593030"><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679593030"><span class="hs-identifier hs-var">inFiles</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">((ModuleName, FilePath) -&gt; FilePath)
+-&gt; [(ModuleName, FilePath)] -&gt; [FilePath]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(ModuleName, FilePath) -&gt; FilePath
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span> </span><span class="annot"><span class="annottext">([(ModuleName, FilePath)] -&gt; [FilePath])
+-&gt; IO [(ModuleName, FilePath)] -&gt; IO [FilePath]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; LocalBuildInfo
+-&gt; Library
+-&gt; ComponentLocalBuildInfo
+-&gt; IO [(ModuleName, FilePath)]
+</span><a href="Distribution.Simple.BuildPaths.html#getLibSourceFiles"><span class="hs-identifier hs-var">getLibSourceFiles</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">Library
+</span><a href="#local-6989586621679593034"><span class="hs-identifier hs-var">lib</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span><span>
+</span><span id="line-82"></span><span>             </span><span id="local-6989586621679593027"><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679593027"><span class="hs-identifier hs-var">args</span></a></span></span><span>    </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; FilePath
+-&gt; LocalBuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; [FilePath]
+-&gt; BuildInfo
+-&gt; IO DoctestArgs
+</span><a href="Distribution.Simple.Doctest.html#mkDoctestArgs"><span class="hs-identifier hs-var">mkDoctestArgs</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593031"><span class="hs-identifier hs-var">tmp</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593050"><span class="hs-identifier hs-var">lbi'</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679593030"><span class="hs-identifier hs-var">inFiles</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Library -&gt; BuildInfo
+</span><a href="Distribution.Types.Library.html#libBuildInfo"><span class="hs-identifier hs-var hs-var">libBuildInfo</span></a></span><span> </span><span class="annot"><span class="annottext">Library
+</span><a href="#local-6989586621679593034"><span class="hs-identifier hs-var">lib</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-83"></span><span>             </span><span class="annot"><span class="annottext">Verbosity
+-&gt; Compiler
+-&gt; Platform
+-&gt; ConfiguredProgram
+-&gt; DoctestArgs
+-&gt; IO ()
+</span><a href="Distribution.Simple.Doctest.html#runDoctest"><span class="hs-identifier hs-var">runDoctest</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Compiler
+</span><a href="Distribution.Types.LocalBuildInfo.html#compiler"><span class="hs-identifier hs-var hs-var">compiler</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Platform
+</span><a href="Distribution.Types.LocalBuildInfo.html#hostPlatform"><span class="hs-identifier hs-var hs-var">hostPlatform</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679593047"><span class="hs-identifier hs-var">doctestProg</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679593027"><span class="hs-identifier hs-var">args</span></a></span><span>
+</span><span id="line-84"></span><span>       </span><span class="annot"><a href="Distribution.Types.Component.html#CExe"><span class="hs-identifier hs-type">CExe</span></a></span><span> </span><span id="local-6989586621679593020"><span class="annot"><span class="annottext">Executable
+</span><a href="#local-6989586621679593020"><span class="hs-identifier hs-var">exe</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-85"></span><span>         </span><span class="annot"><span class="annottext">Verbosity
+-&gt; TempFileOptions
+-&gt; FilePath
+-&gt; FilePath
+-&gt; (FilePath -&gt; IO ())
+-&gt; IO ()
+forall a.
+Verbosity
+-&gt; TempFileOptions
+-&gt; FilePath
+-&gt; FilePath
+-&gt; (FilePath -&gt; IO a)
+-&gt; IO a
+</span><a href="Distribution.Simple.Utils.html#withTempDirectoryEx"><span class="hs-identifier hs-var">withTempDirectoryEx</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">TempFileOptions
+</span><a href="#local-6989586621679593052"><span class="hs-identifier hs-var">tmpFileOpts</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; FilePath
+</span><a href="Distribution.Types.LocalBuildInfo.html#buildDir"><span class="hs-identifier hs-var hs-var">buildDir</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;tmp&quot;</span></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; IO ()) -&gt; IO ()) -&gt; (FilePath -&gt; IO ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-86"></span><span>           </span><span class="hs-glyph">\</span><span id="local-6989586621679593019"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593019"><span class="hs-identifier hs-var">tmp</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-87"></span><span>             </span><span id="local-6989586621679593018"><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679593018"><span class="hs-identifier hs-var">inFiles</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">((ModuleName, FilePath) -&gt; FilePath)
+-&gt; [(ModuleName, FilePath)] -&gt; [FilePath]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(ModuleName, FilePath) -&gt; FilePath
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span> </span><span class="annot"><span class="annottext">([(ModuleName, FilePath)] -&gt; [FilePath])
+-&gt; IO [(ModuleName, FilePath)] -&gt; IO [FilePath]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; LocalBuildInfo
+-&gt; Executable
+-&gt; ComponentLocalBuildInfo
+-&gt; IO [(ModuleName, FilePath)]
+</span><a href="Distribution.Simple.BuildPaths.html#getExeSourceFiles"><span class="hs-identifier hs-var">getExeSourceFiles</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">Executable
+</span><a href="#local-6989586621679593020"><span class="hs-identifier hs-var">exe</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span><span>
+</span><span id="line-88"></span><span>             </span><span id="local-6989586621679593016"><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679593016"><span class="hs-identifier hs-var">args</span></a></span></span><span>    </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; FilePath
+-&gt; LocalBuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; [FilePath]
+-&gt; BuildInfo
+-&gt; IO DoctestArgs
+</span><a href="Distribution.Simple.Doctest.html#mkDoctestArgs"><span class="hs-identifier hs-var">mkDoctestArgs</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593019"><span class="hs-identifier hs-var">tmp</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593050"><span class="hs-identifier hs-var">lbi'</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593038"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679593018"><span class="hs-identifier hs-var">inFiles</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Executable -&gt; BuildInfo
+</span><a href="Distribution.Types.Executable.html#buildInfo"><span class="hs-identifier hs-var hs-var">buildInfo</span></a></span><span> </span><span class="annot"><span class="annottext">Executable
+</span><a href="#local-6989586621679593020"><span class="hs-identifier hs-var">exe</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>             </span><span class="annot"><span class="annottext">Verbosity
+-&gt; Compiler
+-&gt; Platform
+-&gt; ConfiguredProgram
+-&gt; DoctestArgs
+-&gt; IO ()
+</span><a href="Distribution.Simple.Doctest.html#runDoctest"><span class="hs-identifier hs-var">runDoctest</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593059"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Compiler
+</span><a href="Distribution.Types.LocalBuildInfo.html#compiler"><span class="hs-identifier hs-var hs-var">compiler</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Platform
+</span><a href="Distribution.Types.LocalBuildInfo.html#hostPlatform"><span class="hs-identifier hs-var hs-var">hostPlatform</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593062"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679593047"><span class="hs-identifier hs-var">doctestProg</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679593016"><span class="hs-identifier hs-var">args</span></a></span><span>
+</span><span id="line-90"></span><span>       </span><span class="annot"><a href="Distribution.Types.Component.html#CFLib"><span class="hs-identifier hs-type">CFLib</span></a></span><span> </span><span class="annot"><span class="annottext">ForeignLib
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- do not doctest foreign libs</span><span>
+</span><span id="line-91"></span><span>       </span><span class="annot"><a href="Distribution.Types.Component.html#CTest"><span class="hs-identifier hs-type">CTest</span></a></span><span> </span><span class="annot"><span class="annottext">TestSuite
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- do not doctest tests</span><span>
+</span><span id="line-92"></span><span>       </span><span class="annot"><a href="Distribution.Types.Component.html#CBench"><span class="hs-identifier hs-type">CBench</span></a></span><span> </span><span class="annot"><span class="annottext">Benchmark
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- do not doctest benchmarks</span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- -----------------------------------------------------------------------------</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- Contributions to DoctestArgs (see also Haddock.hs for very similar code).</span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="annot"><a href="Distribution.Simple.Doctest.html#componentGhcOptions"><span class="hs-identifier hs-type">componentGhcOptions</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Verbosity.html#Verbosity"><span class="hs-identifier hs-type">Verbosity</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.LocalBuildInfo.html#LocalBuildInfo"><span class="hs-identifier hs-type">LocalBuildInfo</span></a></span><span>
+</span><span id="line-98"></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.BuildInfo.html#BuildInfo"><span class="hs-identifier hs-type">BuildInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.ComponentLocalBuildInfo.html#ComponentLocalBuildInfo"><span class="hs-identifier hs-type">ComponentLocalBuildInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-99"></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Program.GHC.html#GhcOptions"><span class="hs-identifier hs-type">GhcOptions</span></a></span><span>
+</span><span id="line-100"></span><span id="componentGhcOptions"><span class="annot"><span class="annottext">componentGhcOptions :: Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+</span><a href="Distribution.Simple.Doctest.html#componentGhcOptions"><span class="hs-identifier hs-var hs-var">componentGhcOptions</span></a></span></span><span> </span><span id="local-6989586621679593010"><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593010"><span class="hs-identifier hs-var">verbosity</span></a></span></span><span> </span><span id="local-6989586621679593009"><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593009"><span class="hs-identifier hs-var">lbi</span></a></span></span><span> </span><span id="local-6989586621679593008"><span class="annot"><span class="annottext">BuildInfo
+</span><a href="#local-6989586621679593008"><span class="hs-identifier hs-var">bi</span></a></span></span><span> </span><span id="local-6989586621679593007"><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593007"><span class="hs-identifier hs-var">clbi</span></a></span></span><span> </span><span id="local-6989586621679593006"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593006"><span class="hs-identifier hs-var">odir</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679593005"><span class="annot"><span class="annottext">f :: Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+</span><a href="#local-6989586621679593005"><span class="hs-identifier hs-var hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Compiler -&gt; CompilerFlavor
+</span><a href="Distribution.Simple.Compiler.html#compilerFlavor"><span class="hs-identifier hs-var">compilerFlavor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Compiler
+</span><a href="Distribution.Types.LocalBuildInfo.html#compiler"><span class="hs-identifier hs-var hs-var">compiler</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593009"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-102"></span><span>            </span><span class="annot"><span class="annottext">CompilerFlavor
+</span><a href="Distribution.Compiler.html#GHC"><span class="hs-identifier hs-var">GHC</span></a></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+</span><a href="Distribution.Simple.GHC.html#componentGhcOptions"><span class="hs-identifier hs-var">GHC.componentGhcOptions</span></a></span><span>
+</span><span id="line-103"></span><span>            </span><span class="annot"><span class="annottext">CompilerFlavor
+</span><a href="Distribution.Compiler.html#GHCJS"><span class="hs-identifier hs-var">GHCJS</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+</span><a href="Distribution.Simple.GHCJS.html#componentGhcOptions"><span class="hs-identifier hs-var">GHCJS.componentGhcOptions</span></a></span><span>
+</span><span id="line-104"></span><span>            </span><span class="annot"><span class="annottext">CompilerFlavor
+</span><span class="hs-identifier">_</span></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath
+-&gt; Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+forall a. HasCallStack =&gt; FilePath -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">error</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath
+ -&gt; Verbosity
+ -&gt; LocalBuildInfo
+ -&gt; BuildInfo
+ -&gt; ComponentLocalBuildInfo
+ -&gt; FilePath
+ -&gt; GhcOptions)
+-&gt; FilePath
+-&gt; Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-105"></span><span>                       </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Distribution.Simple.Doctest.componentGhcOptions:&quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span>
+</span><span id="line-106"></span><span>                       </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;doctest only supports GHC and GHCJS&quot;</span></span><span>
+</span><span id="line-107"></span><span>  </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+</span><a href="#local-6989586621679593005"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679593010"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679593009"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">BuildInfo
+</span><a href="#local-6989586621679593008"><span class="hs-identifier hs-var">bi</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679593007"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679593006"><span class="hs-identifier hs-var">odir</span></a></span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="annot"><a href="Distribution.Simple.Doctest.html#mkDoctestArgs"><span class="hs-identifier hs-type">mkDoctestArgs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Verbosity.html#Verbosity"><span class="hs-identifier hs-type">Verbosity</span></a></span><span>
+</span><span id="line-110"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-111"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.LocalBuildInfo.html#LocalBuildInfo"><span class="hs-identifier hs-type">LocalBuildInfo</span></a></span><span>
+</span><span id="line-112"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.ComponentLocalBuildInfo.html#ComponentLocalBuildInfo"><span class="hs-identifier hs-type">ComponentLocalBuildInfo</span></a></span><span>
+</span><span id="line-113"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-114"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Types.BuildInfo.html#BuildInfo"><span class="hs-identifier hs-type">BuildInfo</span></a></span><span>
+</span><span id="line-115"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html#IO"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-type">DoctestArgs</span></a></span><span>
+</span><span id="line-116"></span><span id="mkDoctestArgs"><span class="annot"><span class="annottext">mkDoctestArgs :: Verbosity
+-&gt; FilePath
+-&gt; LocalBuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; [FilePath]
+-&gt; BuildInfo
+-&gt; IO DoctestArgs
+</span><a href="Distribution.Simple.Doctest.html#mkDoctestArgs"><span class="hs-identifier hs-var hs-var">mkDoctestArgs</span></a></span></span><span> </span><span id="local-6989586621679592998"><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592998"><span class="hs-identifier hs-var">verbosity</span></a></span></span><span> </span><span id="local-6989586621679592997"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679592997"><span class="hs-identifier hs-var">tmp</span></a></span></span><span> </span><span id="local-6989586621679592996"><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679592996"><span class="hs-identifier hs-var">lbi</span></a></span></span><span> </span><span id="local-6989586621679592995"><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679592995"><span class="hs-identifier hs-var">clbi</span></a></span></span><span> </span><span id="local-6989586621679592994"><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592994"><span class="hs-identifier hs-var">inFiles</span></a></span></span><span> </span><span id="local-6989586621679592993"><span class="annot"><span class="annottext">BuildInfo
+</span><a href="#local-6989586621679592993"><span class="hs-identifier hs-var">bi</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-117"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679592992"><span class="annot"><span class="annottext">vanillaOpts :: GhcOptions
+</span><a href="#local-6989586621679592992"><span class="hs-identifier hs-var hs-var">vanillaOpts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Verbosity
+-&gt; LocalBuildInfo
+-&gt; BuildInfo
+-&gt; ComponentLocalBuildInfo
+-&gt; FilePath
+-&gt; GhcOptions
+</span><a href="Distribution.Simple.Doctest.html#componentGhcOptions"><span class="hs-identifier hs-var">componentGhcOptions</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="Distribution.Verbosity.html#normal"><span class="hs-identifier hs-var">normal</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679592996"><span class="hs-identifier hs-var">lbi</span></a></span><span> </span><span class="annot"><span class="annottext">BuildInfo
+</span><a href="#local-6989586621679592993"><span class="hs-identifier hs-var">bi</span></a></span><span> </span><span class="annot"><span class="annottext">ComponentLocalBuildInfo
+</span><a href="#local-6989586621679592995"><span class="hs-identifier hs-var">clbi</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; FilePath
+</span><a href="Distribution.Types.LocalBuildInfo.html#buildDir"><span class="hs-identifier hs-var hs-var">buildDir</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679592996"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-118"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">ghcOptOptimisation :: Flag GhcOptimisation
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptOptimisation"><span class="hs-identifier hs-var">ghcOptOptimisation</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Flag GhcOptimisation
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span> </span><span class="hs-comment">-- no optimizations when runnign doctest</span><span>
+</span><span id="line-119"></span><span>        </span><span class="hs-comment">-- disable -Wmissing-home-modules</span><span>
+</span><span id="line-120"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptWarnMissingHomeModules :: Flag Bool
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptWarnMissingHomeModules"><span class="hs-identifier hs-var">ghcOptWarnMissingHomeModules</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Flag Bool
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-121"></span><span>        </span><span class="hs-comment">-- clear out ghc-options: these are likely not meant for doctest.</span><span>
+</span><span id="line-122"></span><span>        </span><span class="hs-comment">-- If so, should be explicitly specified via doctest-ghc-options: again.</span><span>
+</span><span id="line-123"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptExtra :: [FilePath]
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptExtra"><span class="hs-identifier hs-var">ghcOptExtra</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[FilePath]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-124"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptCabal :: Flag Bool
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptCabal"><span class="hs-identifier hs-var">ghcOptCabal</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Flag Bool
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptObjDir :: Flag FilePath
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptObjDir"><span class="hs-identifier hs-var">ghcOptObjDir</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Flag FilePath
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679592997"><span class="hs-identifier hs-var">tmp</span></a></span><span>
+</span><span id="line-127"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptHiDir :: Flag FilePath
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptHiDir"><span class="hs-identifier hs-var">ghcOptHiDir</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Flag FilePath
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679592997"><span class="hs-identifier hs-var">tmp</span></a></span><span>
+</span><span id="line-128"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptStubDir :: Flag FilePath
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptStubDir"><span class="hs-identifier hs-var">ghcOptStubDir</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Flag FilePath
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679592997"><span class="hs-identifier hs-var">tmp</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-129"></span><span>      </span><span id="local-6989586621679592982"><span class="annot"><span class="annottext">sharedOpts :: GhcOptions
+</span><a href="#local-6989586621679592982"><span class="hs-identifier hs-var hs-var">sharedOpts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592992"><span class="hs-identifier hs-var">vanillaOpts</span></a></span><span>
+</span><span id="line-130"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">ghcOptDynLinkMode :: Flag GhcDynLinkMode
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptDynLinkMode"><span class="hs-identifier hs-var">ghcOptDynLinkMode</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">GhcDynLinkMode -&gt; Flag GhcDynLinkMode
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">GhcDynLinkMode
+</span><a href="Distribution.Simple.Program.GHC.html#GhcDynamicOnly"><span class="hs-identifier hs-var">GhcDynamicOnly</span></a></span><span>
+</span><span id="line-131"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptFPic :: Flag Bool
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptFPic"><span class="hs-identifier hs-var">ghcOptFPic</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Flag Bool
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-132"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptHiSuffix :: Flag FilePath
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptHiSuffix"><span class="hs-identifier hs-var">ghcOptHiSuffix</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Flag FilePath
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;dyn_hi&quot;</span></span><span>
+</span><span id="line-133"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptObjSuffix :: Flag FilePath
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptObjSuffix"><span class="hs-identifier hs-var">ghcOptObjSuffix</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Flag FilePath
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;dyn_o&quot;</span></span><span>
+</span><span id="line-134"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ghcOptExtra :: [FilePath]
+</span><a href="Distribution.Simple.Program.GHC.html#ghcOptExtra"><span class="hs-identifier hs-var">ghcOptExtra</span></a></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CompilerFlavor -&gt; BuildInfo -&gt; [FilePath]
+</span><a href="Distribution.Types.BuildInfo.html#hcSharedOptions"><span class="hs-identifier hs-var">hcSharedOptions</span></a></span><span> </span><span class="annot"><span class="annottext">CompilerFlavor
+</span><a href="Distribution.Compiler.html#GHC"><span class="hs-identifier hs-var">GHC</span></a></span><span> </span><span class="annot"><span class="annottext">BuildInfo
+</span><a href="#local-6989586621679592993"><span class="hs-identifier hs-var">bi</span></a></span><span class="hs-special">}</span><span>
+</span><span id="line-135"></span><span>  </span><span id="local-6989586621679592975"><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592975"><span class="hs-identifier hs-var">opts</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Bool
+</span><a href="Distribution.Types.LocalBuildInfo.html#withVanillaLib"><span class="hs-identifier hs-var hs-var">withVanillaLib</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679592996"><span class="hs-identifier hs-var">lbi</span></a></span><span>
+</span><span id="line-136"></span><span>          </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">GhcOptions -&gt; IO GhcOptions
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592992"><span class="hs-identifier hs-var">vanillaOpts</span></a></span><span>
+</span><span id="line-137"></span><span>          </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Bool
+</span><a href="Distribution.Types.LocalBuildInfo.html#withSharedLib"><span class="hs-identifier hs-var hs-var">withSharedLib</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679592996"><span class="hs-identifier hs-var">lbi</span></a></span><span>
+</span><span id="line-138"></span><span>          </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">GhcOptions -&gt; IO GhcOptions
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592982"><span class="hs-identifier hs-var">sharedOpts</span></a></span><span>
+</span><span id="line-139"></span><span>          </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Verbosity -&gt; FilePath -&gt; IO GhcOptions
+forall a. Verbosity -&gt; FilePath -&gt; IO a
+</span><a href="Distribution.Simple.Utils.html#die%27"><span class="hs-identifier hs-var">die'</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592998"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; IO GhcOptions) -&gt; FilePath -&gt; IO GhcOptions
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Must have vanilla or shared libraries &quot;</span></span><span>
+</span><span id="line-140"></span><span>               </span><span class="annot"><span class="annottext">FilePath -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;enabled in order to run doctest&quot;</span></span><span>
+</span><span id="line-141"></span><span>  </span><span id="local-6989586621679592971"><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679592971"><span class="hs-identifier hs-var">ghcVersion</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Version
+-&gt; (Version -&gt; IO Version) -&gt; Maybe Version -&gt; IO Version
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Verbosity -&gt; FilePath -&gt; IO Version
+forall a. Verbosity -&gt; FilePath -&gt; IO a
+</span><a href="Distribution.Simple.Utils.html#die%27"><span class="hs-identifier hs-var">die'</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592998"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Compiler has no GHC version&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-142"></span><span>                      </span><span class="annot"><span class="annottext">Version -&gt; IO Version
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span>
+</span><span id="line-143"></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CompilerFlavor -&gt; Compiler -&gt; Maybe Version
+</span><a href="Distribution.Simple.Compiler.html#compilerCompatVersion"><span class="hs-identifier hs-var">compilerCompatVersion</span></a></span><span> </span><span class="annot"><span class="annottext">CompilerFlavor
+</span><a href="Distribution.Compiler.html#GHC"><span class="hs-identifier hs-var">GHC</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LocalBuildInfo -&gt; Compiler
+</span><a href="Distribution.Types.LocalBuildInfo.html#compiler"><span class="hs-identifier hs-var hs-var">compiler</span></a></span><span> </span><span class="annot"><span class="annottext">LocalBuildInfo
+</span><a href="#local-6989586621679592996"><span class="hs-identifier hs-var">lbi</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-144"></span><span>  </span><span class="annot"><span class="annottext">DoctestArgs -&gt; IO DoctestArgs
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(DoctestArgs -&gt; IO DoctestArgs) -&gt; DoctestArgs -&gt; IO DoctestArgs
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestArgs :: [FilePath] -&gt; Flag (GhcOptions, Version) -&gt; DoctestArgs
+</span><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-type">DoctestArgs</span></a></span><span>
+</span><span id="line-145"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">argTargets :: [FilePath]
+</span><a href="Distribution.Simple.Doctest.html#argTargets"><span class="hs-identifier hs-var">argTargets</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592994"><span class="hs-identifier hs-var">inFiles</span></a></span><span>
+</span><span id="line-146"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">argGhcOptions :: Flag (GhcOptions, Version)
+</span><a href="Distribution.Simple.Doctest.html#argGhcOptions"><span class="hs-identifier hs-var">argGhcOptions</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(GhcOptions, Version) -&gt; Flag (GhcOptions, Version)
+forall a. a -&gt; Flag a
+</span><a href="Distribution.Simple.Flag.html#toFlag"><span class="hs-identifier hs-var">toFlag</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592975"><span class="hs-identifier hs-var">opts</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679592971"><span class="hs-identifier hs-var">ghcVersion</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-147"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-148"></span><span>
+</span><span id="line-149"></span><span>
+</span><span id="line-150"></span><span class="hs-comment">-- -----------------------------------------------------------------------------</span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- Call doctest with the specified arguments.</span><span>
+</span><span id="line-152"></span><span class="annot"><a href="Distribution.Simple.Doctest.html#runDoctest"><span class="hs-identifier hs-type">runDoctest</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Verbosity.html#Verbosity"><span class="hs-identifier hs-type">Verbosity</span></a></span><span>
+</span><span id="line-153"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Compiler.html#Compiler"><span class="hs-identifier hs-type">Compiler</span></a></span><span>
+</span><span id="line-154"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.System.html#Platform"><span class="hs-identifier hs-type">Platform</span></a></span><span>
+</span><span id="line-155"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Program.Types.html#ConfiguredProgram"><span class="hs-identifier hs-type">ConfiguredProgram</span></a></span><span>
+</span><span id="line-156"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-type">DoctestArgs</span></a></span><span>
+</span><span id="line-157"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html#IO"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-158"></span><span id="runDoctest"><span class="annot"><span class="annottext">runDoctest :: Verbosity
+-&gt; Compiler
+-&gt; Platform
+-&gt; ConfiguredProgram
+-&gt; DoctestArgs
+-&gt; IO ()
+</span><a href="Distribution.Simple.Doctest.html#runDoctest"><span class="hs-identifier hs-var hs-var">runDoctest</span></a></span></span><span> </span><span id="local-6989586621679592968"><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592968"><span class="hs-identifier hs-var">verbosity</span></a></span></span><span> </span><span id="local-6989586621679592967"><span class="annot"><span class="annottext">Compiler
+</span><a href="#local-6989586621679592967"><span class="hs-identifier hs-var">comp</span></a></span></span><span> </span><span id="local-6989586621679592966"><span class="annot"><span class="annottext">Platform
+</span><a href="#local-6989586621679592966"><span class="hs-identifier hs-var">platform</span></a></span></span><span> </span><span id="local-6989586621679592965"><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679592965"><span class="hs-identifier hs-var">doctestProg</span></a></span></span><span> </span><span id="local-6989586621679592964"><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679592964"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-159"></span><span>  </span><span class="annot"><span class="annottext">Verbosity
+-&gt; Compiler
+-&gt; Platform
+-&gt; DoctestArgs
+-&gt; (([FilePath], [FilePath]) -&gt; IO ())
+-&gt; IO ()
+forall a.
+Verbosity
+-&gt; Compiler
+-&gt; Platform
+-&gt; DoctestArgs
+-&gt; (([FilePath], [FilePath]) -&gt; IO a)
+-&gt; IO a
+</span><a href="Distribution.Simple.Doctest.html#renderArgs"><span class="hs-identifier hs-var">renderArgs</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592968"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">Compiler
+</span><a href="#local-6989586621679592967"><span class="hs-identifier hs-var">comp</span></a></span><span> </span><span class="annot"><span class="annottext">Platform
+</span><a href="#local-6989586621679592966"><span class="hs-identifier hs-var">platform</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679592964"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="annot"><span class="annottext">((([FilePath], [FilePath]) -&gt; IO ()) -&gt; IO ())
+-&gt; (([FilePath], [FilePath]) -&gt; IO ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-160"></span><span>    </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679592962"><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592962"><span class="hs-identifier hs-var">flags</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679592961"><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592961"><span class="hs-identifier hs-var">files</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-161"></span><span>      </span><span class="annot"><span class="annottext">Verbosity -&gt; ConfiguredProgram -&gt; [FilePath] -&gt; IO ()
+</span><a href="Distribution.Simple.Program.html#runProgram"><span class="hs-identifier hs-var">runProgram</span></a></span><span> </span><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592968"><span class="hs-identifier hs-var">verbosity</span></a></span><span> </span><span class="annot"><span class="annottext">ConfiguredProgram
+</span><a href="#local-6989586621679592965"><span class="hs-identifier hs-var">doctestProg</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592962"><span class="hs-identifier hs-var">flags</span></a></span><span> </span><span class="annot"><span class="annottext">[FilePath] -&gt; [FilePath] -&gt; [FilePath]
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592961"><span class="hs-identifier hs-var">files</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-162"></span><span>
+</span><span id="line-163"></span><span id="local-6989586621679593097"><span class="annot"><a href="Distribution.Simple.Doctest.html#renderArgs"><span class="hs-identifier hs-type">renderArgs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Distribution.Verbosity.html#Verbosity"><span class="hs-identifier hs-type">Verbosity</span></a></span><span>
+</span><span id="line-164"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Compiler.html#Compiler"><span class="hs-identifier hs-type">Compiler</span></a></span><span>
+</span><span id="line-165"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.System.html#Platform"><span class="hs-identifier hs-type">Platform</span></a></span><span>
+</span><span id="line-166"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-type">DoctestArgs</span></a></span><span>
+</span><span id="line-167"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html#IO"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679593097"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-168"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Distribution.Compat.Prelude.html#IO"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679593097"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-169"></span><span id="renderArgs"><span class="annot"><span class="annottext">renderArgs :: Verbosity
+-&gt; Compiler
+-&gt; Platform
+-&gt; DoctestArgs
+-&gt; (([FilePath], [FilePath]) -&gt; IO a)
+-&gt; IO a
+</span><a href="Distribution.Simple.Doctest.html#renderArgs"><span class="hs-identifier hs-var hs-var">renderArgs</span></a></span></span><span> </span><span id="local-6989586621679592958"><span class="annot"><span class="annottext">Verbosity
+</span><a href="#local-6989586621679592958"><span class="hs-identifier hs-var">_verbosity</span></a></span></span><span> </span><span id="local-6989586621679592957"><span class="annot"><span class="annottext">Compiler
+</span><a href="#local-6989586621679592957"><span class="hs-identifier hs-var">comp</span></a></span></span><span> </span><span id="local-6989586621679592956"><span class="annot"><span class="annottext">Platform
+</span><a href="#local-6989586621679592956"><span class="hs-identifier hs-var">platform</span></a></span></span><span> </span><span id="local-6989586621679592955"><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679592955"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span id="local-6989586621679592954"><span class="annot"><span class="annottext">([FilePath], [FilePath]) -&gt; IO a
+</span><a href="#local-6989586621679592954"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-170"></span><span>  </span><span class="annot"><span class="annottext">([FilePath], [FilePath]) -&gt; IO a
+</span><a href="#local-6989586621679592954"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[FilePath]
+</span><a href="#local-6989586621679592953"><span class="hs-identifier hs-var">flags</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">DoctestArgs -&gt; [FilePath]
+</span><a href="Distribution.Simple.Doctest.html#argTargets"><span class="hs-identifier hs-var hs-var">argTargets</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679592955"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-171"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-172"></span><span>    </span><span class="annot"><a href="#local-6989586621679592953"><span class="hs-identifier hs-type">flags</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-173"></span><span>    </span><span id="local-6989586621679592953"><span class="annot"><span class="annottext">flags :: [FilePath]
+</span><a href="#local-6989586621679592953"><span class="hs-identifier hs-var hs-var">flags</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[[FilePath]] -&gt; [FilePath]
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mconcat</span></a></span><span>
+</span><span id="line-174"></span><span>      </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; [FilePath]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;--no-magic&quot;</span></span><span> </span><span class="hs-comment">-- disable doctests automagic discovery heuristics</span><span>
+</span><span id="line-175"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; [FilePath]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;-fdiagnostics-color=never&quot;</span></span><span> </span><span class="hs-comment">-- disable ghc's color diagnostics.</span><span>
+</span><span id="line-176"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679592952"><span class="hs-identifier hs-var">opt</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679592951"><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592951"><span class="hs-identifier hs-var">opts</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679592950"><span class="annot"><span class="annottext">Version
+</span><a href="#local-6989586621679592950"><span class="hs-identifier hs-var">_ghcVer</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Flag (GhcOptions, Version) -&gt; [(GhcOptions, Version)]
+forall a. Flag a -&gt; [a]
+</span><a href="Distribution.Simple.Flag.html#flagToList"><span class="hs-identifier hs-var">flagToList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">DoctestArgs -&gt; Flag (GhcOptions, Version)
+</span><a href="Distribution.Simple.Doctest.html#argGhcOptions"><span class="hs-identifier hs-var hs-var">argGhcOptions</span></a></span><span> </span><span class="annot"><span class="annottext">DoctestArgs
+</span><a href="#local-6989586621679592955"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-177"></span><span>              </span><span class="hs-special">,</span><span> </span><span id="local-6989586621679592952"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679592952"><span class="hs-identifier hs-var">opt</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Compiler -&gt; Platform -&gt; GhcOptions -&gt; [FilePath]
+</span><a href="Distribution.Simple.Program.GHC.html#renderGhcOptions"><span class="hs-identifier hs-var">renderGhcOptions</span></a></span><span> </span><span class="annot"><span class="annottext">Compiler
+</span><a href="#local-6989586621679592957"><span class="hs-identifier hs-var">comp</span></a></span><span> </span><span class="annot"><span class="annottext">Platform
+</span><a href="#local-6989586621679592956"><span class="hs-identifier hs-var">platform</span></a></span><span> </span><span class="annot"><span class="annottext">GhcOptions
+</span><a href="#local-6989586621679592951"><span class="hs-identifier hs-var">opts</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-178"></span><span>      </span><span class="hs-special">]</span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span class="hs-comment">-- ------------------------------------------------------------------------------</span><span>
+</span><span id="line-181"></span><span class="hs-comment">-- Boilerplate Monoid instance.</span><span>
+</span><span id="line-182"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679592943"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-type">DoctestArgs</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-183"></span><span>    </span><span id="local-6989586621679592941"><span class="annot"><span class="annottext">mempty :: DoctestArgs
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DoctestArgs
+forall a. (Generic a, GMonoid (Rep a)) =&gt; a
+</span><a href="Distribution.Compat.Semigroup.html#gmempty"><span class="hs-identifier hs-var">gmempty</span></a></span><span>
+</span><span id="line-184"></span><span>    </span><span id="local-6989586621679592939"><span class="annot"><span class="annottext">mappend :: DoctestArgs -&gt; DoctestArgs -&gt; DoctestArgs
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mappend</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DoctestArgs -&gt; DoctestArgs -&gt; DoctestArgs
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">(&lt;&gt;)</span></a></span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679592934"><span id="local-6989586621679592936"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="annot"><a href="Distribution.Simple.Doctest.html#DoctestArgs"><span class="hs-identifier hs-type">DoctestArgs</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-187"></span><span>    </span><span id="local-6989586621679592932"><span class="annot"><span class="annottext">&lt;&gt; :: DoctestArgs -&gt; DoctestArgs -&gt; DoctestArgs
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var hs-var hs-var hs-var">(&lt;&gt;)</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DoctestArgs -&gt; DoctestArgs -&gt; DoctestArgs
+forall a. (Generic a, GSemigroup (Rep a)) =&gt; a -&gt; a -&gt; a
+</span><a href="Distribution.Compat.Semigroup.html#gmappend"><span class="hs-identifier hs-var">gmappend</span></a></span><span>
+</span><span id="line-188"></span></pre></body></html>

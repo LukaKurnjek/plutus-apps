@@ -1,0 +1,937 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE AllowAmbiguousTypes #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- | Some functionality is useful enough to be provided across backends, but is</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- not standardized. For example, many RDBMS systems provide ways of fetching</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- auto-incrementing or defaulting fields on INSERT or UPDATE.</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Beam provides type classes that some backends instantiate that provide this</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- support. This uses direct means on sufficiently advanced backends and is</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- emulated on others.</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.Beam.Backend.SQL.BeamExtensions</span><span>
+</span><span id="line-11"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier">MonadBeamInsertReturning</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier">MonadBeamUpdateReturning</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier">MonadBeamDeleteReturning</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#BeamHasInsertOnConflict"><span class="hs-identifier">BeamHasInsertOnConflict</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.Types.html#SqlSerial"><span class="hs-identifier">SqlSerial</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateInstead"><span class="hs-identifier">onConflictUpdateInstead</span></a></span><span>
+</span><span id="line-18"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateAll"><span class="hs-identifier">onConflictUpdateAll</span></a></span><span>
+</span><span id="line-19"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Backend.html"><span class="hs-identifier">Database.Beam.Backend</span></a></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Query.html"><span class="hs-identifier">Database.Beam.Query</span></a></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Query.Internal.html"><span class="hs-identifier">Database.Beam.Query.Internal</span></a></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Schema.html"><span class="hs-identifier">Database.Beam.Schema</span></a></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Schema.Tables.html"><span class="hs-identifier">Database.Beam.Schema.Tables</span></a></span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Cont</span></a></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Except</span></a></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Identity</span></a></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.RWS.Lazy</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Lazy</span></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.RWS.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Strict</span></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Reader</span></a></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.State.Lazy</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Lazy</span></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.State.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Strict</span></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Writer.Lazy</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Lazy</span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Writer.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Strict</span></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Functor.Const</span></a></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Kind</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier">Type</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Proxy</span></a></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Semigroup</span></a></span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span class="hs-comment">--import GHC.Generics</span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- | 'MonadBeam's that support returning the newly created rows of an @INSERT@ statement.</span><span>
+</span><span id="line-45"></span><span class="hs-comment">--   Useful for discovering the real value of a defaulted value.</span><span>
+</span><span id="line-46"></span><span class="hs-keyword">class</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.html#MonadBeam"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475417"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-47"></span><span>  </span><span id="MonadBeamInsertReturning"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-var">MonadBeamInsertReturning</span></a></span></span><span> </span><span id="local-6989586621679475418"><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679475417"><span class="annot"><a href="#local-6989586621679475417"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><a href="#local-6989586621679475417"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-48"></span><span>  </span><span id="local-6989586621679475426"><span id="runInsertReturningList"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-type">runInsertReturningList</span></a></span></span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475426"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-50"></span><span>       </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#Projectible"><span class="hs-identifier hs-type">Projectible</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475426"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>       </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.Row.html#FromBackendRow"><span class="hs-identifier hs-type">FromBackendRow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475426"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.html#SqlInsert"><span class="hs-identifier hs-type">SqlInsert</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475426"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475417"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679475426"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span id="local-6989586621679475185"><span id="local-6989586621679475186"><span id="local-6989586621679475187"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475187"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475186"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475187"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ExceptT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475185"><span class="hs-identifier hs-type">e</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475186"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-56"></span><span>    </span><span id="local-6989586621679475181"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; ExceptT e m [table Identity]
+</span><a href="#local-6989586621679475181"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ExceptT e m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ExceptT e m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; ExceptT e m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-57"></span><span id="local-6989586621679475176"><span id="local-6989586621679475177"><span id="local-6989586621679475178"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475178"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475177"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475178"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ContT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475176"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475177"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-58"></span><span>    </span><span id="local-6989586621679475173"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; ContT r m [table Identity]
+</span><a href="#local-6989586621679475173"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ContT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ContT r m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; ContT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-59"></span><span id="local-6989586621679475170"><span id="local-6989586621679475171"><span id="local-6989586621679475172"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475172"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475171"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475172"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ReaderT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475170"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475171"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-60"></span><span>    </span><span id="local-6989586621679475167"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; ReaderT r m [table Identity]
+</span><a href="#local-6989586621679475167"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ReaderT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ReaderT r m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; ReaderT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-61"></span><span id="local-6989586621679475164"><span id="local-6989586621679475165"><span id="local-6989586621679475166"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475166"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475165"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475166"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.StateT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475164"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475165"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-62"></span><span>    </span><span id="local-6989586621679475161"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; StateT r m [table Identity]
+</span><a href="#local-6989586621679475161"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; StateT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; StateT r m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; StateT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-63"></span><span id="local-6989586621679475158"><span id="local-6989586621679475159"><span id="local-6989586621679475160"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475160"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475159"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475160"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.StateT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475158"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475159"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-64"></span><span>    </span><span id="local-6989586621679475155"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; StateT r m [table Identity]
+</span><a href="#local-6989586621679475155"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; StateT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; StateT r m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; StateT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-65"></span><span id="local-6989586621679475152"><span id="local-6989586621679475153"><span id="local-6989586621679475154"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475154"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475153"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475152"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475154"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.WriterT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475152"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475153"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-67"></span><span>    </span><span id="local-6989586621679475149"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; WriterT r m [table Identity]
+</span><a href="#local-6989586621679475149"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; WriterT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; WriterT r m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; WriterT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-68"></span><span id="local-6989586621679475146"><span id="local-6989586621679475147"><span id="local-6989586621679475148"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475148"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475147"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475146"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475148"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.WriterT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475146"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475147"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-70"></span><span>    </span><span id="local-6989586621679475143"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; WriterT r m [table Identity]
+</span><a href="#local-6989586621679475143"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; WriterT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; WriterT r m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; WriterT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span><span>
+</span><span id="line-71"></span><span id="local-6989586621679475138"><span id="local-6989586621679475139"><span id="local-6989586621679475140"><span id="local-6989586621679475141"><span id="local-6989586621679475142"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475142"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475141"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475140"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475142"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.RWST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475139"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475140"><span class="hs-identifier hs-type">w</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475138"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475141"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621679475135"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; RWST r w s m [table Identity]
+</span><a href="#local-6989586621679475135"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; RWST r w s m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; RWST r w s m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; RWST r w s m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span></span></span><span>
+</span><span id="line-74"></span><span id="local-6989586621679475130"><span id="local-6989586621679475131"><span id="local-6989586621679475132"><span id="local-6989586621679475133"><span id="local-6989586621679475134"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475134"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475133"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475132"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamInsertReturning"><span class="hs-identifier hs-type">MonadBeamInsertReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475134"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.RWST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475131"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475132"><span class="hs-identifier hs-type">w</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475130"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475133"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-76"></span><span>    </span><span id="local-6989586621679475127"><span class="annot"><span class="annottext">runInsertReturningList :: SqlInsert be table -&gt; RWST r w s m [table Identity]
+</span><a href="#local-6989586621679475127"><span class="hs-identifier hs-var hs-var hs-var hs-var">runInsertReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; RWST r w s m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; RWST r w s m [table Identity])
+-&gt; (SqlInsert be table -&gt; m [table Identity])
+-&gt; SqlInsert be table
+-&gt; RWST r w s m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlInsert be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamInsertReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlInsert be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runInsertReturningList"><span class="hs-identifier hs-var">runInsertReturningList</span></a></span></span></span></span></span></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- | 'MonadBeam's that support returning the updated rows of an @UPDATE@ statement.</span><span>
+</span><span id="line-79"></span><span class="hs-comment">--   Useful for discovering the new values of the updated rows.</span><span>
+</span><span id="line-80"></span><span class="hs-keyword">class</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.html#MonadBeam"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475357"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-81"></span><span>  </span><span id="MonadBeamUpdateReturning"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-var">MonadBeamUpdateReturning</span></a></span></span><span> </span><span id="local-6989586621679475358"><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679475357"><span class="annot"><a href="#local-6989586621679475357"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><a href="#local-6989586621679475357"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-82"></span><span>  </span><span id="local-6989586621679475361"><span id="runUpdateReturningList"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-type">runUpdateReturningList</span></a></span></span><span>
+</span><span id="line-83"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475361"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-84"></span><span>       </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#Projectible"><span class="hs-identifier hs-type">Projectible</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475361"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-85"></span><span>       </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.Row.html#FromBackendRow"><span class="hs-identifier hs-type">FromBackendRow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475361"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.html#SqlUpdate"><span class="hs-identifier hs-type">SqlUpdate</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475358"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475361"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475357"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679475361"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span id="local-6989586621679475123"><span id="local-6989586621679475124"><span id="local-6989586621679475125"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475125"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475124"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475125"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ExceptT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475123"><span class="hs-identifier hs-type">e</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475124"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-90"></span><span>    </span><span id="local-6989586621679475119"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; ExceptT e m [table Identity]
+</span><a href="#local-6989586621679475119"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ExceptT e m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ExceptT e m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; ExceptT e m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-91"></span><span id="local-6989586621679475116"><span id="local-6989586621679475117"><span id="local-6989586621679475118"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475118"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475117"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475118"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ContT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475116"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475117"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-92"></span><span>    </span><span id="local-6989586621679475113"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; ContT r m [table Identity]
+</span><a href="#local-6989586621679475113"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ContT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ContT r m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; ContT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-93"></span><span id="local-6989586621679475110"><span id="local-6989586621679475111"><span id="local-6989586621679475112"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475112"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475111"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475112"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ReaderT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475110"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475111"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-94"></span><span>    </span><span id="local-6989586621679475107"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; ReaderT r m [table Identity]
+</span><a href="#local-6989586621679475107"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ReaderT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ReaderT r m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; ReaderT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-95"></span><span id="local-6989586621679475104"><span id="local-6989586621679475105"><span id="local-6989586621679475106"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475106"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475105"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475106"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.StateT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475104"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475105"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-96"></span><span>    </span><span id="local-6989586621679475101"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; StateT r m [table Identity]
+</span><a href="#local-6989586621679475101"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; StateT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; StateT r m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; StateT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-97"></span><span id="local-6989586621679475098"><span id="local-6989586621679475099"><span id="local-6989586621679475100"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475100"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475099"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475100"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.StateT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475098"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475099"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-98"></span><span>    </span><span id="local-6989586621679475095"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; StateT r m [table Identity]
+</span><a href="#local-6989586621679475095"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; StateT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; StateT r m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; StateT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-99"></span><span id="local-6989586621679475092"><span id="local-6989586621679475093"><span id="local-6989586621679475094"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475094"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475093"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475092"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-100"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475094"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.WriterT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475092"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475093"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-101"></span><span>    </span><span id="local-6989586621679475089"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; WriterT r m [table Identity]
+</span><a href="#local-6989586621679475089"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; WriterT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; WriterT r m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; WriterT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-102"></span><span id="local-6989586621679475086"><span id="local-6989586621679475087"><span id="local-6989586621679475088"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475088"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475087"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475086"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475088"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.WriterT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475086"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475087"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-104"></span><span>    </span><span id="local-6989586621679475083"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; WriterT r m [table Identity]
+</span><a href="#local-6989586621679475083"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; WriterT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; WriterT r m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; WriterT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span><span>
+</span><span id="line-105"></span><span id="local-6989586621679475078"><span id="local-6989586621679475079"><span id="local-6989586621679475080"><span id="local-6989586621679475081"><span id="local-6989586621679475082"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475082"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475081"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475080"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475082"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.RWST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475079"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475080"><span class="hs-identifier hs-type">w</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475078"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475081"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-107"></span><span>    </span><span id="local-6989586621679475075"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; RWST r w s m [table Identity]
+</span><a href="#local-6989586621679475075"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; RWST r w s m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; RWST r w s m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; RWST r w s m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span></span></span><span>
+</span><span id="line-108"></span><span id="local-6989586621679475070"><span id="local-6989586621679475071"><span id="local-6989586621679475072"><span id="local-6989586621679475073"><span id="local-6989586621679475074"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475074"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475073"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475072"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamUpdateReturning"><span class="hs-identifier hs-type">MonadBeamUpdateReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475074"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.RWST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475071"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475072"><span class="hs-identifier hs-type">w</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475070"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475073"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-110"></span><span>    </span><span id="local-6989586621679475067"><span class="annot"><span class="annottext">runUpdateReturningList :: SqlUpdate be table -&gt; RWST r w s m [table Identity]
+</span><a href="#local-6989586621679475067"><span class="hs-identifier hs-var hs-var hs-var hs-var">runUpdateReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; RWST r w s m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; RWST r w s m [table Identity])
+-&gt; (SqlUpdate be table -&gt; m [table Identity])
+-&gt; SqlUpdate be table
+-&gt; RWST r w s m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlUpdate be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamUpdateReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlUpdate be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runUpdateReturningList"><span class="hs-identifier hs-var">runUpdateReturningList</span></a></span></span></span></span></span></span><span>
+</span><span id="line-111"></span><span>
+</span><span id="line-112"></span><span class="hs-comment">-- | 'MonadBeam's that suppert returning rows that will be deleted by the given</span><span>
+</span><span id="line-113"></span><span class="hs-comment">-- @DELETE@ statement. Useful for deallocating resources based on the value of</span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- deleted rows.</span><span>
+</span><span id="line-115"></span><span class="hs-keyword">class</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.html#MonadBeam"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475312"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-116"></span><span>  </span><span id="MonadBeamDeleteReturning"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-var">MonadBeamDeleteReturning</span></a></span></span><span> </span><span id="local-6989586621679475313"><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679475312"><span class="annot"><a href="#local-6989586621679475312"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><a href="#local-6989586621679475312"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-117"></span><span>  </span><span id="local-6989586621679475316"><span id="runDeleteReturningList"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-type">runDeleteReturningList</span></a></span></span><span>
+</span><span id="line-118"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475316"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-119"></span><span>       </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#Projectible"><span class="hs-identifier hs-type">Projectible</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475316"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-120"></span><span>       </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.Row.html#FromBackendRow"><span class="hs-identifier hs-type">FromBackendRow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475316"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.html#SqlDelete"><span class="hs-identifier hs-type">SqlDelete</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475313"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475316"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475312"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679475316"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span id="local-6989586621679475063"><span id="local-6989586621679475064"><span id="local-6989586621679475065"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475065"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475064"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475065"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ExceptT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475063"><span class="hs-identifier hs-type">e</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475064"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-125"></span><span>    </span><span id="local-6989586621679475059"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; ExceptT e m [table Identity]
+</span><a href="#local-6989586621679475059"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ExceptT e m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ExceptT e m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; ExceptT e m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-126"></span><span id="local-6989586621679475056"><span id="local-6989586621679475057"><span id="local-6989586621679475058"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475058"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475057"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475058"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ContT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475056"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475057"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-127"></span><span>    </span><span id="local-6989586621679475053"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; ContT r m [table Identity]
+</span><a href="#local-6989586621679475053"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ContT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ContT r m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; ContT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-128"></span><span id="local-6989586621679475050"><span id="local-6989586621679475051"><span id="local-6989586621679475052"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475052"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475051"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475052"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">ReaderT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475050"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475051"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-129"></span><span>    </span><span id="local-6989586621679475047"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; ReaderT r m [table Identity]
+</span><a href="#local-6989586621679475047"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; ReaderT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; ReaderT r m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; ReaderT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-130"></span><span id="local-6989586621679475044"><span id="local-6989586621679475045"><span id="local-6989586621679475046"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475046"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475045"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475046"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.StateT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475044"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475045"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-131"></span><span>    </span><span id="local-6989586621679475041"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; StateT r m [table Identity]
+</span><a href="#local-6989586621679475041"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; StateT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; StateT r m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; StateT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-132"></span><span id="local-6989586621679475038"><span id="local-6989586621679475039"><span id="local-6989586621679475040"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475040"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475039"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475040"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.StateT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475038"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475039"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-133"></span><span>    </span><span id="local-6989586621679475035"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; StateT r m [table Identity]
+</span><a href="#local-6989586621679475035"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; StateT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; StateT r m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; StateT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-134"></span><span id="local-6989586621679475032"><span id="local-6989586621679475033"><span id="local-6989586621679475034"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475034"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475033"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475032"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475034"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.WriterT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475032"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475033"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-136"></span><span>    </span><span id="local-6989586621679475029"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; WriterT r m [table Identity]
+</span><a href="#local-6989586621679475029"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; WriterT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; WriterT r m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; WriterT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-137"></span><span id="local-6989586621679475026"><span id="local-6989586621679475027"><span id="local-6989586621679475028"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475028"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475027"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475026"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-138"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475028"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.WriterT</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475026"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475027"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-139"></span><span>    </span><span id="local-6989586621679475023"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; WriterT r m [table Identity]
+</span><a href="#local-6989586621679475023"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; WriterT r m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; WriterT r m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; WriterT r m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span><span>
+</span><span id="line-140"></span><span id="local-6989586621679475018"><span id="local-6989586621679475019"><span id="local-6989586621679475020"><span id="local-6989586621679475021"><span id="local-6989586621679475022"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475022"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475021"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475020"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475022"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Lazy.RWST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475019"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475020"><span class="hs-identifier hs-type">w</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475018"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475021"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-142"></span><span>    </span><span id="local-6989586621679475015"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; RWST r w s m [table Identity]
+</span><a href="#local-6989586621679475015"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; RWST r w s m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; RWST r w s m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; RWST r w s m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span></span></span><span>
+</span><span id="line-143"></span><span id="local-6989586621679475010"><span id="local-6989586621679475011"><span id="local-6989586621679475012"><span id="local-6989586621679475013"><span id="local-6989586621679475014"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475014"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475013"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475012"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-144"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#MonadBeamDeleteReturning"><span class="hs-identifier hs-type">MonadBeamDeleteReturning</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475014"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier hs-type">Strict.RWST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475011"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475012"><span class="hs-identifier hs-type">w</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475010"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475013"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-145"></span><span>    </span><span id="local-6989586621679475007"><span class="annot"><span class="annottext">runDeleteReturningList :: SqlDelete be table -&gt; RWST r w s m [table Identity]
+</span><a href="#local-6989586621679475007"><span class="hs-identifier hs-var hs-var hs-var hs-var">runDeleteReturningList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m [table Identity] -&gt; RWST r w s m [table Identity]
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">lift</span></a></span><span> </span><span class="annot"><span class="annottext">(m [table Identity] -&gt; RWST r w s m [table Identity])
+-&gt; (SqlDelete be table -&gt; m [table Identity])
+-&gt; SqlDelete be table
+-&gt; RWST r w s m [table Identity]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlDelete be table -&gt; m [table Identity]
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(MonadBeamDeleteReturning be m, Beamable table,
+ Projectible be (table (QExpr be ())),
+ FromBackendRow be (table Identity)) =&gt;
+SqlDelete be table -&gt; m [table Identity]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#runDeleteReturningList"><span class="hs-identifier hs-var">runDeleteReturningList</span></a></span></span></span></span></span></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span class="hs-keyword">class</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackend"><span class="hs-identifier hs-type">BeamSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span id="BeamHasInsertOnConflict"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#BeamHasInsertOnConflict"><span class="hs-identifier hs-var">BeamHasInsertOnConflict</span></a></span></span><span> </span><span id="local-6989586621679475255"><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-148"></span><span>  </span><span class="hs-comment">-- | Specifies the kind of constraint that must be violated for the action to occur</span><span>
+</span><span id="line-149"></span><span>  </span><span class="hs-keyword">data</span><span> </span><span id="SqlConflictTarget"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictTarget"><span class="hs-identifier hs-var">SqlConflictTarget</span></a></span></span><span> </span><span id="local-6989586621679475255"><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679475004"><span class="annot"><a href="#local-6989586621679475004"><span class="hs-identifier hs-type">table</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-150"></span><span>  </span><span class="hs-comment">-- | What to do when an @INSERT@ statement inserts a row into the table @tbl@</span><span>
+</span><span id="line-151"></span><span>  </span><span class="hs-comment">-- that violates a constraint.</span><span>
+</span><span id="line-152"></span><span>  </span><span class="hs-keyword">data</span><span> </span><span id="SqlConflictAction"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-var">SqlConflictAction</span></a></span></span><span> </span><span id="local-6989586621679475255"><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679475003"><span class="annot"><a href="#local-6989586621679475003"><span class="hs-identifier hs-type">table</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-153"></span><span>
+</span><span id="line-154"></span><span>  </span><span id="local-6989586621679475000"><span id="local-6989586621679475001"><span id="local-6989586621679475002"><span id="insertOnConflict"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#insertOnConflict"><span class="hs-identifier hs-type">insertOnConflict</span></a></span></span><span>
+</span><span id="line-155"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475002"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-156"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#DatabaseEntity"><span class="hs-identifier hs-type">DatabaseEntity</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475001"><span class="hs-identifier hs-type">db</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Schema.Tables.html#TableEntity"><span class="hs-identifier hs-type">TableEntity</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475002"><span class="hs-identifier hs-type">table</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-157"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.html#SqlInsertValues"><span class="hs-identifier hs-type">SqlInsertValues</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475002"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475000"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-158"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictTarget"><span class="hs-identifier hs-type">SqlConflictTarget</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475002"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-159"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-type">SqlConflictAction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475002"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-160"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.html#SqlInsert"><span class="hs-identifier hs-type">SqlInsert</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475002"><span class="hs-identifier hs-type">table</span></a></span></span></span></span><span>
+</span><span id="line-161"></span><span>
+</span><span id="line-162"></span><span>  </span><span id="local-6989586621679474995"><span id="anyConflict"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#anyConflict"><span class="hs-identifier hs-type">anyConflict</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictTarget"><span class="hs-identifier hs-type">SqlConflictTarget</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474995"><span class="hs-identifier hs-type">table</span></a></span></span><span>
+</span><span id="line-163"></span><span>  </span><span id="local-6989586621679474992"><span id="local-6989586621679474993"><span id="conflictingFields"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#conflictingFields"><span class="hs-identifier hs-type">conflictingFields</span></a></span></span><span>
+</span><span id="line-164"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#Projectible"><span class="hs-identifier hs-type">Projectible</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474993"><span class="hs-identifier hs-type">proj</span></a></span><span>
+</span><span id="line-165"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679474992"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QInternal"><span class="hs-identifier hs-type">QInternal</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679474993"><span class="hs-identifier hs-type">proj</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-166"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictTarget"><span class="hs-identifier hs-type">SqlConflictTarget</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474992"><span class="hs-identifier hs-type">table</span></a></span></span></span><span>
+</span><span id="line-167"></span><span>  </span><span id="local-6989586621679474988"><span id="local-6989586621679474989"><span id="conflictingFieldsWhere"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#conflictingFieldsWhere"><span class="hs-identifier hs-type">conflictingFieldsWhere</span></a></span></span><span>
+</span><span id="line-168"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#Projectible"><span class="hs-identifier hs-type">Projectible</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474989"><span class="hs-identifier hs-type">proj</span></a></span><span>
+</span><span id="line-169"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679474988"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QInternal"><span class="hs-identifier hs-type">QInternal</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679474989"><span class="hs-identifier hs-type">proj</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-170"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679474986"><span class="annot"><a href="#local-6989586621679474986"><span class="hs-identifier hs-type">s</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="#local-6989586621679474988"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474986"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474986"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-171"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictTarget"><span class="hs-identifier hs-type">SqlConflictTarget</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474988"><span class="hs-identifier hs-type">table</span></a></span></span></span><span>
+</span><span id="line-172"></span><span>
+</span><span id="line-173"></span><span>  </span><span id="local-6989586621679474985"><span id="onConflictDoNothing"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictDoNothing"><span class="hs-identifier hs-type">onConflictDoNothing</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-type">SqlConflictAction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474985"><span class="hs-identifier hs-type">table</span></a></span></span><span>
+</span><span id="line-174"></span><span>  </span><span id="local-6989586621679475253"><span id="onConflictUpdateSet"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateSet"><span class="hs-identifier hs-type">onConflictUpdateSet</span></a></span></span><span>
+</span><span id="line-175"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475253"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-176"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679475258"><span class="annot"><a href="#local-6989586621679475258"><span class="hs-identifier hs-type">s</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="#local-6989586621679475253"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QField"><span class="hs-identifier hs-type">QField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475258"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475253"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475258"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QAssignment"><span class="hs-identifier hs-type">QAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475258"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-177"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-type">SqlConflictAction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475253"><span class="hs-identifier hs-type">table</span></a></span></span><span>
+</span><span id="line-178"></span><span>  </span><span id="local-6989586621679474982"><span id="onConflictUpdateSetWhere"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateSetWhere"><span class="hs-identifier hs-type">onConflictUpdateSetWhere</span></a></span></span><span>
+</span><span id="line-179"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474982"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-180"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679474980"><span class="annot"><a href="#local-6989586621679474980"><span class="hs-identifier hs-type">s</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="#local-6989586621679474982"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QField"><span class="hs-identifier hs-type">QField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474980"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679474982"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474980"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QAssignment"><span class="hs-identifier hs-type">QAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474980"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-181"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679474979"><span class="annot"><a href="#local-6989586621679474979"><span class="hs-identifier hs-type">s</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="#local-6989586621679474982"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QField"><span class="hs-identifier hs-type">QField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474979"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679474982"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474979"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474979"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-182"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-type">SqlConflictAction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475255"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474982"><span class="hs-identifier hs-type">table</span></a></span></span><span>
+</span><span id="line-183"></span><span>
+</span><span id="line-184"></span><span class="hs-keyword">newtype</span><span> </span><span id="InaccessibleQAssignment"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-var">InaccessibleQAssignment</span></a></span></span><span> </span><span id="local-6989586621679475246"><span class="annot"><a href="#local-6989586621679475246"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="InaccessibleQAssignment"><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-var">InaccessibleQAssignment</span></a></span></span><span>
+</span><span id="line-185"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="unInaccessibleQAssignment"><span class="annot"><span class="annottext">InaccessibleQAssignment be
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#unInaccessibleQAssignment"><span class="hs-identifier hs-var hs-var">unInaccessibleQAssignment</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendFieldNameSyntax"><span class="hs-identifier hs-type">BeamSqlBackendFieldNameSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475246"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendExpressionSyntax"><span class="hs-identifier hs-type">BeamSqlBackendExpressionSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475246"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><span id="line-186"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679474971"><span id="local-6989586621679474973"><span id="local-6989586621679474975"><span class="annot"><span class="annottext">b -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+NonEmpty (InaccessibleQAssignment be) -&gt; InaccessibleQAssignment be
+InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+(InaccessibleQAssignment be
+ -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be)
+-&gt; (NonEmpty (InaccessibleQAssignment be)
+    -&gt; InaccessibleQAssignment be)
+-&gt; (forall b.
+    Integral b =&gt;
+    b -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be)
+-&gt; Semigroup (InaccessibleQAssignment be)
+forall b.
+Integral b =&gt;
+b -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+forall be.
+NonEmpty (InaccessibleQAssignment be) -&gt; InaccessibleQAssignment be
+forall be.
+InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+forall a.
+(a -&gt; a -&gt; a)
+-&gt; (NonEmpty a -&gt; a)
+-&gt; (forall b. Integral b =&gt; b -&gt; a -&gt; a)
+-&gt; Semigroup a
+forall be b.
+Integral b =&gt;
+b -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+stimes :: b -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+$cstimes :: forall be b.
+Integral b =&gt;
+b -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+sconcat :: NonEmpty (InaccessibleQAssignment be) -&gt; InaccessibleQAssignment be
+$csconcat :: forall be.
+NonEmpty (InaccessibleQAssignment be) -&gt; InaccessibleQAssignment be
+&lt;&gt; :: InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+$c&lt;&gt; :: forall be.
+InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Data.Semigroup.Semigroup</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679474963"><span id="local-6989586621679474965"><span id="local-6989586621679474967"><span class="annot"><span class="annottext">Semigroup (InaccessibleQAssignment be)
+InaccessibleQAssignment be
+Semigroup (InaccessibleQAssignment be)
+-&gt; InaccessibleQAssignment be
+-&gt; (InaccessibleQAssignment be
+    -&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be)
+-&gt; ([InaccessibleQAssignment be] -&gt; InaccessibleQAssignment be)
+-&gt; Monoid (InaccessibleQAssignment be)
+[InaccessibleQAssignment be] -&gt; InaccessibleQAssignment be
+InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+forall be. Semigroup (InaccessibleQAssignment be)
+forall be. InaccessibleQAssignment be
+forall a.
+Semigroup a -&gt; a -&gt; (a -&gt; a -&gt; a) -&gt; ([a] -&gt; a) -&gt; Monoid a
+forall be.
+[InaccessibleQAssignment be] -&gt; InaccessibleQAssignment be
+forall be.
+InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+mconcat :: [InaccessibleQAssignment be] -&gt; InaccessibleQAssignment be
+$cmconcat :: forall be.
+[InaccessibleQAssignment be] -&gt; InaccessibleQAssignment be
+mappend :: InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+$cmappend :: forall be.
+InaccessibleQAssignment be
+-&gt; InaccessibleQAssignment be -&gt; InaccessibleQAssignment be
+mempty :: InaccessibleQAssignment be
+$cmempty :: forall be. InaccessibleQAssignment be
+$cp1Monoid :: forall be. Semigroup (InaccessibleQAssignment be)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Monoid</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>
+</span><span id="line-188"></span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateInstead"><span class="hs-identifier hs-type">onConflictUpdateInstead</span></a></span><span>
+</span><span id="line-189"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679475195"><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679475194"><span class="annot"><a href="#local-6989586621679475194"><span class="hs-identifier hs-type">table</span></a></span></span><span> </span><span id="local-6989586621679475193"><span class="annot"><a href="#local-6989586621679475193"><span class="hs-identifier hs-type">proj</span></a></span></span><span>
+</span><span id="line-190"></span><span>  </span><span class="hs-operator">.</span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#BeamHasInsertOnConflict"><span class="hs-identifier hs-type">BeamHasInsertOnConflict</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-191"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475194"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-192"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#ProjectibleWithPredicate"><span class="hs-identifier hs-type">ProjectibleWithPredicate</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#AnyType"><span class="hs-identifier hs-type">AnyType</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-type">InaccessibleQAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679475193"><span class="hs-identifier hs-type">proj</span></a></span><span>
+</span><span id="line-193"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-194"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679475194"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Const</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-type">InaccessibleQAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475193"><span class="hs-identifier hs-type">proj</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-195"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-type">SqlConflictAction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475194"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-196"></span><span id="onConflictUpdateInstead"><span class="annot"><span class="annottext">onConflictUpdateInstead :: (table (Const (InaccessibleQAssignment be)) -&gt; proj)
+-&gt; SqlConflictAction be table
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateInstead"><span class="hs-identifier hs-var hs-var">onConflictUpdateInstead</span></a></span></span><span> </span><span id="local-6989586621679474961"><span class="annot"><span class="annottext">table (Const (InaccessibleQAssignment be)) -&gt; proj
+</span><a href="#local-6989586621679474961"><span class="hs-identifier hs-var">mkProj</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall s.
+ table (QField s) -&gt; table (QExpr be s) -&gt; QAssignment be s)
+-&gt; SqlConflictAction be table
+forall be (table :: (* -&gt; *) -&gt; *).
+(BeamHasInsertOnConflict be, Beamable table) =&gt;
+(forall s.
+ table (QField s) -&gt; table (QExpr be s) -&gt; QAssignment be s)
+-&gt; SqlConflictAction be table
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateSet"><span class="hs-identifier hs-var">onConflictUpdateSet</span></a></span><span> </span><span class="annot"><span class="annottext">forall s.
+table (QField s) -&gt; table (QExpr be s) -&gt; QAssignment be s
+</span><a href="#local-6989586621679474960"><span class="hs-identifier hs-var">mkAssignments</span></a></span><span>
+</span><span id="line-197"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-198"></span><span>    </span><span class="annot"><a href="#local-6989586621679474960"><span class="hs-identifier hs-type">mkAssignments</span></a></span><span>
+</span><span id="line-199"></span><span>      </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679474959"><span class="annot"><a href="#local-6989586621679474959"><span class="hs-identifier hs-type">s</span></a></span></span><span>
+</span><span id="line-200"></span><span>      </span><span class="hs-operator">.</span><span>  </span><span class="annot"><a href="#local-6989586621679475194"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QField"><span class="hs-identifier hs-type">QField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474959"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-201"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679475194"><span class="hs-identifier hs-type">table</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474959"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-202"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QAssignment"><span class="hs-identifier hs-type">QAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474959"><span class="hs-identifier hs-type">s</span></a></span><span>
+</span><span id="line-203"></span><span>    </span><span id="local-6989586621679474960"><span class="annot"><span class="annottext">mkAssignments :: table (QField s) -&gt; table (QExpr be s) -&gt; QAssignment be s
+</span><a href="#local-6989586621679474960"><span class="hs-identifier hs-var hs-var">mkAssignments</span></a></span></span><span> </span><span id="local-6989586621679474958"><span class="annot"><span class="annottext">table (QField s)
+</span><a href="#local-6989586621679474958"><span class="hs-identifier hs-var">table</span></a></span></span><span> </span><span id="local-6989586621679474957"><span class="annot"><span class="annottext">table (QExpr be s)
+</span><a href="#local-6989586621679474957"><span class="hs-identifier hs-var">excluded</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(BeamSqlBackendFieldNameSyntax be,
+  BeamSqlBackendExpressionSyntax be)]
+-&gt; QAssignment be s
+forall be s.
+[(BeamSqlBackendFieldNameSyntax be,
+  BeamSqlBackendExpressionSyntax be)]
+-&gt; QAssignment be s
+</span><a href="Database.Beam.Query.Internal.html#QAssignment"><span class="hs-identifier hs-var">QAssignment</span></a></span><span> </span><span class="annot"><span class="annottext">([(BeamSqlBackendFieldNameSyntax be,
+   BeamSqlBackendExpressionSyntax be)]
+ -&gt; QAssignment be s)
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+-&gt; QAssignment be s
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">InaccessibleQAssignment be
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+forall be.
+InaccessibleQAssignment be
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#unInaccessibleQAssignment"><span class="hs-identifier hs-var hs-var">unInaccessibleQAssignment</span></a></span><span> </span><span class="annot"><span class="annottext">(InaccessibleQAssignment be
+ -&gt; [(BeamSqlBackendFieldNameSyntax be,
+      BeamSqlBackendExpressionSyntax be)])
+-&gt; InaccessibleQAssignment be
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-204"></span><span>      </span><span class="annot"><span class="annottext">Writer (InaccessibleQAssignment be) proj
+-&gt; InaccessibleQAssignment be
+forall w a. Writer w a -&gt; w
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">Strict.execWriter</span></a></span><span> </span><span class="annot"><span class="annottext">(Writer (InaccessibleQAssignment be) proj
+ -&gt; InaccessibleQAssignment be)
+-&gt; Writer (InaccessibleQAssignment be) proj
+-&gt; InaccessibleQAssignment be
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy AnyType
+-&gt; Proxy ((), InaccessibleQAssignment be)
+-&gt; (forall context.
+    AnyType context =&gt;
+    Proxy context
+    -&gt; Proxy ()
+    -&gt; InaccessibleQAssignment be
+    -&gt; WriterT
+         (InaccessibleQAssignment be) Identity (InaccessibleQAssignment be))
+-&gt; proj
+-&gt; Writer (InaccessibleQAssignment be) proj
+forall (contextPredicate :: * -&gt; Constraint) be res a
+       (m :: * -&gt; *).
+(ProjectibleWithPredicate contextPredicate be res a, Monad m) =&gt;
+Proxy contextPredicate
+-&gt; Proxy (be, res)
+-&gt; (forall context.
+    contextPredicate context =&gt;
+    Proxy context -&gt; Proxy be -&gt; res -&gt; m res)
+-&gt; a
+-&gt; m a
+</span><a href="Database.Beam.Query.Internal.html#project%27"><span class="hs-identifier hs-var">project'</span></a></span><span>
+</span><span id="line-205"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy AnyType
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Database.Beam.Query.Internal.html#AnyType"><span class="hs-identifier hs-type">AnyType</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy ((), InaccessibleQAssignment be)
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-type">InaccessibleQAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-207"></span><span>        </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">Proxy context
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Proxy ()
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679474952"><span class="annot"><span class="annottext">InaccessibleQAssignment be
+</span><a href="#local-6989586621679474952"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">InaccessibleQAssignment be
+-&gt; WriterT (InaccessibleQAssignment be) Identity ()
+forall w (m :: * -&gt; *). MonadWriter w m =&gt; w -&gt; m ()
+</span><a href="../../../../mtl/html/src"><span class="hs-identifier hs-var">Strict.tell</span></a></span><span> </span><span class="annot"><span class="annottext">InaccessibleQAssignment be
+</span><a href="#local-6989586621679474952"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">WriterT (InaccessibleQAssignment be) Identity ()
+-&gt; WriterT
+     (InaccessibleQAssignment be) Identity (InaccessibleQAssignment be)
+-&gt; WriterT
+     (InaccessibleQAssignment be) Identity (InaccessibleQAssignment be)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">InaccessibleQAssignment be
+-&gt; WriterT
+     (InaccessibleQAssignment be) Identity (InaccessibleQAssignment be)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">InaccessibleQAssignment be
+</span><a href="#local-6989586621679474952"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-208"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">table (Const (InaccessibleQAssignment be)) -&gt; proj
+</span><a href="#local-6989586621679474961"><span class="hs-identifier hs-var">mkProj</span></a></span><span> </span><span class="annot"><span class="annottext">(table (Const (InaccessibleQAssignment be)) -&gt; proj)
+-&gt; table (Const (InaccessibleQAssignment be)) -&gt; proj
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Identity (table (Const (InaccessibleQAssignment be)))
+-&gt; table (Const (InaccessibleQAssignment be))
+forall a. Identity a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var">runIdentity</span></a></span><span> </span><span class="annot"><span class="annottext">(Identity (table (Const (InaccessibleQAssignment be)))
+ -&gt; table (Const (InaccessibleQAssignment be)))
+-&gt; Identity (table (Const (InaccessibleQAssignment be)))
+-&gt; table (Const (InaccessibleQAssignment be))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(forall a.
+ Columnar' (QField s) a
+ -&gt; Columnar' (QExpr be s) a
+ -&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a))
+-&gt; table (QField s)
+-&gt; table (QExpr be s)
+-&gt; Identity (table (Const (InaccessibleQAssignment be)))
+forall (table :: (* -&gt; *) -&gt; *) (m :: * -&gt; *) (f :: * -&gt; *)
+       (g :: * -&gt; *) (h :: * -&gt; *).
+(Beamable table, Applicative m) =&gt;
+(forall a. Columnar' f a -&gt; Columnar' g a -&gt; m (Columnar' h a))
+-&gt; table f -&gt; table g -&gt; m (table h)
+</span><a href="Database.Beam.Schema.Tables.html#zipBeamFieldsM"><span class="hs-identifier hs-var">zipBeamFieldsM</span></a></span><span> </span><span class="annot"><span class="annottext">forall a.
+Columnar' (QField s) a
+-&gt; Columnar' (QExpr be s) a
+-&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a)
+forall s a.
+Columnar' (QField s) a
+-&gt; Columnar' (QExpr be s) a
+-&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a)
+</span><a href="#local-6989586621679474948"><span class="hs-identifier hs-var">mkAssignment</span></a></span><span> </span><span class="annot"><span class="annottext">table (QField s)
+</span><a href="#local-6989586621679474958"><span class="hs-identifier hs-var">table</span></a></span><span> </span><span class="annot"><span class="annottext">table (QExpr be s)
+</span><a href="#local-6989586621679474957"><span class="hs-identifier hs-var">excluded</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-209"></span><span>    </span><span class="annot"><a href="#local-6989586621679474948"><span class="hs-identifier hs-type">mkAssignment</span></a></span><span>
+</span><span id="line-210"></span><span>      </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679475215"><span class="annot"><a href="#local-6989586621679475215"><span class="hs-identifier hs-type">s</span></a></span></span><span> </span><span id="local-6989586621679475214"><span class="annot"><a href="#local-6989586621679475214"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-211"></span><span>      </span><span class="hs-operator">.</span><span>  </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Columnar%27"><span class="hs-identifier hs-type">Columnar'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QField"><span class="hs-identifier hs-type">QField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475215"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679475214"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-212"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Columnar%27"><span class="hs-identifier hs-type">Columnar'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475215"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679475214"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-213"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Columnar%27"><span class="hs-identifier hs-type">Columnar'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Const</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-type">InaccessibleQAssignment</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679475195"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679475214"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-214"></span><span>    </span><span id="local-6989586621679474948"><span class="annot"><span class="annottext">mkAssignment :: Columnar' (QField s) a
+-&gt; Columnar' (QExpr be s) a
+-&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a)
+</span><a href="#local-6989586621679474948"><span class="hs-identifier hs-var hs-var">mkAssignment</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Columnar%27"><span class="hs-identifier hs-type">Columnar'</span></a></span><span> </span><span id="local-6989586621679474946"><span class="annot"><span class="annottext">Columnar (QField s) a
+</span><a href="#local-6989586621679474946"><span class="hs-identifier hs-var">field</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Columnar%27"><span class="hs-identifier hs-type">Columnar'</span></a></span><span> </span><span id="local-6989586621679474945"><span class="annot"><span class="annottext">Columnar (QExpr be s) a
+</span><a href="#local-6989586621679474945"><span class="hs-identifier hs-var">value</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-215"></span><span>      </span><span class="annot"><span class="annottext">Columnar' (Const (InaccessibleQAssignment be)) a
+-&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a)
+forall a. a -&gt; Identity a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Identity</span></a></span><span> </span><span class="annot"><span class="annottext">(Columnar' (Const (InaccessibleQAssignment be)) a
+ -&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a))
+-&gt; Columnar' (Const (InaccessibleQAssignment be)) a
+-&gt; Identity (Columnar' (Const (InaccessibleQAssignment be)) a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Columnar (Const (InaccessibleQAssignment be)) a
+-&gt; Columnar' (Const (InaccessibleQAssignment be)) a
+forall (f :: * -&gt; *) a. Columnar f a -&gt; Columnar' f a
+</span><a href="Database.Beam.Schema.Tables.html#Columnar%27"><span class="hs-identifier hs-var">Columnar'</span></a></span><span> </span><span class="annot"><span class="annottext">(Columnar (Const (InaccessibleQAssignment be)) a
+ -&gt; Columnar' (Const (InaccessibleQAssignment be)) a)
+-&gt; Columnar (Const (InaccessibleQAssignment be)) a
+-&gt; Columnar' (Const (InaccessibleQAssignment be)) a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">InaccessibleQAssignment be -&gt; Const (InaccessibleQAssignment be) a
+forall k a (b :: k). a -&gt; Const a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Const</span></a></span><span> </span><span class="annot"><span class="annottext">(InaccessibleQAssignment be
+ -&gt; Const (InaccessibleQAssignment be) a)
+-&gt; InaccessibleQAssignment be
+-&gt; Const (InaccessibleQAssignment be) a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-216"></span><span>        </span><span class="annot"><span class="annottext">[(BeamSqlBackendFieldNameSyntax be,
+  BeamSqlBackendExpressionSyntax be)]
+-&gt; InaccessibleQAssignment be
+forall be.
+[(BeamSqlBackendFieldNameSyntax be,
+  BeamSqlBackendExpressionSyntax be)]
+-&gt; InaccessibleQAssignment be
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#InaccessibleQAssignment"><span class="hs-identifier hs-var">InaccessibleQAssignment</span></a></span><span> </span><span class="annot"><span class="annottext">([(BeamSqlBackendFieldNameSyntax be,
+   BeamSqlBackendExpressionSyntax be)]
+ -&gt; InaccessibleQAssignment be)
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+-&gt; InaccessibleQAssignment be
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">QAssignment be s
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+forall be s.
+QAssignment be s
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+</span><a href="Database.Beam.Query.Internal.html#unQAssignment"><span class="hs-identifier hs-var hs-var">unQAssignment</span></a></span><span> </span><span class="annot"><span class="annottext">(QAssignment be s
+ -&gt; [(BeamSqlBackendFieldNameSyntax be,
+      BeamSqlBackendExpressionSyntax be)])
+-&gt; QAssignment be s
+-&gt; [(BeamSqlBackendFieldNameSyntax be,
+     BeamSqlBackendExpressionSyntax be)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Columnar (QField s) a
+QField s a
+</span><a href="#local-6989586621679474946"><span class="hs-identifier hs-var">field</span></a></span><span> </span><span class="annot"><span class="annottext">QField s a -&gt; QGenExpr QValueContext be s a -&gt; QAssignment be s
+forall be s lhs rhs.
+SqlUpdatable be s lhs rhs =&gt;
+lhs -&gt; rhs -&gt; QAssignment be s
+</span><a href="Database.Beam.Query.Combinators.html#%3C-."><span class="hs-operator hs-var">&lt;-.</span></a></span><span> </span><span class="annot"><span class="annottext">Columnar (QExpr be s) a
+QGenExpr QValueContext be s a
+</span><a href="#local-6989586621679474945"><span class="hs-identifier hs-var">value</span></a></span><span>
+</span><span id="line-217"></span><span>
+</span><span id="line-218"></span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateAll"><span class="hs-identifier hs-type">onConflictUpdateAll</span></a></span><span>
+</span><span id="line-219"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679474940"><span class="annot"><a href="#local-6989586621679474940"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679474939"><span class="annot"><a href="#local-6989586621679474939"><span class="hs-identifier hs-type">table</span></a></span></span><span>
+</span><span id="line-220"></span><span>  </span><span class="hs-operator">.</span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#BeamHasInsertOnConflict"><span class="hs-identifier hs-type">BeamHasInsertOnConflict</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474940"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-221"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Schema.Tables.html#Beamable"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474939"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-222"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-223"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.BeamExtensions.html#SqlConflictAction"><span class="hs-identifier hs-type">SqlConflictAction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474940"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679474939"><span class="hs-identifier hs-type">table</span></a></span><span>
+</span><span id="line-224"></span><span id="onConflictUpdateAll"><span class="annot"><span class="annottext">onConflictUpdateAll :: SqlConflictAction be table
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateAll"><span class="hs-identifier hs-var hs-var">onConflictUpdateAll</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(table (Const (InaccessibleQAssignment be))
+ -&gt; table (Const (InaccessibleQAssignment be)))
+-&gt; SqlConflictAction be table
+forall be (table :: (* -&gt; *) -&gt; *) proj.
+(BeamHasInsertOnConflict be, Beamable table,
+ ProjectibleWithPredicate
+   AnyType () (InaccessibleQAssignment be) proj) =&gt;
+(table (Const (InaccessibleQAssignment be)) -&gt; proj)
+-&gt; SqlConflictAction be table
+</span><a href="Database.Beam.Backend.SQL.BeamExtensions.html#onConflictUpdateInstead"><span class="hs-identifier hs-var">onConflictUpdateInstead</span></a></span><span> </span><span class="annot"><span class="annottext">table (Const (InaccessibleQAssignment be))
+-&gt; table (Const (InaccessibleQAssignment be))
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-225"></span></pre></body></html>

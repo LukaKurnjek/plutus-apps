@@ -1,0 +1,679 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# OPTIONS_GHC -fno-warn-unused-imports #-}</span><span>
+</span><span id="line-3"></span><span class="hs-comment">{- |
+
+Binary genetic algorithms. Candidates solutions are represented as bit-strings.
+
+Choose Gray code if sudden changes to the variable value after a point
+mutation are undesirable, choose binary code otherwise.  In Gray code
+two successive variable values differ in only one bit, it may help to
+prevent premature convergence.
+
+To apply binary genetic algorithms to real-valued problems, the real
+variable may be discretized ('encodeGrayReal' and
+'decodeGrayReal'). Another approach is to use continuous genetic
+algorithms, see &quot;Moo.GeneticAlgorithm.Continuous&quot;.
+
+To encode more than one variable, just concatenate their codes.
+
+
+-}</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Moo.GeneticAlgorithm.Binary</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-23"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Types</span></span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Types</span></a></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Encoding</span></span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeGray"><span class="hs-identifier">encodeGray</span></a></span><span>
+</span><span id="line-28"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeGray"><span class="hs-identifier">decodeGray</span></a></span><span>
+</span><span id="line-29"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeBinary"><span class="hs-identifier">encodeBinary</span></a></span><span>
+</span><span id="line-30"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeBinary"><span class="hs-identifier">decodeBinary</span></a></span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeGrayReal"><span class="hs-identifier">encodeGrayReal</span></a></span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeGrayReal"><span class="hs-identifier">decodeGrayReal</span></a></span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#bitsNeeded"><span class="hs-identifier">bitsNeeded</span></a></span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#splitEvery"><span class="hs-identifier">splitEvery</span></a></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Initialization</span></span><span>
+</span><span id="line-37"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#getRandomBinaryGenomes"><span class="hs-identifier">getRandomBinaryGenomes</span></a></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Selection</span></span><span>
+</span><span id="line-40"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#rouletteSelect"><span class="hs-identifier">rouletteSelect</span></a></span><span>
+</span><span id="line-41"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#stochasticUniversalSampling"><span class="hs-identifier">stochasticUniversalSampling</span></a></span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#tournamentSelect"><span class="hs-identifier">tournamentSelect</span></a></span><span>
+</span><span id="line-43"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** Scaling and niching</span></span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#withPopulationTransform"><span class="hs-identifier">withPopulationTransform</span></a></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#withScale"><span class="hs-identifier">withScale</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#rankScale"><span class="hs-identifier">rankScale</span></a></span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#withFitnessSharing"><span class="hs-identifier">withFitnessSharing</span></a></span><span>
+</span><span id="line-48"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#hammingDistance"><span class="hs-identifier">hammingDistance</span></a></span><span>
+</span><span id="line-49"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** Sorting</span></span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#bestFirst"><span class="hs-identifier">bestFirst</span></a></span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Crossover</span></span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Crossover.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Crossover</span></a></span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Mutation</span></span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#pointMutate"><span class="hs-identifier">pointMutate</span></a></span><span>
+</span><span id="line-58"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#asymmetricMutate"><span class="hs-identifier">asymmetricMutate</span></a></span><span>
+</span><span id="line-59"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#constFrequencyMutate"><span class="hs-identifier">constFrequencyMutate</span></a></span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Control</span></span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Random</span></a></span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Run</span></a></span><span>
+</span><span id="line-64"></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-65"></span><span>
+</span><span id="line-66"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../gray-code/html/src"><span class="hs-identifier">Codec.Binary.Gray.List</span></a></span><span>
+</span><span id="line-67"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Bits</span></a></span><span>
+</span><span id="line-68"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">genericLength</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Crossover.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Crossover</span></a></span><span>
+</span><span id="line-71"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Random</span></a></span><span>
+</span><span id="line-72"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Selection</span></a></span><span>
+</span><span id="line-73"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Types</span></a></span><span>
+</span><span id="line-74"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Run</span></a></span><span>
+</span><span id="line-75"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Random</span></a></span><span>
+</span><span id="line-76"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Utilities.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Utilities</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Utilities.html#getRandomGenomes"><span class="hs-identifier">getRandomGenomes</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- | How many bits are needed to represent a range of integer numbers</span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- @(from, to)@ (inclusive).</span><span>
+</span><span id="line-80"></span><span id="local-6989586621679070342"><span id="local-6989586621679070343"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#bitsNeeded"><span class="hs-identifier hs-type">bitsNeeded</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070343"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070342"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070343"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070343"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070342"><span class="hs-identifier hs-type">b</span></a></span></span></span><span>
+</span><span id="line-81"></span><span id="bitsNeeded"><span class="annot"><span class="annottext">bitsNeeded :: (a, a) -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#bitsNeeded"><span class="hs-identifier hs-var hs-var">bitsNeeded</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070280"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070280"><span class="hs-identifier hs-var">from</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679070279"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070279"><span class="hs-identifier hs-var">to</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-82"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679070278"><span class="annot"><span class="annottext">from' :: a
+</span><a href="#local-6989586621679070278"><span class="hs-identifier hs-var hs-var">from'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070280"><span class="hs-identifier hs-var">from</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070279"><span class="hs-identifier hs-var">to</span></a></span><span>
+</span><span id="line-83"></span><span>        </span><span id="local-6989586621679070276"><span class="annot"><span class="annottext">to' :: a
+</span><a href="#local-6989586621679070276"><span class="hs-identifier hs-var hs-var">to'</span></a></span></span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070280"><span class="hs-identifier hs-var">from</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070279"><span class="hs-identifier hs-var">to</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span class="hs-keyword">in</span><span>  </span><span class="annot"><span class="annottext">Double -&gt; b
+forall a b. (RealFrac a, Integral b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ceiling</span></a></span><span> </span><span class="annot"><span class="annottext">(Double -&gt; b) -&gt; (a -&gt; Double) -&gt; a -&gt; b
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Floating a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">logBase</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">2</span></span><span class="hs-glyph">::</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Double -&gt; Double) -&gt; (a -&gt; Double) -&gt; a -&gt; Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Double
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; b) -&gt; a -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070276"><span class="hs-identifier hs-var">to'</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070278"><span class="hs-identifier hs-var">from'</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-85"></span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- | Encode an integer number in the range @(from, to)@ (inclusive) as</span><span>
+</span><span id="line-87"></span><span class="hs-comment">-- binary sequence of minimal length. Use of Gray code means that a</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- single point mutation leads to incremental change of the encoded</span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- value.</span><span class="hs-cpp">
+#if MIN_VERSION_base(4, 7, 0)
+</span><span id="local-6989586621679070359"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeGray"><span class="hs-identifier hs-type">encodeGray</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FiniteBits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070359"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Bits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070359"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070359"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070359"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070359"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070359"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span></span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">encodeGray</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Bits</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">Integral</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">b</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span class="hs-cpp">
+#endif
+</span><span id="encodeGray"><span class="annot"><span class="annottext">encodeGray :: (b, b) -&gt; b -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeGray"><span class="hs-identifier hs-var hs-var">encodeGray</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; b -&gt; [Bool]
+forall b.
+(FiniteBits b, Bits b, Integral b) =&gt;
+([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; b -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeWithCode"><span class="hs-identifier hs-var">encodeWithCode</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+</span><a href="../../../../gray-code/html/src"><span class="hs-identifier hs-var">gray</span></a></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- | Decode a binary sequence using Gray code to an integer in the</span><span>
+</span><span id="line-98"></span><span class="hs-comment">-- range @(from, to)@ (inclusive). This is an inverse of 'encodeGray'.</span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- Actual value returned may be greater than @to@.</span><span class="hs-cpp">
+#if MIN_VERSION_base(4, 7, 0)
+</span><span id="local-6989586621679070355"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeGray"><span class="hs-identifier hs-type">decodeGray</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FiniteBits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070355"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Bits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070355"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070355"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070355"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070355"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070355"><span class="hs-identifier hs-type">b</span></a></span></span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">decodeGray</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Bits</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">Integral</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">b</span><span class="hs-cpp">
+#endif
+</span><span id="decodeGray"><span class="annot"><span class="annottext">decodeGray :: (b, b) -&gt; [Bool] -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeGray"><span class="hs-identifier hs-var hs-var">decodeGray</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; [Bool] -&gt; b
+forall b.
+(FiniteBits b, Bits b, Integral b) =&gt;
+([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; [Bool] -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeWithCode"><span class="hs-identifier hs-var">decodeWithCode</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+</span><a href="../../../../gray-code/html/src"><span class="hs-identifier hs-var">binary</span></a></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span class="hs-comment">-- | Encode an integer number in the range @(from, to)@ (inclusive)</span><span>
+</span><span id="line-108"></span><span class="hs-comment">-- as a binary sequence of minimal length. Use of binary encoding</span><span>
+</span><span id="line-109"></span><span class="hs-comment">-- means that a single point mutation may lead to sudden big change</span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- of the encoded value.</span><span class="hs-cpp">
+#if MIN_VERSION_base(4, 7, 0)
+</span><span id="local-6989586621679070266"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeBinary"><span class="hs-identifier hs-type">encodeBinary</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FiniteBits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070266"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Bits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070266"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070266"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070266"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070266"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070266"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span></span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">encodeBinary</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Bits</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">Integral</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">b</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span class="hs-cpp">
+#endif
+</span><span id="encodeBinary"><span class="annot"><span class="annottext">encodeBinary :: (b, b) -&gt; b -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeBinary"><span class="hs-identifier hs-var hs-var">encodeBinary</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; b -&gt; [Bool]
+forall b.
+(FiniteBits b, Bits b, Integral b) =&gt;
+([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; b -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeWithCode"><span class="hs-identifier hs-var">encodeWithCode</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- | Decode a binary sequence to an integer in the range @(from, to)@</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- (inclusive). This is an inverse of 'encodeBinary'.  Actual value</span><span>
+</span><span id="line-120"></span><span class="hs-comment">-- returned may be greater than @to@.</span><span class="hs-cpp">
+#if MIN_VERSION_base(4, 7, 0)
+</span><span id="local-6989586621679070264"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeBinary"><span class="hs-identifier hs-type">decodeBinary</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FiniteBits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070264"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Bits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070264"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070264"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070264"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070264"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070264"><span class="hs-identifier hs-type">b</span></a></span></span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">decodeBinary</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Bits</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">Integral</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">b</span><span class="hs-cpp">
+#endif
+</span><span id="decodeBinary"><span class="annot"><span class="annottext">decodeBinary :: (b, b) -&gt; [Bool] -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeBinary"><span class="hs-identifier hs-var hs-var">decodeBinary</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; [Bool] -&gt; b
+forall b.
+(FiniteBits b, Bits b, Integral b) =&gt;
+([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; [Bool] -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeWithCode"><span class="hs-identifier hs-var">decodeWithCode</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-127"></span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- | Encode a real number in the range @(from, to)@ (inclusive)</span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- with @n@ equally spaced discrete values in binary Gray code.</span><span>
+</span><span id="line-130"></span><span id="local-6989586621679070263"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeGrayReal"><span class="hs-identifier hs-type">encodeGrayReal</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">RealFrac</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070263"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070263"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070263"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070263"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-131"></span><span id="encodeGrayReal"><span class="annot"><span class="annottext">encodeGrayReal :: (a, a) -&gt; Int -&gt; a -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeGrayReal"><span class="hs-identifier hs-var hs-var">encodeGrayReal</span></a></span></span><span> </span><span id="local-6989586621679070262"><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070262"><span class="hs-identifier hs-var">range</span></a></span></span><span> </span><span id="local-6989586621679070261"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070261"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int -&gt; [Bool]
+forall b.
+(FiniteBits b, Bits b, Integral b) =&gt;
+(b, b) -&gt; b -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeGray"><span class="hs-identifier hs-var">encodeGray</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070261"><span class="hs-identifier hs-var">n</span></a></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; [Bool]) -&gt; (a -&gt; Int) -&gt; a -&gt; [Bool]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a) -&gt; Int -&gt; a -&gt; Int
+forall a. RealFrac a =&gt; (a, a) -&gt; Int -&gt; a -&gt; Int
+</span><a href="Moo.GeneticAlgorithm.Binary.html#toDiscreteR"><span class="hs-identifier hs-var">toDiscreteR</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070262"><span class="hs-identifier hs-var">range</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070261"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-132"></span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- | Decode a binary sequence using Gray code to a real value in the</span><span>
+</span><span id="line-134"></span><span class="hs-comment">-- range @(from, to)@, assuming it was discretized with @n@ equally</span><span>
+</span><span id="line-135"></span><span class="hs-comment">-- spaced values (see 'encodeGrayReal').</span><span>
+</span><span id="line-136"></span><span id="local-6989586621679070259"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeGrayReal"><span class="hs-identifier hs-type">decodeGrayReal</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">RealFrac</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070259"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070259"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070259"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070259"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-137"></span><span id="decodeGrayReal"><span class="annot"><span class="annottext">decodeGrayReal :: (a, a) -&gt; Int -&gt; [Bool] -&gt; a
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeGrayReal"><span class="hs-identifier hs-var hs-var">decodeGrayReal</span></a></span></span><span> </span><span id="local-6989586621679070258"><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070258"><span class="hs-identifier hs-var">range</span></a></span></span><span> </span><span id="local-6989586621679070257"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070257"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a, a) -&gt; Int -&gt; Int -&gt; a
+forall a. RealFrac a =&gt; (a, a) -&gt; Int -&gt; Int -&gt; a
+</span><a href="Moo.GeneticAlgorithm.Binary.html#fromDiscreteR"><span class="hs-identifier hs-var">fromDiscreteR</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070258"><span class="hs-identifier hs-var">range</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070257"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; a) -&gt; ([Bool] -&gt; Int) -&gt; [Bool] -&gt; a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; [Bool] -&gt; Int
+forall b.
+(FiniteBits b, Bits b, Integral b) =&gt;
+(b, b) -&gt; [Bool] -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeGray"><span class="hs-identifier hs-var">decodeGray</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070257"><span class="hs-identifier hs-var">n</span></a></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-138"></span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- | Represent a range @(from, to)@ of real numbers with @n@ equally</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- spaced values.  Use it to discretize a real number @val@.</span><span>
+</span><span id="line-141"></span><span id="local-6989586621679070358"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#toDiscreteR"><span class="hs-identifier hs-type">toDiscreteR</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">RealFrac</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070358"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-142"></span><span>         </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070358"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070358"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ @(from, to)@, the range to be encoded</span><span>
+</span><span id="line-143"></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>    </span><span class="hs-comment">-- ^ @n@, how many discrete numbers from the range to consider</span><span>
+</span><span id="line-144"></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070358"><span class="hs-identifier hs-type">a</span></a></span><span>      </span><span class="hs-comment">-- ^ a real number in the range @(from, to)@  to discretize</span><span>
+</span><span id="line-145"></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>    </span><span class="hs-comment">-- ^ a discrete value (normally in the range @(0, n-1)@)</span></span><span>
+</span><span id="line-146"></span><span id="toDiscreteR"><span class="annot"><span class="annottext">toDiscreteR :: (a, a) -&gt; Int -&gt; a -&gt; Int
+</span><a href="Moo.GeneticAlgorithm.Binary.html#toDiscreteR"><span class="hs-identifier hs-var hs-var">toDiscreteR</span></a></span></span><span> </span><span id="local-6989586621679070255"><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070255"><span class="hs-identifier hs-var">range</span></a></span></span><span> </span><span id="local-6989586621679070254"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070254"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679070253"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070253"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-147"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679070252"><span class="annot"><span class="annottext">from :: a
+</span><a href="#local-6989586621679070252"><span class="hs-identifier hs-var hs-var">from</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a) -&gt; (a, a) -&gt; a
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070255"><span class="hs-identifier hs-var">range</span></a></span><span>
+</span><span id="line-148"></span><span>        </span><span id="local-6989586621679070250"><span class="annot"><span class="annottext">to :: a
+</span><a href="#local-6989586621679070250"><span class="hs-identifier hs-var hs-var">to</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a) -&gt; (a, a) -&gt; a
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070255"><span class="hs-identifier hs-var">range</span></a></span><span>
+</span><span id="line-149"></span><span>        </span><span id="local-6989586621679070249"><span class="annot"><span class="annottext">dx :: a
+</span><a href="#local-6989586621679070249"><span class="hs-identifier hs-var hs-var">dx</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070250"><span class="hs-identifier hs-var">to</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070252"><span class="hs-identifier hs-var">from</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; a
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070254"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>    </span><span class="hs-keyword">in</span><span>  </span><span class="annot"><span class="annottext">a -&gt; Int
+forall a b. (RealFrac a, Integral b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">round</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; Int) -&gt; a -&gt; Int
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070253"><span class="hs-identifier hs-var">val</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070252"><span class="hs-identifier hs-var">from</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070249"><span class="hs-identifier hs-var">dx</span></a></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- | Take a range @(from, to)@ of real numbers with @n@ equally spaced values.</span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- Convert @i@-th value to a real number. This is an inverse of 'toDiscreteR'.</span><span>
+</span><span id="line-154"></span><span id="local-6989586621679070356"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#fromDiscreteR"><span class="hs-identifier hs-type">fromDiscreteR</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">RealFrac</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070356"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-155"></span><span>       </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070356"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070356"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>  </span><span class="hs-comment">-- ^ @(from, to)@, the encoded range</span><span>
+</span><span id="line-156"></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>     </span><span class="hs-comment">-- ^ @n@, how many discrete numbers from the range to consider</span><span>
+</span><span id="line-157"></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>     </span><span class="hs-comment">-- ^ a discrete value in the range @(0, n-1)@</span><span>
+</span><span id="line-158"></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070356"><span class="hs-identifier hs-type">a</span></a></span><span>       </span><span class="hs-comment">-- ^ a real number from the range</span></span><span>
+</span><span id="line-159"></span><span id="fromDiscreteR"><span class="annot"><span class="annottext">fromDiscreteR :: (a, a) -&gt; Int -&gt; Int -&gt; a
+</span><a href="Moo.GeneticAlgorithm.Binary.html#fromDiscreteR"><span class="hs-identifier hs-var hs-var">fromDiscreteR</span></a></span></span><span> </span><span id="local-6989586621679070246"><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070246"><span class="hs-identifier hs-var">range</span></a></span></span><span> </span><span id="local-6989586621679070245"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070245"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679070244"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070244"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-160"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679070243"><span class="annot"><span class="annottext">from :: a
+</span><a href="#local-6989586621679070243"><span class="hs-identifier hs-var hs-var">from</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a) -&gt; (a, a) -&gt; a
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070246"><span class="hs-identifier hs-var">range</span></a></span><span>
+</span><span id="line-161"></span><span>        </span><span id="local-6989586621679070242"><span class="annot"><span class="annottext">to :: a
+</span><a href="#local-6989586621679070242"><span class="hs-identifier hs-var hs-var">to</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a) -&gt; (a, a) -&gt; a
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="annot"><span class="annottext">(a, a)
+</span><a href="#local-6989586621679070246"><span class="hs-identifier hs-var">range</span></a></span><span>
+</span><span id="line-162"></span><span>        </span><span id="local-6989586621679070241"><span class="annot"><span class="annottext">dx :: a
+</span><a href="#local-6989586621679070241"><span class="hs-identifier hs-var hs-var">dx</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070242"><span class="hs-identifier hs-var">to</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070243"><span class="hs-identifier hs-var">from</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; a
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070245"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-163"></span><span>    </span><span class="hs-keyword">in</span><span>  </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070243"><span class="hs-identifier hs-var">from</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; a
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070244"><span class="hs-identifier hs-var">i</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070241"><span class="hs-identifier hs-var">dx</span></a></span><span>
+</span><span id="line-164"></span><span>
+</span><span id="line-165"></span><span class="hs-comment">-- | Split a list into pieces of size @n@. This may be useful to split</span><span>
+</span><span id="line-166"></span><span class="hs-comment">-- the genome into distinct equally sized &#8220;genes&#8221; which encode</span><span>
+</span><span id="line-167"></span><span class="hs-comment">-- distinct properties of the solution.</span><span>
+</span><span id="line-168"></span><span id="local-6989586621679070345"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#splitEvery"><span class="hs-identifier hs-type">splitEvery</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679070345"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679070345"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span class="hs-special">]</span></span><span>
+</span><span id="line-169"></span><span id="splitEvery"><span class="annot"><span class="annottext">splitEvery :: Int -&gt; [a] -&gt; [[a]]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#splitEvery"><span class="hs-identifier hs-var hs-var">splitEvery</span></a></span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-170"></span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#splitEvery"><span class="hs-identifier hs-var">splitEvery</span></a></span><span> </span><span id="local-6989586621679070239"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070239"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679070238"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070238"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070237"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070237"><span class="hs-identifier hs-var">nxs</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679070236"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070236"><span class="hs-identifier hs-var">rest</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [a] -&gt; ([a], [a])
+forall a. Int -&gt; [a] -&gt; ([a], [a])
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">splitAt</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070239"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070238"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070237"><span class="hs-identifier hs-var">nxs</span></a></span><span> </span><span class="annot"><span class="annottext">[a] -&gt; [[a]] -&gt; [[a]]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; [a] -&gt; [[a]]
+forall a. Int -&gt; [a] -&gt; [[a]]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#splitEvery"><span class="hs-identifier hs-var">splitEvery</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070239"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070236"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-cpp">
+
+#if MIN_VERSION_base(4, 7, 0)
+</span><span id="local-6989586621679070368"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#encodeWithCode"><span class="hs-identifier hs-type">encodeWithCode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FiniteBits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070368"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Bits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070368"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070368"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070368"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070368"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070368"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span></span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">encodeWithCode</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Bits</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">Integral</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">b</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span class="hs-cpp">
+#endif
+</span><span id="encodeWithCode"><span class="annot"><span class="annottext">encodeWithCode :: ([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; b -&gt; [Bool]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#encodeWithCode"><span class="hs-identifier hs-var hs-var">encodeWithCode</span></a></span></span><span> </span><span id="local-6989586621679070234"><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+</span><a href="#local-6989586621679070234"><span class="hs-identifier hs-var">code</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070233"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070233"><span class="hs-identifier hs-var">from</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679070232"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070232"><span class="hs-identifier hs-var">to</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679070231"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070231"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-178"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679070230"><span class="annot"><span class="annottext">from' :: b
+</span><a href="#local-6989586621679070230"><span class="hs-identifier hs-var hs-var">from'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070233"><span class="hs-identifier hs-var">from</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070232"><span class="hs-identifier hs-var">to</span></a></span><span>
+</span><span id="line-179"></span><span>        </span><span id="local-6989586621679070229"><span class="annot"><span class="annottext">to' :: b
+</span><a href="#local-6989586621679070229"><span class="hs-identifier hs-var hs-var">to'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070233"><span class="hs-identifier hs-var">from</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070232"><span class="hs-identifier hs-var">to</span></a></span><span>
+</span><span id="line-180"></span><span>        </span><span id="local-6989586621679070228"><span class="annot"><span class="annottext">nbits :: Int
+</span><a href="#local-6989586621679070228"><span class="hs-identifier hs-var hs-var">nbits</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(b, b) -&gt; Int
+forall a b. (Integral a, Integral b) =&gt; (a, a) -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#bitsNeeded"><span class="hs-identifier hs-var">bitsNeeded</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070230"><span class="hs-identifier hs-var">from'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070229"><span class="hs-identifier hs-var">to'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-181"></span><span>    </span><span class="hs-keyword">in</span><span>  </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+</span><a href="#local-6989586621679070234"><span class="hs-identifier hs-var">code</span></a></span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; [Bool]) -&gt; ([Bool] -&gt; [Bool]) -&gt; [Bool] -&gt; [Bool]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Bool] -&gt; [Bool]
+forall a. Int -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">take</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070228"><span class="hs-identifier hs-var">nbits</span></a></span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; [Bool]) -&gt; [Bool] -&gt; [Bool]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; [Bool]
+forall b. (Bits b, Num b) =&gt; b -&gt; [Bool]
+</span><a href="../../../../gray-code/html/src"><span class="hs-identifier hs-var">toList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070231"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070230"><span class="hs-identifier hs-var">from'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool] -&gt; [Bool]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; [Bool]
+forall a. a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">repeat</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span class="hs-special">)</span><span class="hs-cpp">
+
+#if MIN_VERSION_base(4, 7, 0)
+</span><span id="local-6989586621679070364"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#decodeWithCode"><span class="hs-identifier hs-type">decodeWithCode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FiniteBits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070364"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Bits</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070364"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Integral</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070364"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679070364"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679070364"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070364"><span class="hs-identifier hs-type">b</span></a></span></span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">decodeWithCode</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Bits</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">Integral</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">b</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">b</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Bool</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">b</span><span class="hs-cpp">
+#endif
+</span><span id="decodeWithCode"><span class="annot"><span class="annottext">decodeWithCode :: ([Bool] -&gt; [Bool]) -&gt; (b, b) -&gt; [Bool] -&gt; b
+</span><a href="Moo.GeneticAlgorithm.Binary.html#decodeWithCode"><span class="hs-identifier hs-var hs-var">decodeWithCode</span></a></span></span><span> </span><span id="local-6989586621679070224"><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+</span><a href="#local-6989586621679070224"><span class="hs-identifier hs-var">decode</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070223"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070223"><span class="hs-identifier hs-var">from</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679070222"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070222"><span class="hs-identifier hs-var">to</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679070221"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070221"><span class="hs-identifier hs-var">bits</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-189"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679070220"><span class="annot"><span class="annottext">from' :: b
+</span><a href="#local-6989586621679070220"><span class="hs-identifier hs-var hs-var">from'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070223"><span class="hs-identifier hs-var">from</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070222"><span class="hs-identifier hs-var">to</span></a></span><span>
+</span><span id="line-190"></span><span>    </span><span class="hs-keyword">in</span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679070220"><span class="hs-identifier hs-var">from'</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(b -&gt; b) -&gt; ([Bool] -&gt; b) -&gt; [Bool] -&gt; b
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; b
+forall b. (Bits b, Num b) =&gt; [Bool] -&gt; b
+</span><a href="../../../../gray-code/html/src"><span class="hs-identifier hs-var">fromList</span></a></span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; b) -&gt; ([Bool] -&gt; [Bool]) -&gt; [Bool] -&gt; b
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool]
+</span><a href="#local-6989586621679070224"><span class="hs-identifier hs-var">decode</span></a></span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; b) -&gt; [Bool] -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070221"><span class="hs-identifier hs-var">bits</span></a></span><span>
+</span><span id="line-191"></span><span>
+</span><span id="line-192"></span><span>
+</span><span id="line-193"></span><span class="hs-comment">-- | Generate @n@ random binary genomes of length @len@.</span><span>
+</span><span id="line-194"></span><span class="hs-comment">-- Return a list of genomes.</span><span>
+</span><span id="line-195"></span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#getRandomBinaryGenomes"><span class="hs-identifier hs-type">getRandomBinaryGenomes</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-comment">-- ^ how many genomes to generate</span><span>
+</span><span id="line-196"></span><span>                       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-comment">-- ^ genome length</span><span>
+</span><span id="line-197"></span><span>                       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-198"></span><span id="getRandomBinaryGenomes"><span class="annot"><span class="annottext">getRandomBinaryGenomes :: Int -&gt; Int -&gt; Rand [[Bool]]
+</span><a href="Moo.GeneticAlgorithm.Binary.html#getRandomBinaryGenomes"><span class="hs-identifier hs-var hs-var">getRandomBinaryGenomes</span></a></span></span><span> </span><span id="local-6989586621679070218"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070218"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679070217"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070217"><span class="hs-identifier hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [(Bool, Bool)] -&gt; Rand [[Bool]]
+forall a. (Random a, Ord a) =&gt; Int -&gt; [(a, a)] -&gt; Rand [Genome a]
+</span><a href="Moo.GeneticAlgorithm.Utilities.html#getRandomGenomes"><span class="hs-identifier hs-var">getRandomGenomes</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070218"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; (Bool, Bool) -&gt; [(Bool, Bool)]
+forall a. Int -&gt; a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">replicate</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070217"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-199"></span><span>
+</span><span id="line-200"></span><span>
+</span><span id="line-201"></span><span class="hs-comment">-- |Flips a random bit along the length of the genome with probability @p@.</span><span>
+</span><span id="line-202"></span><span class="hs-comment">-- With probability @(1 - p)@ the genome remains unaffected.</span><span>
+</span><span id="line-203"></span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#pointMutate"><span class="hs-identifier hs-type">pointMutate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#MutationOp"><span class="hs-identifier hs-type">MutationOp</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-204"></span><span id="pointMutate"><span class="annot"><span class="annottext">pointMutate :: Double -&gt; MutationOp Bool
+</span><a href="Moo.GeneticAlgorithm.Binary.html#pointMutate"><span class="hs-identifier hs-var hs-var">pointMutate</span></a></span></span><span> </span><span id="local-6989586621679070215"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070215"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double -&gt; MutationOp Bool -&gt; MutationOp Bool
+forall a. Double -&gt; (a -&gt; Rand a) -&gt; a -&gt; Rand a
+</span><a href="Moo.GeneticAlgorithm.Random.html#withProbability"><span class="hs-identifier hs-var">withProbability</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070215"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">(MutationOp Bool -&gt; MutationOp Bool)
+-&gt; MutationOp Bool -&gt; MutationOp Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679070213"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070213"><span class="hs-identifier hs-var">bits</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-205"></span><span>       </span><span id="local-6989586621679070212"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070212"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Rand Int
+forall a. Random a =&gt; (a, a) -&gt; Rand a
+</span><a href="Moo.GeneticAlgorithm.Random.html#getRandomR"><span class="hs-identifier hs-var">getRandomR</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070213"><span class="hs-identifier hs-var">bits</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span>       </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070209"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070209"><span class="hs-identifier hs-var">before</span></a></span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070208"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679070208"><span class="hs-identifier hs-var">bit</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679070207"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070207"><span class="hs-identifier hs-var">after</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Bool] -&gt; ([Bool], [Bool])
+forall a. Int -&gt; [a] -&gt; ([a], [a])
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">splitAt</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679070212"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070213"><span class="hs-identifier hs-var">bits</span></a></span><span>
+</span><span id="line-207"></span><span>       </span><span class="annot"><span class="annottext">MutationOp Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070209"><span class="hs-identifier hs-var">before</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool] -&gt; [Bool]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679070208"><span class="hs-identifier hs-var">bit</span></a></span><span class="annot"><span class="annottext">Bool -&gt; [Bool] -&gt; [Bool]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070207"><span class="hs-identifier hs-var">after</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-208"></span><span>
+</span><span id="line-209"></span><span>
+</span><span id="line-210"></span><span class="hs-comment">-- |Flip @1@s and @0@s with different probabilities. This may help to control</span><span>
+</span><span id="line-211"></span><span class="hs-comment">-- the relative frequencies of @1@s and @0@s in the genome.</span><span>
+</span><span id="line-212"></span><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#asymmetricMutate"><span class="hs-identifier hs-type">asymmetricMutate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>   </span><span class="hs-comment">-- ^ probability of a @False@ bit to become @True@</span><span>
+</span><span id="line-213"></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>   </span><span class="hs-comment">-- ^ probability of a @True@ bit to become @False@</span><span>
+</span><span id="line-214"></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#MutationOp"><span class="hs-identifier hs-type">MutationOp</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-215"></span><span id="asymmetricMutate"><span class="annot"><span class="annottext">asymmetricMutate :: Double -&gt; Double -&gt; MutationOp Bool
+</span><a href="Moo.GeneticAlgorithm.Binary.html#asymmetricMutate"><span class="hs-identifier hs-var hs-var">asymmetricMutate</span></a></span></span><span> </span><span id="local-6989586621679070205"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070205"><span class="hs-identifier hs-var">prob0to1</span></a></span></span><span> </span><span id="local-6989586621679070204"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070204"><span class="hs-identifier hs-var">prob1to0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; RandT PureMT Identity Bool) -&gt; MutationOp Bool
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; RandT PureMT Identity Bool
+</span><a href="#local-6989586621679070202"><span class="hs-identifier hs-var">flipbit</span></a></span><span>
+</span><span id="line-216"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-217"></span><span>      </span><span id="local-6989586621679070202"><span class="annot"><span class="annottext">flipbit :: Bool -&gt; RandT PureMT Identity Bool
+</span><a href="#local-6989586621679070202"><span class="hs-identifier hs-var hs-var">flipbit</span></a></span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double
+-&gt; (Bool -&gt; RandT PureMT Identity Bool)
+-&gt; Bool
+-&gt; RandT PureMT Identity Bool
+forall a. Double -&gt; (a -&gt; Rand a) -&gt; a -&gt; Rand a
+</span><a href="Moo.GeneticAlgorithm.Random.html#withProbability"><span class="hs-identifier hs-var">withProbability</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070205"><span class="hs-identifier hs-var">prob0to1</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; RandT PureMT Identity Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; RandT PureMT Identity Bool)
+-&gt; (Bool -&gt; Bool) -&gt; Bool -&gt; RandT PureMT Identity Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-218"></span><span>      </span><span class="annot"><a href="#local-6989586621679070202"><span class="hs-identifier hs-var">flipbit</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double
+-&gt; (Bool -&gt; RandT PureMT Identity Bool)
+-&gt; Bool
+-&gt; RandT PureMT Identity Bool
+forall a. Double -&gt; (a -&gt; Rand a) -&gt; a -&gt; Rand a
+</span><a href="Moo.GeneticAlgorithm.Random.html#withProbability"><span class="hs-identifier hs-var">withProbability</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070204"><span class="hs-identifier hs-var">prob1to0</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; RandT PureMT Identity Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; RandT PureMT Identity Bool)
+-&gt; (Bool -&gt; Bool) -&gt; Bool -&gt; RandT PureMT Identity Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-219"></span><span>
+</span><span id="line-220"></span><span>
+</span><span id="line-221"></span><span class="hs-comment">-- Preserving the relative frequencies of ones and zeros:</span><span>
+</span><span id="line-222"></span><span class="hs-comment">--</span><span>
+</span><span id="line-223"></span><span class="hs-comment">-- ones' = p0*(n-ones) + (1-p1)*ones</span><span>
+</span><span id="line-224"></span><span class="hs-comment">-- ones + p0*ones + (p1 - 1)*ones = p0*n</span><span>
+</span><span id="line-225"></span><span class="hs-comment">-- p0 + p1 = p0 * n / ones</span><span>
+</span><span id="line-226"></span><span class="hs-comment">--</span><span>
+</span><span id="line-227"></span><span class="hs-comment">-- zeros' = (1-p0)*zeros + p1*(n-zeros)</span><span>
+</span><span id="line-228"></span><span class="hs-comment">-- zeros + (p0 - 1)*zeros + p1*zeros = n*p1</span><span>
+</span><span id="line-229"></span><span class="hs-comment">-- p0 + p1 = p1 * n / zeros</span><span>
+</span><span id="line-230"></span><span class="hs-comment">--</span><span>
+</span><span id="line-231"></span><span class="hs-comment">-- =&gt; p0 * zeros = p1 * ones</span><span>
+</span><span id="line-232"></span><span class="hs-comment">--</span><span>
+</span><span id="line-233"></span><span class="hs-comment">-- Average number of changed bits:</span><span>
+</span><span id="line-234"></span><span class="hs-comment">--</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- m = p0*zeros + p1*ones</span><span>
+</span><span id="line-236"></span><span class="hs-comment">--</span><span>
+</span><span id="line-237"></span><span class="hs-comment">-- =&gt; p0 = m / (2*zeros)</span><span>
+</span><span id="line-238"></span><span class="hs-comment">--    p1 = m / (2*ones)</span><span>
+</span><span id="line-239"></span><span class="hs-comment">--</span><span>
+</span><span id="line-240"></span><span class="hs-comment">-- Probability of changing a bit:</span><span>
+</span><span id="line-241"></span><span class="hs-comment">--</span><span>
+</span><span id="line-242"></span><span class="hs-comment">-- p = m / n</span><span>
+</span><span id="line-243"></span><span class="hs-comment">--</span><span>
+</span><span id="line-244"></span><span>
+</span><span id="line-245"></span><span class="hs-comment">-- |Flip @m@ bits on average, keeping the relative frequency of @0@s</span><span>
+</span><span id="line-246"></span><span class="hs-comment">-- and @1@s in the genome constant.</span><span>
+</span><span id="line-247"></span><span id="local-6989586621679070201"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#constFrequencyMutate"><span class="hs-identifier hs-type">constFrequencyMutate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Real</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070201"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-248"></span><span>                     </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070201"><span class="hs-identifier hs-type">a</span></a></span><span>                </span><span class="hs-comment">-- ^ average number of bits to change</span><span>
+</span><span id="line-249"></span><span>                     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#MutationOp"><span class="hs-identifier hs-type">MutationOp</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span></span><span>
+</span><span id="line-250"></span><span id="constFrequencyMutate"><span class="annot"><span class="annottext">constFrequencyMutate :: a -&gt; MutationOp Bool
+</span><a href="Moo.GeneticAlgorithm.Binary.html#constFrequencyMutate"><span class="hs-identifier hs-var hs-var">constFrequencyMutate</span></a></span></span><span> </span><span id="local-6989586621679070200"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070200"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span id="local-6989586621679070199"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070199"><span class="hs-identifier hs-var">bits</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-251"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070198"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070198"><span class="hs-identifier hs-var">ones</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679070197"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070197"><span class="hs-identifier hs-var">zeros</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; (Rational, Rational) -&gt; (Rational, Rational))
+-&gt; (Rational, Rational) -&gt; [Bool] -&gt; (Rational, Rational)
+forall (t :: * -&gt; *) a b.
+Foldable t =&gt;
+(a -&gt; b -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldr</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679070195"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679070195"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679070194"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070194"><span class="hs-identifier hs-var">o</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679070193"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070193"><span class="hs-identifier hs-var">z</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679070195"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070194"><span class="hs-identifier hs-var">o</span></a></span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070193"><span class="hs-identifier hs-var">z</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">else</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070194"><span class="hs-identifier hs-var">o</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070193"><span class="hs-identifier hs-var">z</span></a></span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070199"><span class="hs-identifier hs-var">bits</span></a></span><span>
+</span><span id="line-252"></span><span>        </span><span id="local-6989586621679070192"><span class="annot"><span class="annottext">p0to1 :: Double
+</span><a href="#local-6989586621679070192"><span class="hs-identifier hs-var hs-var">p0to1</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Double) -&gt; Rational -&gt; Double
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0.5</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Rational
+forall a. Real a =&gt; a -&gt; Rational
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">toRational</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070200"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070197"><span class="hs-identifier hs-var">zeros</span></a></span><span>
+</span><span id="line-253"></span><span>        </span><span id="local-6989586621679070191"><span class="annot"><span class="annottext">p1to0 :: Double
+</span><a href="#local-6989586621679070191"><span class="hs-identifier hs-var hs-var">p1to0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Double) -&gt; Rational -&gt; Double
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0.5</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Rational
+forall a. Real a =&gt; a -&gt; Rational
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">toRational</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679070200"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679070198"><span class="hs-identifier hs-var">ones</span></a></span><span>
+</span><span id="line-254"></span><span>    </span><span class="hs-keyword">in</span><span>  </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; MutationOp Bool
+</span><a href="Moo.GeneticAlgorithm.Binary.html#asymmetricMutate"><span class="hs-identifier hs-var">asymmetricMutate</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070192"><span class="hs-identifier hs-var">p0to1</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679070191"><span class="hs-identifier hs-var">p1to0</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679070199"><span class="hs-identifier hs-var">bits</span></a></span><span>
+</span><span id="line-255"></span><span>
+</span><span id="line-256"></span><span>
+</span><span id="line-257"></span><span class="hs-comment">-- | Hamming distance between @x@ and @y@ is the number of coordinates</span><span>
+</span><span id="line-258"></span><span class="hs-comment">-- for which @x_i@ and @y_i@ are different.</span><span>
+</span><span id="line-259"></span><span class="hs-comment">--</span><span>
+</span><span id="line-260"></span><span class="hs-comment">-- Reference: Hamming, Richard W. (1950), &#8220;Error detecting and error</span><span>
+</span><span id="line-261"></span><span class="hs-comment">-- correcting codes&#8221;, Bell System Technical Journal 29 (2): 147&#8211;160,</span><span>
+</span><span id="line-262"></span><span class="hs-comment">-- MR 0035935.</span><span>
+</span><span id="line-263"></span><span id="local-6989586621679070189"><span id="local-6989586621679070190"><span class="annot"><a href="Moo.GeneticAlgorithm.Binary.html#hammingDistance"><span class="hs-identifier hs-type">hammingDistance</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Eq</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070190"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Num</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679070189"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679070190"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679070190"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679070189"><span class="hs-identifier hs-type">i</span></a></span></span></span><span>
+</span><span id="line-264"></span><span id="hammingDistance"><span class="annot"><span class="annottext">hammingDistance :: [a] -&gt; [a] -&gt; i
+</span><a href="Moo.GeneticAlgorithm.Binary.html#hammingDistance"><span class="hs-identifier hs-var hs-var">hammingDistance</span></a></span></span><span> </span><span id="local-6989586621679070188"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070188"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span id="local-6989586621679070187"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070187"><span class="hs-identifier hs-var">ys</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; i
+forall i a. Num i =&gt; [a] -&gt; i
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">genericLength</span></a></span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; i) -&gt; ([Bool] -&gt; [Bool]) -&gt; [Bool] -&gt; i
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; [Bool] -&gt; [Bool]
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">filter</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; i) -&gt; [Bool] -&gt; i
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; Bool) -&gt; [a] -&gt; [a] -&gt; [Bool]
+forall a b c. (a -&gt; b -&gt; c) -&gt; [a] -&gt; [b] -&gt; [c]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">zipWith</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">(/=)</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070188"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679070187"><span class="hs-identifier hs-var">ys</span></a></span><span>
+</span><span id="line-265"></span></pre></body></html>

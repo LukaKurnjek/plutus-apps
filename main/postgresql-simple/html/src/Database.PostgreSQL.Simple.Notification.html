@@ -1,0 +1,360 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE NamedFieldPuns #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Module      :  Database.PostgreSQL.Simple.Notification</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Copyright   :  (c) 2011-2015 Leon P Smith</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--                (c) 2012 Joey Adams</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- License     :  BSD3</span><span>
+</span><span id="line-11"></span><span class="hs-comment">--</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- Maintainer  :  leon@melding-monads.com</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- Stability   :  experimental</span><span>
+</span><span id="line-14"></span><span class="hs-comment">--</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- Support for receiving asynchronous notifications via PostgreSQL's</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- Listen/Notify mechanism.  See</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- &lt;https://www.postgresql.org/docs/9.5/static/sql-notify.html&gt; for more</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- information.</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- Note that on Windows,  @getNotification@ currently uses a polling loop</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- of 1 second to check for more notifications,  due to some inadequacies</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- in GHC's IO implementation and interface on that platform.   See GHC</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- issue #7353 for more information.  While this workaround is less than</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- ideal,  notifications are still better than polling the database directly.</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- Notifications do not create any extra work for the backend,  and are</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- likely cheaper on the client side as well.</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- &lt;https://hackage.haskell.org/trac/ghc/ticket/7353&gt;</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-31"></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.PostgreSQL.Simple.Notification</span><span>
+</span><span id="line-33"></span><span>     </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier">Notification</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#getNotification"><span class="hs-identifier">getNotification</span></a></span><span>
+</span><span id="line-35"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#getNotificationNonBlocking"><span class="hs-identifier">getNotificationNonBlocking</span></a></span><span>
+</span><span id="line-36"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#getBackendPID"><span class="hs-identifier">getBackendPID</span></a></span><span>
+</span><span id="line-37"></span><span>     </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">join</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">void</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">throwIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">catch</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">B</span></span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Char8</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">B8</span></span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html"><span class="hs-identifier">Database.PostgreSQL.Simple.Internal</span></a></span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier">Database.PostgreSQL.LibPQ</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">PQ</span></span><span>
+</span><span id="line-45"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.Posix.Types</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">CPid</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.IO.Exception</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">ioe_location</span></a></span><span> </span><span class="hs-special">)</span><span class="hs-cpp">
+
+#if defined(mingw32_HOST_OS)
+</span><span class="hs-keyword">import</span><span>           </span><span class="hs-identifier">Control.Concurrent</span><span> </span><span class="hs-special">(</span><span> </span><span class="hs-identifier">threadDelay</span><span> </span><span class="hs-special">)</span><span class="hs-cpp">
+#elif !MIN_VERSION_base(4,7,0)
+</span><span class="hs-keyword">import</span><span>           </span><span class="hs-identifier">Control.Concurrent</span><span> </span><span class="hs-special">(</span><span> </span><span class="hs-identifier">threadWaitRead</span><span> </span><span class="hs-special">)</span><span class="hs-cpp">
+#else
+</span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Conc</span></a></span><span>           </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">atomically</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Concurrent</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">threadWaitReadSTM</span></a></span><span> </span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span>
+</span><span id="line-57"></span><span class="hs-keyword">data</span><span> </span><span id="Notification"><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier hs-var">Notification</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Notification"><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier hs-var">Notification</span></a></span></span><span>
+</span><span id="line-58"></span><span>   </span><span class="hs-special">{</span><span> </span><span id="notificationPid"><span class="annot"><span class="annottext">Notification -&gt; CPid
+</span><a href="Database.PostgreSQL.Simple.Notification.html#notificationPid"><span class="hs-identifier hs-var hs-var">notificationPid</span></a></span></span><span>     </span><span class="hs-glyph">::</span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">CPid</span></a></span><span>
+</span><span id="line-59"></span><span>   </span><span class="hs-special">,</span><span> </span><span id="notificationChannel"><span class="annot"><span class="annottext">Notification -&gt; ByteString
+</span><a href="Database.PostgreSQL.Simple.Notification.html#notificationChannel"><span class="hs-identifier hs-var hs-var">notificationChannel</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">B.ByteString</span></a></span><span>
+</span><span id="line-60"></span><span>   </span><span class="hs-special">,</span><span> </span><span id="notificationData"><span class="annot"><span class="annottext">Notification -&gt; ByteString
+</span><a href="Database.PostgreSQL.Simple.Notification.html#notificationData"><span class="hs-identifier hs-var hs-var">notificationData</span></a></span></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">B.ByteString</span></a></span><span>
+</span><span id="line-61"></span><span>   </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679130796"><span id="local-6989586621679130798"><span id="local-6989586621679130800"><span class="annot"><span class="annottext">Int -&gt; Notification -&gt; ShowS
+[Notification] -&gt; ShowS
+Notification -&gt; String
+(Int -&gt; Notification -&gt; ShowS)
+-&gt; (Notification -&gt; String)
+-&gt; ([Notification] -&gt; ShowS)
+-&gt; Show Notification
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [Notification] -&gt; ShowS
+$cshowList :: [Notification] -&gt; ShowS
+show :: Notification -&gt; String
+$cshow :: Notification -&gt; String
+showsPrec :: Int -&gt; Notification -&gt; ShowS
+$cshowsPrec :: Int -&gt; Notification -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679130791"><span id="local-6989586621679130793"><span class="annot"><span class="annottext">Notification -&gt; Notification -&gt; Bool
+(Notification -&gt; Notification -&gt; Bool)
+-&gt; (Notification -&gt; Notification -&gt; Bool) -&gt; Eq Notification
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: Notification -&gt; Notification -&gt; Bool
+$c/= :: Notification -&gt; Notification -&gt; Bool
+== :: Notification -&gt; Notification -&gt; Bool
+$c== :: Notification -&gt; Notification -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#convertNotice"><span class="hs-identifier hs-type">convertNotice</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-type">PQ.Notify</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier hs-type">Notification</span></a></span><span>
+</span><span id="line-64"></span><span id="convertNotice"><span class="annot"><span class="annottext">convertNotice :: Notify -&gt; Notification
+</span><a href="Database.PostgreSQL.Simple.Notification.html#convertNotice"><span class="hs-identifier hs-var hs-var">convertNotice</span></a></span></span><span> </span><span class="annot"><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-type">PQ.Notify</span></a></span><span class="hs-special">{</span><span id="local-6989586621679130785"><span id="local-6989586621679130786"><span id="local-6989586621679130787"><span class="annot"><span class="annottext">ByteString
+CPid
+notifyRelname :: Notify -&gt; ByteString
+notifyBePid :: Notify -&gt; CPid
+notifyExtra :: Notify -&gt; ByteString
+notifyExtra :: ByteString
+notifyBePid :: CPid
+notifyRelname :: ByteString
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Notification :: CPid -&gt; ByteString -&gt; ByteString -&gt; Notification
+</span><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier hs-type">Notification</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">notificationPid :: CPid
+</span><a href="Database.PostgreSQL.Simple.Notification.html#notificationPid"><span class="hs-identifier hs-var">notificationPid</span></a></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CPid
+</span><a href="#local-6989586621679130786"><span class="hs-identifier hs-var">notifyBePid</span></a></span><span>
+</span><span id="line-66"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">notificationChannel :: ByteString
+</span><a href="Database.PostgreSQL.Simple.Notification.html#notificationChannel"><span class="hs-identifier hs-var">notificationChannel</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679130787"><span class="hs-identifier hs-var">notifyRelname</span></a></span><span>
+</span><span id="line-67"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">notificationData :: ByteString
+</span><a href="Database.PostgreSQL.Simple.Notification.html#notificationData"><span class="hs-identifier hs-var">notificationData</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679130785"><span class="hs-identifier hs-var">notifyExtra</span></a></span><span>   </span><span class="hs-special">}</span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- | Returns a single notification.   If no notifications are available,</span><span>
+</span><span id="line-70"></span><span class="hs-comment">--   'getNotification' blocks until one arrives.</span><span>
+</span><span id="line-71"></span><span class="hs-comment">--</span><span>
+</span><span id="line-72"></span><span class="hs-comment">--   It is safe to call 'getNotification' on a connection that is concurrently</span><span>
+</span><span id="line-73"></span><span class="hs-comment">--   being used for other purposes,   note however that PostgreSQL does not</span><span>
+</span><span id="line-74"></span><span class="hs-comment">--   deliver notifications while a connection is inside a transaction.</span><span>
+</span><span id="line-75"></span><span>
+</span><span id="line-76"></span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#getNotification"><span class="hs-identifier hs-type">getNotification</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#Connection"><span class="hs-identifier hs-type">Connection</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier hs-type">Notification</span></a></span><span>
+</span><span id="line-77"></span><span id="getNotification"><span class="annot"><span class="annottext">getNotification :: Connection -&gt; IO Notification
+</span><a href="Database.PostgreSQL.Simple.Notification.html#getNotification"><span class="hs-identifier hs-var hs-var">getNotification</span></a></span></span><span> </span><span id="local-6989586621679130781"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130781"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (IO Notification) -&gt; IO Notification
+forall (m :: * -&gt; *) a. Monad m =&gt; m (m a) -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">join</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (IO Notification) -&gt; IO Notification)
+-&gt; IO (IO Notification) -&gt; IO Notification
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+-&gt; (Connection -&gt; IO (IO Notification)) -&gt; IO (IO Notification)
+forall a. Connection -&gt; (Connection -&gt; IO a) -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Internal.html#withConnection"><span class="hs-identifier hs-var">withConnection</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130781"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO (IO Notification)
+</span><a href="#local-6989586621679130779"><span class="hs-identifier hs-var">fetch</span></a></span><span>
+</span><span id="line-78"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-79"></span><span>    </span><span id="local-6989586621679130778"><span class="annot"><span class="annottext">funcName :: ByteString
+</span><a href="#local-6989586621679130778"><span class="hs-identifier hs-var hs-var">funcName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;Database.PostgreSQL.Simple.Notification.getNotification&quot;</span></span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span>    </span><span id="local-6989586621679130779"><span class="annot"><span class="annottext">fetch :: Connection -&gt; IO (IO Notification)
+</span><a href="#local-6989586621679130779"><span class="hs-identifier hs-var hs-var">fetch</span></a></span></span><span> </span><span id="local-6989586621679130777"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130777"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-82"></span><span>        </span><span id="local-6989586621679130776"><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="#local-6989586621679130776"><span class="hs-identifier hs-var">mmsg</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO (Maybe Notify)
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.notifies</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130777"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-83"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="#local-6989586621679130776"><span class="hs-identifier hs-var">mmsg</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-84"></span><span>          </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679130774"><span class="annot"><span class="annottext">Notify
+</span><a href="#local-6989586621679130774"><span class="hs-identifier hs-var">msg</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO Notification -&gt; IO (IO Notification)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Notification -&gt; IO Notification
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Notification -&gt; IO Notification)
+-&gt; Notification -&gt; IO Notification
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Notify -&gt; Notification
+</span><a href="Database.PostgreSQL.Simple.Notification.html#convertNotice"><span class="hs-identifier hs-var">convertNotice</span></a></span><span> </span><span class="annot"><span class="annottext">Notify
+</span><a href="#local-6989586621679130774"><span class="hs-identifier hs-var">msg</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-85"></span><span>          </span><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-86"></span><span>              </span><span id="local-6989586621679130772"><span class="annot"><span class="annottext">Maybe Fd
+</span><a href="#local-6989586621679130772"><span class="hs-identifier hs-var">mfd</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO (Maybe Fd)
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.socket</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130777"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-87"></span><span>              </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe Fd
+</span><a href="#local-6989586621679130772"><span class="hs-identifier hs-var">mfd</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-88"></span><span>                </span><span class="annot"><span class="annottext">Maybe Fd
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO Notification -&gt; IO (IO Notification)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IOError -&gt; IO Notification
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IOError -&gt; IO Notification) -&gt; IOError -&gt; IO Notification
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; IOError
+</span><a href="Database.PostgreSQL.Simple.Internal.html#fdError"><span class="hs-identifier hs-var">fdError</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679130778"><span class="hs-identifier hs-var">funcName</span></a></span><span class="hs-special">)</span><span class="hs-cpp">
+#if defined(mingw32_HOST_OS)
+</span><span>                </span><span class="hs-comment">-- threadWaitRead doesn't work for sockets on Windows, so just</span><span>
+</span><span id="line-91"></span><span>                </span><span class="hs-comment">-- poll for input every second (PQconsumeInput is non-blocking).</span><span>
+</span><span id="line-92"></span><span>                </span><span class="hs-comment">--</span><span>
+</span><span id="line-93"></span><span>                </span><span class="hs-comment">-- We could call select(), but FFI calls can't be interrupted</span><span>
+</span><span id="line-94"></span><span>                </span><span class="hs-comment">-- with async exceptions, whereas threadDelay can.</span><span>
+</span><span id="line-95"></span><span>                </span><span class="hs-identifier">Just</span><span> </span><span class="hs-identifier">_fd</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-96"></span><span>                  </span><span class="hs-identifier">return</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">threadDelay</span><span> </span><span class="hs-number">1000000</span><span> </span><span class="hs-operator">&gt;&gt;</span><span> </span><span class="hs-identifier">loop</span><span class="hs-special">)</span><span class="hs-cpp">
+#elif !MIN_VERSION_base(4,7,0)
+</span><span>                </span><span class="hs-comment">-- Technically there's a race condition that is usually benign.</span><span>
+</span><span id="line-99"></span><span>                </span><span class="hs-comment">-- If the connection is closed or reset after we drop the</span><span>
+</span><span id="line-100"></span><span>                </span><span class="hs-comment">-- lock,  and then the fd index is reallocated to a new</span><span>
+</span><span id="line-101"></span><span>                </span><span class="hs-comment">-- descriptor before we call threadWaitRead,  then</span><span>
+</span><span id="line-102"></span><span>                </span><span class="hs-comment">-- we could end up waiting on the wrong descriptor.</span><span>
+</span><span id="line-103"></span><span>                </span><span class="hs-comment">--</span><span>
+</span><span id="line-104"></span><span>                </span><span class="hs-comment">-- Now, if the descriptor becomes readable promptly,  then</span><span>
+</span><span id="line-105"></span><span>                </span><span class="hs-comment">-- it's no big deal as we'll wake up and notice the change</span><span>
+</span><span id="line-106"></span><span>                </span><span class="hs-comment">-- on the next iteration of the loop.   But if are very</span><span>
+</span><span id="line-107"></span><span>                </span><span class="hs-comment">-- unlucky,  then we could end up waiting a long time.</span><span>
+</span><span id="line-108"></span><span>                </span><span class="hs-identifier">Just</span><span> </span><span class="hs-identifier">fd</span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-109"></span><span>                  </span><span class="hs-identifier">return</span><span> </span><span class="hs-operator">$</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-110"></span><span>                    </span><span class="hs-identifier">threadWaitRead</span><span> </span><span class="hs-identifier">fd</span><span> </span><span class="hs-special">`</span><span class="hs-identifier">catch</span><span class="hs-special">`</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">throwIO</span><span> </span><span class="hs-operator">.</span><span> </span><span class="hs-identifier">setIOErrorLocation</span><span class="hs-special">)</span><span>
+</span><span id="line-111"></span><span>                    </span><span class="hs-identifier">loop</span><span class="hs-cpp">
+#else
+</span><span>                </span><span class="hs-comment">-- This case fixes the race condition above.   By registering</span><span>
+</span><span id="line-114"></span><span>                </span><span class="hs-comment">-- our interest in the descriptor before we drop the lock,</span><span>
+</span><span id="line-115"></span><span>                </span><span class="hs-comment">-- there is no opportunity for the descriptor index to be</span><span>
+</span><span id="line-116"></span><span>                </span><span class="hs-comment">-- reallocated on us.</span><span>
+</span><span id="line-117"></span><span>                </span><span class="hs-comment">--</span><span>
+</span><span id="line-118"></span><span>                </span><span class="hs-comment">-- (That is, assuming there isn't concurrently executing</span><span>
+</span><span id="line-119"></span><span>                </span><span class="hs-comment">-- code that manipulates the descriptor without holding</span><span>
+</span><span id="line-120"></span><span>                </span><span class="hs-comment">-- the lock... but such a major bug is likely to exhibit</span><span>
+</span><span id="line-121"></span><span>                </span><span class="hs-comment">-- itself in an at least somewhat more dramatic fashion.)</span><span>
+</span><span id="line-122"></span><span>                </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679130769"><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679130769"><span class="hs-identifier hs-var">fd</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-123"></span><span>                  </span><span class="hs-special">(</span><span id="local-6989586621679130768"><span class="annot"><span class="annottext">STM ()
+</span><a href="#local-6989586621679130768"><span class="hs-identifier hs-var">waitRead</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Fd -&gt; IO (STM (), IO ())
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">threadWaitReadSTM</span></a></span><span> </span><span class="annot"><span class="annottext">Fd
+</span><a href="#local-6989586621679130769"><span class="hs-identifier hs-var">fd</span></a></span><span>
+</span><span id="line-124"></span><span>                  </span><span class="annot"><span class="annottext">IO Notification -&gt; IO (IO Notification)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Notification -&gt; IO (IO Notification))
+-&gt; IO Notification -&gt; IO (IO Notification)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-125"></span><span>                    </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span> </span><span class="annot"><span class="annottext">STM ()
+</span><a href="#local-6989586621679130768"><span class="hs-identifier hs-var">waitRead</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; (IOError -&gt; IO ()) -&gt; IO ()
+forall e a. Exception e =&gt; IO a -&gt; (e -&gt; IO a) -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`catch`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IOError -&gt; IO ()
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IOError -&gt; IO ()) -&gt; (IOError -&gt; IOError) -&gt; IOError -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">IOError -&gt; IOError
+</span><a href="#local-6989586621679130766"><span class="hs-identifier hs-var">setIOErrorLocation</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-126"></span><span>                    </span><span class="annot"><span class="annottext">IO Notification
+</span><a href="#local-6989586621679130765"><span class="hs-identifier hs-var">loop</span></a></span><span class="hs-cpp">
+#endif
+</span><span>
+</span><span id="line-129"></span><span>    </span><span id="local-6989586621679130765"><span class="annot"><span class="annottext">loop :: IO Notification
+</span><a href="#local-6989586621679130765"><span class="hs-identifier hs-var hs-var">loop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (IO Notification) -&gt; IO Notification
+forall (m :: * -&gt; *) a. Monad m =&gt; m (m a) -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">join</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (IO Notification) -&gt; IO Notification)
+-&gt; IO (IO Notification) -&gt; IO Notification
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+-&gt; (Connection -&gt; IO (IO Notification)) -&gt; IO (IO Notification)
+forall a. Connection -&gt; (Connection -&gt; IO a) -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Internal.html#withConnection"><span class="hs-identifier hs-var">withConnection</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130781"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">((Connection -&gt; IO (IO Notification)) -&gt; IO (IO Notification))
+-&gt; (Connection -&gt; IO (IO Notification)) -&gt; IO (IO Notification)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679130764"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130764"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-130"></span><span>             </span><span class="annot"><span class="annottext">IO Bool -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Bool -&gt; IO ()) -&gt; IO Bool -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO Bool
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.consumeInput</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130764"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-131"></span><span>             </span><span class="annot"><span class="annottext">Connection -&gt; IO (IO Notification)
+</span><a href="#local-6989586621679130779"><span class="hs-identifier hs-var">fetch</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130764"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-132"></span><span>
+</span><span id="line-133"></span><span>    </span><span class="annot"><a href="#local-6989586621679130766"><span class="hs-identifier hs-type">setIOErrorLocation</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IOError</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IOError</span></a></span><span>
+</span><span id="line-134"></span><span>    </span><span id="local-6989586621679130766"><span class="annot"><span class="annottext">setIOErrorLocation :: IOError -&gt; IOError
+</span><a href="#local-6989586621679130766"><span class="hs-identifier hs-var hs-var">setIOErrorLocation</span></a></span></span><span> </span><span id="local-6989586621679130762"><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679130762"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679130762"><span class="hs-identifier hs-var">err</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">ioe_location :: String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ioe_location</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; String
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">B8.unpack</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679130778"><span class="hs-identifier hs-var">funcName</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-135"></span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- | Non-blocking variant of 'getNotification'.   Returns a single notification,</span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- if available.   If no notifications are available,  returns 'Nothing'.</span><span>
+</span><span id="line-139"></span><span>
+</span><span id="line-140"></span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#getNotificationNonBlocking"><span class="hs-identifier hs-type">getNotificationNonBlocking</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#Connection"><span class="hs-identifier hs-type">Connection</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#Notification"><span class="hs-identifier hs-type">Notification</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span id="getNotificationNonBlocking"><span class="annot"><span class="annottext">getNotificationNonBlocking :: Connection -&gt; IO (Maybe Notification)
+</span><a href="Database.PostgreSQL.Simple.Notification.html#getNotificationNonBlocking"><span class="hs-identifier hs-var hs-var">getNotificationNonBlocking</span></a></span></span><span> </span><span id="local-6989586621679130760"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130760"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-142"></span><span>    </span><span class="annot"><span class="annottext">Connection
+-&gt; (Connection -&gt; IO (Maybe Notification))
+-&gt; IO (Maybe Notification)
+forall a. Connection -&gt; (Connection -&gt; IO a) -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Internal.html#withConnection"><span class="hs-identifier hs-var">withConnection</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130760"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">((Connection -&gt; IO (Maybe Notification))
+ -&gt; IO (Maybe Notification))
+-&gt; (Connection -&gt; IO (Maybe Notification))
+-&gt; IO (Maybe Notification)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679130759"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130759"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-143"></span><span>        </span><span id="local-6989586621679130758"><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="#local-6989586621679130758"><span class="hs-identifier hs-var">mmsg</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO (Maybe Notify)
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.notifies</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130759"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-144"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="#local-6989586621679130758"><span class="hs-identifier hs-var">mmsg</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-145"></span><span>          </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679130757"><span class="annot"><span class="annottext">Notify
+</span><a href="#local-6989586621679130757"><span class="hs-identifier hs-var">msg</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Notification -&gt; IO (Maybe Notification)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe Notification -&gt; IO (Maybe Notification))
+-&gt; Maybe Notification -&gt; IO (Maybe Notification)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Notification -&gt; Maybe Notification
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(Notification -&gt; Maybe Notification)
+-&gt; Notification -&gt; Maybe Notification
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Notify -&gt; Notification
+</span><a href="Database.PostgreSQL.Simple.Notification.html#convertNotice"><span class="hs-identifier hs-var">convertNotice</span></a></span><span> </span><span class="annot"><span class="annottext">Notify
+</span><a href="#local-6989586621679130757"><span class="hs-identifier hs-var">msg</span></a></span><span>
+</span><span id="line-146"></span><span>          </span><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-147"></span><span>              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO Bool
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.consumeInput</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130759"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-148"></span><span>              </span><span id="local-6989586621679130756"><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="#local-6989586621679130756"><span class="hs-identifier hs-var">mmsg'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO (Maybe Notify)
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.notifies</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130759"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-149"></span><span>              </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="#local-6989586621679130756"><span class="hs-identifier hs-var">mmsg'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-150"></span><span>                </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679130755"><span class="annot"><span class="annottext">Notify
+</span><a href="#local-6989586621679130755"><span class="hs-identifier hs-var">msg</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Notification -&gt; IO (Maybe Notification)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe Notification -&gt; IO (Maybe Notification))
+-&gt; Maybe Notification -&gt; IO (Maybe Notification)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Notification -&gt; Maybe Notification
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(Notification -&gt; Maybe Notification)
+-&gt; Notification -&gt; Maybe Notification
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Notify -&gt; Notification
+</span><a href="Database.PostgreSQL.Simple.Notification.html#convertNotice"><span class="hs-identifier hs-var">convertNotice</span></a></span><span> </span><span class="annot"><span class="annottext">Notify
+</span><a href="#local-6989586621679130755"><span class="hs-identifier hs-var">msg</span></a></span><span>
+</span><span id="line-151"></span><span>                </span><span class="annot"><span class="annottext">Maybe Notify
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Notification -&gt; IO (Maybe Notification)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Notification
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-152"></span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- | Returns the process 'CPid' of the backend server process</span><span>
+</span><span id="line-154"></span><span class="hs-comment">-- handling this connection.</span><span>
+</span><span id="line-155"></span><span class="hs-comment">--</span><span>
+</span><span id="line-156"></span><span class="hs-comment">-- The backend PID is useful for debugging purposes and for comparison</span><span>
+</span><span id="line-157"></span><span class="hs-comment">-- to NOTIFY messages (which include the PID of the notifying backend</span><span>
+</span><span id="line-158"></span><span class="hs-comment">-- process). Note that the PID belongs to a process executing on the</span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- database server host, not the local host!</span><span>
+</span><span id="line-160"></span><span>
+</span><span id="line-161"></span><span class="annot"><a href="Database.PostgreSQL.Simple.Notification.html#getBackendPID"><span class="hs-identifier hs-type">getBackendPID</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.PostgreSQL.Simple.Internal.html#Connection"><span class="hs-identifier hs-type">Connection</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">CPid</span></a></span><span>
+</span><span id="line-162"></span><span id="getBackendPID"><span class="annot"><span class="annottext">getBackendPID :: Connection -&gt; IO CPid
+</span><a href="Database.PostgreSQL.Simple.Notification.html#getBackendPID"><span class="hs-identifier hs-var hs-var">getBackendPID</span></a></span></span><span> </span><span id="local-6989586621679130754"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130754"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Connection -&gt; (Connection -&gt; IO CPid) -&gt; IO CPid
+forall a. Connection -&gt; (Connection -&gt; IO a) -&gt; IO a
+</span><a href="Database.PostgreSQL.Simple.Internal.html#withConnection"><span class="hs-identifier hs-var">withConnection</span></a></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679130754"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Connection -&gt; IO CPid
+</span><a href="../../../../postgresql-libpq/html/src"><span class="hs-identifier hs-var">PQ.backendPID</span></a></span><span>
+</span><span id="line-163"></span></pre></body></html>

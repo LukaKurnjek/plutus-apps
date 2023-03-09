@@ -1,0 +1,442 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Copyright: &#169; 2022 IOHK</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Abstract data type that describes a policy for keeping and discarding</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- checkpoints. To be used with the 'Checkpoints' type.</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Wallet.Checkpoints.Policy</span><span>
+</span><span id="line-8"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier">BlockHeight</span></a></span><span>
+</span><span id="line-9"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier">CheckpointPolicy</span></a></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#nextCheckpoint"><span class="hs-identifier">nextCheckpoint</span></a></span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#keepWhereTip"><span class="hs-identifier">keepWhereTip</span></a></span><span>
+</span><span id="line-12"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#toListAtTip"><span class="hs-identifier">toListAtTip</span></a></span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Construction</span></span><span>
+</span><span id="line-15"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#atGenesis"><span class="hs-identifier">atGenesis</span></a></span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#atTip"><span class="hs-identifier">atTip</span></a></span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#trailingArithmetic"><span class="hs-identifier">trailingArithmetic</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#sparseArithmetic"><span class="hs-identifier">sparseArithmetic</span></a></span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#defaultPolicy"><span class="hs-identifier">defaultPolicy</span></a></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#gapSize"><span class="hs-identifier">gapSize</span></a></span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Internal invariants</span></span><span>
+</span><span id="line-23"></span><span>    </span><span class="annot"><span class="hs-comment">-- $invariants</span></span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">unfoldr</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    CheckpointPolicy, abstract data type
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">type</span><span> </span><span id="BlockHeight"><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-var">BlockHeight</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span class="hs-comment">{-| [CheckpointPolicy]
+
+To save memory and time, we do not store every checkpoint.
+Instead, a 'CheckpointPolicy' determines which checkpoints
+to store and which ones to discard.
+The 'extendAndPrune' functions consults such a policy and
+drops checkpoints as it deems necessary.
+
+A 'CheckpointPolicy' determines whether a checkpoint is worth storing
+only based on its block height. The boolean
+
+  keepWhereTip policy tip blockheight
+
+indicates whether the checkpoint should be stored ('True') or
+not ('False').
+It is important that this function does not oscillate:
+If @blockheight &lt;= tip@, the function result may change from 'True'
+to 'False' as the @tip@ increases, but not the other way round.
+This is because we can only create checkpoints the first time we
+read the corresponding block.
+
+TODO:
+The 'Checkpoints' collection currently relies on 'Slot' instead
+of 'BlockHeight' to store checkpoints. We need to better integrate
+this with 'BlockHeight'.
+
+I (Heinrich) actually prefer 'Slot'. However, not every slot contains a block,
+and we would lose too many checkpoints if we based the decision of
+whether to keep a checkpoint or not based on the slot number alone.
+In contrast, block height is &quot;dense&quot;.
+-}</span><span>
+</span><span id="line-67"></span><span class="hs-keyword">newtype</span><span> </span><span id="CheckpointPolicy"><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="CheckpointPolicy"><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span></span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="nextCheckpoint"><span class="annot"><span class="annottext">CheckpointPolicy -&gt; BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#nextCheckpoint"><span class="hs-identifier hs-var hs-var">nextCheckpoint</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span>
+</span><span id="line-69"></span><span>        </span><span class="hs-comment">-- ^ Assuming that the tip of the chain is at block height @tip@,</span><span>
+</span><span id="line-70"></span><span>        </span><span class="hs-comment">-- @nextCheckpoint policy tip height@ returns the smallest</span><span>
+</span><span id="line-71"></span><span>        </span><span class="hs-comment">-- @height'@ satisfying @height' &gt;= height#</span><span>
+</span><span id="line-72"></span><span>        </span><span class="hs-comment">-- at which the next checkpoint is to be made.</span><span>
+</span><span id="line-73"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-74"></span><span>
+</span><span id="line-75"></span><span class="hs-comment">{-$invariants
+
+Internal invariants of the 'CheckpointPolicy' type:
+
+* 'prop_monotonicHeight' &#8212; 'nextCheckpoint' returns the same height
+  for all heights between a given height and the height returned.
+* prop_monotonicTip' &#8212; when increasing the @tip@ height, 'nextCheckpoint'
+  will never return a blockheight that is smaller.
+-}</span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- | Assuming that the tip of the chain is at block height @tip@,</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- the value @keepWhereTip policy tip height@</span><span>
+</span><span id="line-87"></span><span class="hs-comment">-- indicates whether a checkpoint should ('True') or should not ('False')</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- be stored at @height@.</span><span>
+</span><span id="line-89"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#keepWhereTip"><span class="hs-identifier hs-type">keepWhereTip</span></a></span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-92"></span><span id="keepWhereTip"><span class="annot"><span class="annottext">keepWhereTip :: CheckpointPolicy -&gt; BlockHeight -&gt; BlockHeight -&gt; Bool
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#keepWhereTip"><span class="hs-identifier hs-var hs-var">keepWhereTip</span></a></span></span><span> </span><span id="local-6989586621682422307"><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422307"><span class="hs-identifier hs-var">policy</span></a></span></span><span> </span><span id="local-6989586621682422306"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422306"><span class="hs-identifier hs-var">tip</span></a></span></span><span> </span><span id="local-6989586621682422305"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422305"><span class="hs-identifier hs-var">height</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-93"></span><span>    </span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#nextCheckpoint"><span class="hs-identifier hs-var hs-var">nextCheckpoint</span></a></span><span> </span><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422307"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422306"><span class="hs-identifier hs-var">tip</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422305"><span class="hs-identifier hs-var">height</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe BlockHeight -&gt; Maybe BlockHeight -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; Maybe BlockHeight
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422305"><span class="hs-identifier hs-var">height</span></a></span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- | List all checkpoints for a given tip.</span><span>
+</span><span id="line-96"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#toListAtTip"><span class="hs-identifier hs-type">toListAtTip</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-97"></span><span id="toListAtTip"><span class="annot"><span class="annottext">toListAtTip :: CheckpointPolicy -&gt; BlockHeight -&gt; [BlockHeight]
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#toListAtTip"><span class="hs-identifier hs-var hs-var">toListAtTip</span></a></span></span><span> </span><span id="local-6989586621682422304"><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422304"><span class="hs-identifier hs-var">policy</span></a></span></span><span> </span><span id="local-6989586621682422303"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422303"><span class="hs-identifier hs-var">tip</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BlockHeight -&gt; Maybe (BlockHeight, BlockHeight))
+-&gt; BlockHeight -&gt; [BlockHeight]
+forall b a. (b -&gt; Maybe (a, b)) -&gt; b -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unfoldr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BlockHeight -&gt; (BlockHeight, BlockHeight))
+-&gt; Maybe BlockHeight -&gt; Maybe (BlockHeight, BlockHeight)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; (BlockHeight, BlockHeight)
+forall b. Num b =&gt; b -&gt; (b, b)
+</span><a href="#local-6989586621682422302"><span class="hs-identifier hs-var">next</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe BlockHeight -&gt; Maybe (BlockHeight, BlockHeight))
+-&gt; (BlockHeight -&gt; Maybe BlockHeight)
+-&gt; BlockHeight
+-&gt; Maybe (BlockHeight, BlockHeight)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#nextCheckpoint"><span class="hs-identifier hs-var hs-var">nextCheckpoint</span></a></span><span> </span><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422304"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422303"><span class="hs-identifier hs-var">tip</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-98"></span><span>  </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621682422302"><span class="annot"><span class="annottext">next :: b -&gt; (b, b)
+</span><a href="#local-6989586621682422302"><span class="hs-identifier hs-var hs-var">next</span></a></span></span><span> </span><span id="local-6989586621682422300"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621682422300"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621682422300"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621682422300"><span class="hs-identifier hs-var">x</span></a></span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">b
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    CheckpointPolicy, construction
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- | The combination of two 'CheckpointPolicy' makes a checkpoint</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- where at least one of the policies wants to make a checkpoint.</span><span>
+</span><span id="line-105"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621682422294"><span id="local-6989586621682422296"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-106"></span><span>    </span><span id="local-6989586621682422292"><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422292"><span class="hs-identifier hs-var">p1</span></a></span></span><span> </span><span id="local-6989586621682422291"><span class="annot"><span class="annottext">&lt;&gt; :: CheckpointPolicy -&gt; CheckpointPolicy -&gt; CheckpointPolicy
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;&gt;</span></a></span></span><span> </span><span id="local-6989586621682422290"><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422290"><span class="hs-identifier hs-var">p2</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">((BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+ -&gt; CheckpointPolicy)
+-&gt; (BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682422289"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422289"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621682422288"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422288"><span class="hs-identifier hs-var">h</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-107"></span><span>        </span><span class="annot"><span class="annottext">(BlockHeight -&gt; BlockHeight -&gt; BlockHeight)
+-&gt; Maybe BlockHeight -&gt; Maybe BlockHeight -&gt; Maybe BlockHeight
+forall t. (t -&gt; t -&gt; t) -&gt; Maybe t -&gt; Maybe t -&gt; Maybe t
+</span><a href="#local-6989586621682422287"><span class="hs-identifier hs-var">union</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#nextCheckpoint"><span class="hs-identifier hs-var hs-var">nextCheckpoint</span></a></span><span> </span><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422292"><span class="hs-identifier hs-var">p1</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422289"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422288"><span class="hs-identifier hs-var">h</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#nextCheckpoint"><span class="hs-identifier hs-var hs-var">nextCheckpoint</span></a></span><span> </span><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="#local-6989586621682422290"><span class="hs-identifier hs-var">p2</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422289"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422288"><span class="hs-identifier hs-var">h</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-109"></span><span>        </span><span id="local-6989586621682422287"><span class="annot"><span class="annottext">union :: (t -&gt; t -&gt; t) -&gt; Maybe t -&gt; Maybe t -&gt; Maybe t
+</span><a href="#local-6989586621682422287"><span class="hs-identifier hs-var hs-var">union</span></a></span></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; t
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Maybe t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span id="local-6989586621682422285"><span class="annot"><span class="annottext">Maybe t
+</span><a href="#local-6989586621682422285"><span class="hs-identifier hs-var">mb</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe t
+</span><a href="#local-6989586621682422285"><span class="hs-identifier hs-var">mb</span></a></span><span>
+</span><span id="line-110"></span><span>        </span><span class="annot"><a href="#local-6989586621682422287"><span class="hs-identifier hs-var">union</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; t
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621682422284"><span class="annot"><span class="annottext">Maybe t
+</span><a href="#local-6989586621682422284"><span class="hs-identifier hs-var">ma</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe t
+</span><a href="#local-6989586621682422284"><span class="hs-identifier hs-var">ma</span></a></span><span>
+</span><span id="line-111"></span><span>        </span><span class="annot"><a href="#local-6989586621682422287"><span class="hs-identifier hs-var">union</span></a></span><span> </span><span id="local-6989586621682422283"><span class="annot"><span class="annottext">t -&gt; t -&gt; t
+</span><a href="#local-6989586621682422283"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682422282"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682422282"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682422281"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682422281"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">t -&gt; Maybe t
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t -&gt; t -&gt; t
+</span><a href="#local-6989586621682422283"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682422282"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682422281"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621682422275"><span id="local-6989586621682422277"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-114"></span><span>    </span><span id="local-6989586621682422273"><span class="annot"><span class="annottext">mempty :: CheckpointPolicy
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">((BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+ -&gt; CheckpointPolicy)
+-&gt; (BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe BlockHeight
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-115"></span><span>
+</span><span id="line-116"></span><span class="hs-comment">-- | The 'CheckpointPolicy' that keeps only the genesis block.</span><span>
+</span><span id="line-117"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#atGenesis"><span class="hs-identifier hs-type">atGenesis</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span>
+</span><span id="line-118"></span><span id="atGenesis"><span class="annot"><span class="annottext">atGenesis :: CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#atGenesis"><span class="hs-identifier hs-var hs-var">atGenesis</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">((BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+ -&gt; CheckpointPolicy)
+-&gt; (BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682422272"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422272"><span class="hs-identifier hs-var">_tip</span></a></span></span><span> </span><span id="local-6989586621682422271"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422271"><span class="hs-identifier hs-var">height</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-119"></span><span>    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422271"><span class="hs-identifier hs-var">height</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; Maybe BlockHeight
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422271"><span class="hs-identifier hs-var">height</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe BlockHeight
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-120"></span><span>
+</span><span id="line-121"></span><span class="hs-comment">-- | The 'CheckpointPolicy' that only keeps the tip of the chain.</span><span>
+</span><span id="line-122"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#atTip"><span class="hs-identifier hs-type">atTip</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span>
+</span><span id="line-123"></span><span id="atTip"><span class="annot"><span class="annottext">atTip :: CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#atTip"><span class="hs-identifier hs-var hs-var">atTip</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">((BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+ -&gt; CheckpointPolicy)
+-&gt; (BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682422269"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422269"><span class="hs-identifier hs-var">tip</span></a></span></span><span> </span><span id="local-6989586621682422268"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422268"><span class="hs-identifier hs-var">height</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422268"><span class="hs-identifier hs-var">height</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422269"><span class="hs-identifier hs-var">tip</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; Maybe BlockHeight
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422269"><span class="hs-identifier hs-var">tip</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe BlockHeight
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- | @trailingArithmetic n height@ keeps @n@ checkpoints</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- at block heights that are multiples of @height@</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- and which are closest to the tip of the chain.</span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- (Fewer than @n@ checkpoints are kept while the chain is too short</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- to accommodate all checkpoints.)</span><span>
+</span><span id="line-131"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#trailingArithmetic"><span class="hs-identifier hs-type">trailingArithmetic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span>
+</span><span id="line-132"></span><span id="trailingArithmetic"><span class="annot"><span class="annottext">trailingArithmetic :: BlockHeight -&gt; BlockHeight -&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#trailingArithmetic"><span class="hs-identifier hs-var hs-var">trailingArithmetic</span></a></span></span><span> </span><span id="local-6989586621682422267"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422267"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621682422266"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422266"><span class="hs-identifier hs-var">grid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-var">CheckpointPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">((BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+ -&gt; CheckpointPolicy)
+-&gt; (BlockHeight -&gt; BlockHeight -&gt; Maybe BlockHeight)
+-&gt; CheckpointPolicy
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682422265"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422265"><span class="hs-identifier hs-var">tip</span></a></span></span><span> </span><span id="local-6989586621682422264"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422264"><span class="hs-identifier hs-var">height</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-133"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422263"><span class="hs-identifier hs-var">h</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621682422263"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422263"><span class="hs-identifier hs-var">h</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; [BlockHeight]
+</span><a href="#local-6989586621682422262"><span class="hs-identifier hs-var">window</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422265"><span class="hs-identifier hs-var">tip</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422263"><span class="hs-identifier hs-var">h</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422264"><span class="hs-identifier hs-var">height</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-134"></span><span>        </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe BlockHeight
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-135"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621682422261"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422261"><span class="hs-identifier hs-var">x</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span class="annot"><span class="annottext">[BlockHeight]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; Maybe BlockHeight
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422261"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-136"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-137"></span><span>    </span><span id="local-6989586621682422262"><span class="annot"><span class="annottext">window :: BlockHeight -&gt; [BlockHeight]
+</span><a href="#local-6989586621682422262"><span class="hs-identifier hs-var hs-var">window</span></a></span></span><span> </span><span id="local-6989586621682422260"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422260"><span class="hs-identifier hs-var">tip</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422259"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422259"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422266"><span class="hs-identifier hs-var">grid</span></a></span><span> </span><span class="hs-glyph">..</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422260"><span class="hs-identifier hs-var">tip</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-138"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-139"></span><span>        </span><span id="local-6989586621682422258"><span class="annot"><span class="annottext">m :: BlockHeight
+</span><a href="#local-6989586621682422258"><span class="hs-identifier hs-var hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422267"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-140"></span><span>        </span><span id="local-6989586621682422259"><span class="annot"><span class="annottext">a :: BlockHeight
+</span><a href="#local-6989586621682422259"><span class="hs-identifier hs-var hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422260"><span class="hs-identifier hs-var">tip</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422258"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422266"><span class="hs-identifier hs-var">grid</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight
+</span><a href="#local-6989586621682422255"><span class="hs-identifier hs-var">toGrid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422260"><span class="hs-identifier hs-var">tip</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422258"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422266"><span class="hs-identifier hs-var">grid</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-141"></span><span>    </span><span id="local-6989586621682422255"><span class="annot"><span class="annottext">toGrid :: BlockHeight -&gt; BlockHeight
+</span><a href="#local-6989586621682422255"><span class="hs-identifier hs-var hs-var">toGrid</span></a></span></span><span> </span><span id="local-6989586621682422254"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422254"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422254"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`div`</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422266"><span class="hs-identifier hs-var">grid</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422266"><span class="hs-identifier hs-var">grid</span></a></span><span>
+</span><span id="line-142"></span><span>
+</span><span id="line-143"></span><span class="hs-comment">{- | Note [sparseArithmeticPolicy]
+
+The 'sparseArithmetic' checkpoint policy contains essentially two
+sets of checkpoints: One fairly dense set near the tip of the chain
+in order to handle frequent potential rollbacks, and one sparse
+set that spans the entire epoch stability window. These two sets
+are arranged as arithmetic sequences.
+
+This policy is motivated by the following observations:
+
+  - We can't rollback for more than `k = epochStability` blocks in the past
+  - It is pretty fast to re-sync a few hundred blocks
+  - Small rollbacks near the tip may occur more often than long ones
+
+Hence, we should strive to
+
+- Prune any checkpoint that are more than `k` blocks in the past
+- Keep only one checkpoint every `largeGap` ~100 blocks
+- But still keep ~10 most recent checkpoints to cope with small rollbacks.
+
+Roughly, the 'sparseArithmetic'
+
+0 ..... N*largeGap .... (N+1)*largeGap .. .. M*smallGap (M+1)*smallGap tip
+        |_______________________________________________________________|
+                 epochStability
+
+Note: In the event where chain following &quot;fails completely&quot; (because, for
+example, the node has switch to a different chain, different by more than `k`),
+we have no choice but rolling back from genesis.
+Therefore, we need to keep the very first checkpoint in the database, no
+matter what.
+-}</span><span>
+</span><span id="line-175"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#sparseArithmetic"><span class="hs-identifier hs-type">sparseArithmetic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span>
+</span><span id="line-176"></span><span id="sparseArithmetic"><span class="annot"><span class="annottext">sparseArithmetic :: BlockHeight -&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#sparseArithmetic"><span class="hs-identifier hs-var hs-var">sparseArithmetic</span></a></span></span><span> </span><span id="local-6989586621682422252"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422252"><span class="hs-identifier hs-var">epochStability</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-177"></span><span>    </span><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#atGenesis"><span class="hs-identifier hs-var">atGenesis</span></a></span><span>
+</span><span id="line-178"></span><span>    </span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; CheckpointPolicy -&gt; CheckpointPolicy
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#atTip"><span class="hs-identifier hs-var">atTip</span></a></span><span>
+</span><span id="line-179"></span><span>    </span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; CheckpointPolicy -&gt; CheckpointPolicy
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#trailingArithmetic"><span class="hs-identifier hs-var">trailingArithmetic</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">10</span></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-180"></span><span>    </span><span class="annot"><span class="annottext">CheckpointPolicy -&gt; CheckpointPolicy -&gt; CheckpointPolicy
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#trailingArithmetic"><span class="hs-identifier hs-var">trailingArithmetic</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422251"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422250"><span class="hs-identifier hs-var">largeGap</span></a></span><span>
+</span><span id="line-181"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-182"></span><span>    </span><span id="local-6989586621682422250"><span class="annot"><span class="annottext">largeGap :: BlockHeight
+</span><a href="#local-6989586621682422250"><span class="hs-identifier hs-var hs-var">largeGap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#gapSize"><span class="hs-identifier hs-var">gapSize</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422252"><span class="hs-identifier hs-var">epochStability</span></a></span><span>
+</span><span id="line-183"></span><span>    </span><span id="local-6989586621682422251"><span class="annot"><span class="annottext">n :: BlockHeight
+</span><a href="#local-6989586621682422251"><span class="hs-identifier hs-var hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422252"><span class="hs-identifier hs-var">epochStability</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`div`</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422250"><span class="hs-identifier hs-var">largeGap</span></a></span><span>
+</span><span id="line-184"></span><span>
+</span><span id="line-185"></span><span class="hs-comment">-- | A sensible default checkpoint policy; currently 'sparseArithmetic'.</span><span>
+</span><span id="line-186"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#defaultPolicy"><span class="hs-identifier hs-type">defaultPolicy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#CheckpointPolicy"><span class="hs-identifier hs-type">CheckpointPolicy</span></a></span><span>
+</span><span id="line-187"></span><span id="defaultPolicy"><span class="annot"><span class="annottext">defaultPolicy :: BlockHeight -&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#defaultPolicy"><span class="hs-identifier hs-var hs-var">defaultPolicy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; CheckpointPolicy
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#sparseArithmetic"><span class="hs-identifier hs-var">sparseArithmetic</span></a></span><span>
+</span><span id="line-188"></span><span>
+</span><span id="line-189"></span><span class="hs-comment">{- | A reasonable gap size used internally in 'sparseArithmeticPolicy'.
+
+'Reasonable' means that it's not _too frequent_ and it's not too large. A
+value that is too small in front of k would require generating much more
+checkpoints than necessary.
+
+A value that is larger than `k` may have dramatic consequences in case of
+deep rollbacks.
+
+As a middle ground, we current choose `k / 3`, which is justified by:
+
+- The current bandwidth of the network layer (several thousands blocks per seconds)
+- The current value of k = 2160
+
+So, `k / 3` = 720, which corresponds to around a second of time needed to catch
+up in case of large rollbacks (if our local node has caught up already).
+-}</span><span>
+</span><span id="line-206"></span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#gapSize"><span class="hs-identifier hs-type">gapSize</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Checkpoints.Policy.html#BlockHeight"><span class="hs-identifier hs-type">BlockHeight</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span>
+</span><span id="line-207"></span><span id="gapSize"><span class="annot"><span class="annottext">gapSize :: BlockHeight -&gt; BlockHeight
+</span><a href="Cardano.Wallet.Checkpoints.Policy.html#gapSize"><span class="hs-identifier hs-var hs-var">gapSize</span></a></span></span><span> </span><span id="local-6989586621682422249"><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422249"><span class="hs-identifier hs-var">epochStability</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">1</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BlockHeight
+</span><a href="#local-6989586621682422249"><span class="hs-identifier hs-var">epochStability</span></a></span><span>  </span><span class="annot"><span class="annottext">BlockHeight -&gt; BlockHeight -&gt; BlockHeight
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`div`</span></a></span><span> </span><span class="annot"><span class="annottext">BlockHeight
+</span><span class="hs-number">3</span></span><span class="hs-special">)</span><span>
+</span><span id="line-208"></span></pre></body></html>

@@ -1,0 +1,288 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- | Generic implementations of</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- [QuickCheck](https://hackage.haskell.org/package/QuickCheck)'s</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- @arbitrary@.</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- = Example</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Define your type.</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- data Tree a = Leaf a | Node (Tree a) (Tree a)</span><span>
+</span><span id="line-11"></span><span class="hs-comment">--   deriving 'GHC.Generics.Generic'</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-13"></span><span class="hs-comment">--</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- Pick an 'Test.QuickCheck.arbitrary' implementation, specifying the required distribution of</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- data constructors.</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- instance Arbitrary a =&gt; Arbitrary (Tree a) where</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--   arbitrary = 'genericArbitrary' (9 '%' 8 '%' ())</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-21"></span><span class="hs-comment">--</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- That random generator @arbitrary :: 'Test.QuickCheck.Gen' (Tree a)@ picks a</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- @Leaf@ with probability 9\/17, or a</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- @Node@ with probability 8\/17, and recursively fills their fields with</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- @arbitrary@.</span><span>
+</span><span id="line-26"></span><span class="hs-comment">--</span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- For @Tree@, the generic implementation 'genericArbitrary' is equivalent to</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- the following:</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- 'genericArbitrary' :: Arbitrary a =&gt; 'Weights' (Tree a) -&gt; Gen (Tree a)</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- 'genericArbitrary' (x '%' y '%' ()) =</span><span>
+</span><span id="line-33"></span><span class="hs-comment">--   frequency</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--     [ (x, Leaf '&lt;$&gt;' arbitrary)</span><span>
+</span><span id="line-35"></span><span class="hs-comment">--     , (y, Node '&lt;$&gt;' arbitrary '&lt;*&gt;' arbitrary)</span><span>
+</span><span id="line-36"></span><span class="hs-comment">--     ]</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-38"></span><span class="hs-comment">--</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- = Distribution of constructors</span><span>
+</span><span id="line-40"></span><span class="hs-comment">--</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- The distribution of constructors can be specified as</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- a special list of /weights/ in the same order as the data type definition.</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- This assigns to each constructor a probability @p_C@ proportional to its weight @weight_C@;</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- in other words, @p_C = weight_C / sumOfWeights@.</span><span>
+</span><span id="line-45"></span><span class="hs-comment">--</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- The list of weights is built up with the @('%')@ operator as a cons, and using</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- the unit @()@ as the empty list, in the order corresponding to the data type</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- definition.</span><span>
+</span><span id="line-49"></span><span class="hs-comment">--</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- == Uniform distribution</span><span>
+</span><span id="line-51"></span><span class="hs-comment">--</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- You can specify the uniform distribution (all weights equal to 1) with 'uniform'.</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- ('genericArbitraryU' is available as a shorthand for</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- @'genericArbitrary' 'uniform'@.)</span><span>
+</span><span id="line-55"></span><span class="hs-comment">--</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- Note that for many recursive types, a uniform distribution tends to produce</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- big or even infinite values.</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- == Typed weights</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- The weights actually have type @'W' \&quot;ConstructorName\&quot;@ (just a newtype</span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- around 'Int'), so that you can annotate a weight with its corresponding</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- constructor. The constructors must appear in the same order as in the</span><span>
+</span><span id="line-64"></span><span class="hs-comment">-- original type definition.</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--</span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- This will type-check:</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--</span><span>
+</span><span id="line-68"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- ((x :: 'W' \&quot;Leaf\&quot;) '%' (y :: 'W' \&quot;Node\&quot;) '%' ()) :: 'Weights' (Tree a)</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- ( x              '%' (y :: 'W' \&quot;Node\&quot;) '%' ()) :: 'Weights' (Tree a)</span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-72"></span><span class="hs-comment">--</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- This will not:</span><span>
+</span><span id="line-74"></span><span class="hs-comment">--</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- ((x :: 'W' \&quot;Node\&quot;) '%' y '%' ()) :: 'Weights' (Tree a)</span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- -- Requires an order of constructors different from the definition of the @Tree@ type.</span><span>
+</span><span id="line-78"></span><span class="hs-comment">--</span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- ( x              '%' y '%' z '%' ()) :: 'Weights' (Tree a)</span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- -- Doesn't have the right number of weights.</span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-82"></span><span class="hs-comment">--</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- = Ensuring termination</span><span>
+</span><span id="line-84"></span><span class="hs-comment">--</span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- As mentioned earlier, one must be careful with recursive types</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- to avoid producing extremely large values.</span><span>
+</span><span id="line-87"></span><span class="hs-comment">-- The alternative generator 'genericArbitraryRec' decreases the size</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- parameter at every call to keep values at reasonable sizes.</span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- It is to be used together with 'withBaseCase'.</span><span>
+</span><span id="line-90"></span><span class="hs-comment">--</span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- For example, we may provide a base case consisting of only @Leaf@:</span><span>
+</span><span id="line-92"></span><span class="hs-comment">--</span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- instance Arbitrary a =&gt; Arbitrary (Tree a) where</span><span>
+</span><span id="line-95"></span><span class="hs-comment">--   arbitrary = 'genericArbitraryRec' (1 '%' 2 '%' ())</span><span>
+</span><span id="line-96"></span><span class="hs-comment">--     ``withBaseCase`` (Leaf '&lt;$&gt;' arbitrary)</span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-98"></span><span class="hs-comment">--</span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- That is equivalent to the following definition. Note the</span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- 'Test.QuickCheck.resize' modifier.</span><span>
+</span><span id="line-101"></span><span class="hs-comment">--</span><span>
+</span><span id="line-102"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- arbitrary :: Arbitrary a =&gt; Gen (Tree a)</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- arbitrary = sized $ \\n -&gt;</span><span>
+</span><span id="line-105"></span><span class="hs-comment">--   -- &quot;if&quot; condition from withBaseCase</span><span>
+</span><span id="line-106"></span><span class="hs-comment">--   if n == 0 then</span><span>
+</span><span id="line-107"></span><span class="hs-comment">--     Leaf \&lt;$\&gt; arbitrary</span><span>
+</span><span id="line-108"></span><span class="hs-comment">--   else</span><span>
+</span><span id="line-109"></span><span class="hs-comment">--     -- genericArbitraryRec</span><span>
+</span><span id="line-110"></span><span class="hs-comment">--     frequency</span><span>
+</span><span id="line-111"></span><span class="hs-comment">--       [ (1, resize (max 0 (n - 1)) (Leaf '&lt;$&gt;' arbitrary))</span><span>
+</span><span id="line-112"></span><span class="hs-comment">--       , (2, resize (n \`div\` 2)     (Node '&lt;$&gt;' arbitrary '&lt;*&gt;' arbitrary))</span><span>
+</span><span id="line-113"></span><span class="hs-comment">--       ]</span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-115"></span><span class="hs-comment">--</span><span>
+</span><span id="line-116"></span><span class="hs-comment">-- The resizing strategy is as follows:</span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- the size parameter of 'Test.QuickCheck.Gen' is divided among the fields of</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- the chosen constructor, or decreases by one if the constructor is unary.</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- @'withBaseCase' defG baseG@ is equal to @defG@ as long as the size parameter</span><span>
+</span><span id="line-120"></span><span class="hs-comment">-- is nonzero, and it becomes @baseG@ once the size reaches zero.</span><span>
+</span><span id="line-121"></span><span class="hs-comment">-- This combination generally ensures that the number of constructors remains</span><span>
+</span><span id="line-122"></span><span class="hs-comment">-- bounded by the initial size parameter passed to 'Test.QuickCheck.Gen'.</span><span>
+</span><span id="line-123"></span><span class="hs-comment">--</span><span>
+</span><span id="line-124"></span><span class="hs-comment">-- == Automatic base case discovery</span><span>
+</span><span id="line-125"></span><span class="hs-comment">--</span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- In some situations, generic-random can also construct base cases automatically.</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- This works best with fully concrete types (no type parameters).</span><span>
+</span><span id="line-128"></span><span class="hs-comment">--</span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- {-\# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-131"></span><span class="hs-comment">--</span><span>
+</span><span id="line-132"></span><span class="hs-comment">-- instance Arbitrary (Tree ()) where</span><span>
+</span><span id="line-133"></span><span class="hs-comment">--   arbitrary = 'genericArbitrary'' (1 '%' 2 '%' ())</span><span>
+</span><span id="line-134"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-135"></span><span class="hs-comment">--</span><span>
+</span><span id="line-136"></span><span class="hs-comment">-- The above instance will infer the value @Leaf ()@ as a base case.</span><span>
+</span><span id="line-137"></span><span class="hs-comment">--</span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- To discover values of type @Tree a@, we must inspect the type argument @a@,</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- thus we incur some extra constraints if we want polymorphism.</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- It is preferrable to apply the type class 'BaseCase' to the instance head</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- (@Tree a@) as follows, as it doesn't reduce to something worth seeing.</span><span>
+</span><span id="line-142"></span><span class="hs-comment">--</span><span>
+</span><span id="line-143"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-144"></span><span class="hs-comment">-- {-\# LANGUAGE FlexibleContexts, UndecidableInstances \#-}</span><span>
+</span><span id="line-145"></span><span class="hs-comment">--</span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- instance (Arbitrary a, 'BaseCase' (Tree a))</span><span>
+</span><span id="line-147"></span><span class="hs-comment">--   =&gt; Arbitrary (Tree a) where</span><span>
+</span><span id="line-148"></span><span class="hs-comment">--   arbitrary = 'genericArbitrary'' (1 '%' 2 '%' ())</span><span>
+</span><span id="line-149"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-150"></span><span class="hs-comment">--</span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- The 'BaseCase' type class finds values of minimal depth,</span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- where the depth of a constructor is defined as @1 + max(0, depths of fields)@,</span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- e.g., @Leaf ()@ has depth 2.</span><span>
+</span><span id="line-154"></span><span class="hs-comment">--</span><span>
+</span><span id="line-155"></span><span class="hs-comment">-- == Note about lists #notelists#</span><span>
+</span><span id="line-156"></span><span class="hs-comment">--</span><span>
+</span><span id="line-157"></span><span class="hs-comment">-- The @Arbitrary@ instance for lists can be problematic for this way</span><span>
+</span><span id="line-158"></span><span class="hs-comment">-- of implementing recursive sized generators, because they make a lot of</span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- recursive calls to 'Test.QuickCheck.arbitrary' without decreasing the size parameter.</span><span>
+</span><span id="line-160"></span><span class="hs-comment">-- Hence, as a default, 'genericArbitraryRec' also detects fields which are</span><span>
+</span><span id="line-161"></span><span class="hs-comment">-- lists to replace 'Test.QuickCheck.arbitrary' with a different generator that divides</span><span>
+</span><span id="line-162"></span><span class="hs-comment">-- the size parameter by the length of the list before generating each</span><span>
+</span><span id="line-163"></span><span class="hs-comment">-- element. This uses the customizable mechanism shown in the next section.</span><span>
+</span><span id="line-164"></span><span class="hs-comment">--</span><span>
+</span><span id="line-165"></span><span class="hs-comment">-- If you really want to use 'Test.QuickCheck.arbitrary' for lists in the derived instances,</span><span>
+</span><span id="line-166"></span><span class="hs-comment">-- substitute @'genericArbitraryRec'@ with @'genericArbitraryRecG' ()@.</span><span>
+</span><span id="line-167"></span><span class="hs-comment">--</span><span>
+</span><span id="line-168"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-169"></span><span class="hs-comment">-- arbitrary = 'genericArbitraryRecG' ()</span><span>
+</span><span id="line-170"></span><span class="hs-comment">--   ``withBaseCase`` baseGen</span><span>
+</span><span id="line-171"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-172"></span><span class="hs-comment">--</span><span>
+</span><span id="line-173"></span><span class="hs-comment">-- Some combinators are available for further tweaking: 'listOf'', 'listOf1'',</span><span>
+</span><span id="line-174"></span><span class="hs-comment">-- 'vectorOf''.</span><span>
+</span><span id="line-175"></span><span class="hs-comment">--</span><span>
+</span><span id="line-176"></span><span class="hs-comment">-- = Custom generators for some fields</span><span>
+</span><span id="line-177"></span><span class="hs-comment">--</span><span>
+</span><span id="line-178"></span><span class="hs-comment">-- == Example 1 ('Test.QuickCheck.Gen', 'FieldGen')</span><span>
+</span><span id="line-179"></span><span class="hs-comment">--</span><span>
+</span><span id="line-180"></span><span class="hs-comment">-- Sometimes, a few fields may need custom generators instead of 'Test.QuickCheck.arbitrary'.</span><span>
+</span><span id="line-181"></span><span class="hs-comment">-- For example, imagine here that @String@ is meant to represent</span><span>
+</span><span id="line-182"></span><span class="hs-comment">-- alphanumerical strings only, and that IDs are meant to be nonnegative,</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- whereas balances can have any sign.</span><span>
+</span><span id="line-184"></span><span class="hs-comment">--</span><span>
+</span><span id="line-185"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-186"></span><span class="hs-comment">-- data User = User {</span><span>
+</span><span id="line-187"></span><span class="hs-comment">--   userName :: String,</span><span>
+</span><span id="line-188"></span><span class="hs-comment">--   userId :: Int,</span><span>
+</span><span id="line-189"></span><span class="hs-comment">--   userBalance :: Int</span><span>
+</span><span id="line-190"></span><span class="hs-comment">--   } deriving 'GHC.Generics.Generic'</span><span>
+</span><span id="line-191"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-192"></span><span class="hs-comment">--</span><span>
+</span><span id="line-193"></span><span class="hs-comment">-- A naive approach has the following problems:</span><span>
+</span><span id="line-194"></span><span class="hs-comment">--</span><span>
+</span><span id="line-195"></span><span class="hs-comment">-- - @'Test.QuickCheck.Arbitrary' String@ may generate any unicode character,</span><span>
+</span><span id="line-196"></span><span class="hs-comment">--   alphanumeric or not;</span><span>
+</span><span id="line-197"></span><span class="hs-comment">-- - @'Test.QuickCheck.Arbitrary' Int@ may generate negative values;</span><span>
+</span><span id="line-198"></span><span class="hs-comment">-- - using @newtype@ wrappers or passing generators explicitly to properties</span><span>
+</span><span id="line-199"></span><span class="hs-comment">--   may be impractical (the maintenance overhead can be high because the types</span><span>
+</span><span id="line-200"></span><span class="hs-comment">--   are big or change often).</span><span>
+</span><span id="line-201"></span><span class="hs-comment">--</span><span>
+</span><span id="line-202"></span><span class="hs-comment">-- Using generic-random, we can declare a (heterogeneous) list of generators to</span><span>
+</span><span id="line-203"></span><span class="hs-comment">-- be used instead of 'Test.QuickCheck.arbitrary' when generating certain fields.</span><span>
+</span><span id="line-204"></span><span class="hs-comment">--</span><span>
+</span><span id="line-205"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-206"></span><span class="hs-comment">-- customGens :: 'FieldGen' &quot;userId&quot; Int ':+' 'Test.QuickCheck.Gen' String</span><span>
+</span><span id="line-207"></span><span class="hs-comment">-- customGens =</span><span>
+</span><span id="line-208"></span><span class="hs-comment">--   'FieldGen' ('Test.QuickCheck.getNonNegative' '&lt;$&gt;' arbitrary) ':+'</span><span>
+</span><span id="line-209"></span><span class="hs-comment">--   'Test.QuickCheck.listOf' ('Test.QuickCheck.elements' (filter isAlphaNum [minBound .. maxBound]))</span><span>
+</span><span id="line-210"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-211"></span><span class="hs-comment">--</span><span>
+</span><span id="line-212"></span><span class="hs-comment">-- Now we use the 'genericArbitraryG' combinator and other @G@-suffixed</span><span>
+</span><span id="line-213"></span><span class="hs-comment">-- variants that accept those explicit generators.</span><span>
+</span><span id="line-214"></span><span class="hs-comment">--</span><span>
+</span><span id="line-215"></span><span class="hs-comment">-- - All @String@ fields will use the provided generator of</span><span>
+</span><span id="line-216"></span><span class="hs-comment">--   alphanumeric strings;</span><span>
+</span><span id="line-217"></span><span class="hs-comment">-- - the field @&quot;userId&quot;@ of type @Int@ will use the generator</span><span>
+</span><span id="line-218"></span><span class="hs-comment">--   of nonnegative integers;</span><span>
+</span><span id="line-219"></span><span class="hs-comment">-- - everything else defaults to 'Test.QuickCheck.arbitrary'.</span><span>
+</span><span id="line-220"></span><span class="hs-comment">--</span><span>
+</span><span id="line-221"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-222"></span><span class="hs-comment">-- instance Arbitrary User where</span><span>
+</span><span id="line-223"></span><span class="hs-comment">--   arbitrary = 'genericArbitrarySingleG' customGens</span><span>
+</span><span id="line-224"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-225"></span><span class="hs-comment">--</span><span>
+</span><span id="line-226"></span><span class="hs-comment">-- == Example 2 ('ConstrGen')</span><span>
+</span><span id="line-227"></span><span class="hs-comment">--</span><span>
+</span><span id="line-228"></span><span class="hs-comment">-- Here's the @Tree@ type from the beginning again.</span><span>
+</span><span id="line-229"></span><span class="hs-comment">--</span><span>
+</span><span id="line-230"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-231"></span><span class="hs-comment">-- data Tree a = Leaf a | Node (Tree a) (Tree a)</span><span>
+</span><span id="line-232"></span><span class="hs-comment">--   deriving 'GHC.Generics.Generic'</span><span>
+</span><span id="line-233"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-234"></span><span class="hs-comment">--</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- We will generate &quot;right-leaning linear trees&quot;, which look like this:</span><span>
+</span><span id="line-236"></span><span class="hs-comment">--</span><span>
+</span><span id="line-237"></span><span class="hs-comment">-- &gt; Node (Leaf 1)</span><span>
+</span><span id="line-238"></span><span class="hs-comment">-- &gt;      (Node (Leaf 2)</span><span>
+</span><span id="line-239"></span><span class="hs-comment">-- &gt;            (Node (Leaf 3)</span><span>
+</span><span id="line-240"></span><span class="hs-comment">-- &gt;                  (Node (Leaf 4)</span><span>
+</span><span id="line-241"></span><span class="hs-comment">-- &gt;                        (Leaf 5))))</span><span>
+</span><span id="line-242"></span><span class="hs-comment">--</span><span>
+</span><span id="line-243"></span><span class="hs-comment">-- To do so, we force every left child of a @Node@ to be a @Leaf@:</span><span>
+</span><span id="line-244"></span><span class="hs-comment">--</span><span>
+</span><span id="line-245"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-246"></span><span class="hs-comment">-- {-\# LANGUAGE ScopedTypeVariables \#-}</span><span>
+</span><span id="line-247"></span><span class="hs-comment">--</span><span>
+</span><span id="line-248"></span><span class="hs-comment">-- instance Arbitrary a =&gt; Arbitrary (Tree a) where</span><span>
+</span><span id="line-249"></span><span class="hs-comment">--   arbitrary = 'genericArbitraryUG' customGens</span><span>
+</span><span id="line-250"></span><span class="hs-comment">--     where</span><span>
+</span><span id="line-251"></span><span class="hs-comment">--       -- Generator for the left field (i.e., at index 0) of constructor Node,</span><span>
+</span><span id="line-252"></span><span class="hs-comment">--       -- which must have type (Tree a).</span><span>
+</span><span id="line-253"></span><span class="hs-comment">--       customGens :: 'ConstrGen' \&quot;Node\&quot; 0 (Tree a)</span><span>
+</span><span id="line-254"></span><span class="hs-comment">--       customGens =  'ConstrGen' (Leaf '&lt;$&gt;' arbitrary)</span><span>
+</span><span id="line-255"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-256"></span><span class="hs-comment">--</span><span>
+</span><span id="line-257"></span><span class="hs-comment">-- That instance is equivalent to the following:</span><span>
+</span><span id="line-258"></span><span class="hs-comment">--</span><span>
+</span><span id="line-259"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-260"></span><span class="hs-comment">-- instance Arbitrary a =&gt; Arbitrary (Tree a) where</span><span>
+</span><span id="line-261"></span><span class="hs-comment">--   arbitrary = oneof</span><span>
+</span><span id="line-262"></span><span class="hs-comment">--     [ Leaf '&lt;$&gt;' arbitrary</span><span>
+</span><span id="line-263"></span><span class="hs-comment">--     , Node '&lt;$&gt;' (Leaf '&lt;$&gt;' arbitrary) '&lt;*&gt;' arbitrary</span><span>
+</span><span id="line-264"></span><span class="hs-comment">--     --                                  ^ recursive call</span><span>
+</span><span id="line-265"></span><span class="hs-comment">--     ]</span><span>
+</span><span id="line-266"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-267"></span><span class="hs-comment">--</span><span>
+</span><span id="line-268"></span><span class="hs-comment">-- == Custom generators reference</span><span>
+</span><span id="line-269"></span><span class="hs-comment">--</span><span>
+</span><span id="line-270"></span><span class="hs-comment">-- The custom generator modifiers that can occur in the list are:</span><span>
+</span><span id="line-271"></span><span class="hs-comment">--</span><span>
+</span><span id="line-272"></span><span class="hs-comment">-- - 'Test.QuickCheck.Gen': a generator for a specific type;</span><span>
+</span><span id="line-273"></span><span class="hs-comment">-- - 'FieldGen': a generator for a record field;</span><span>
+</span><span id="line-274"></span><span class="hs-comment">-- - 'ConstrGen': a generator for a field of a given constructor;</span><span>
+</span><span id="line-275"></span><span class="hs-comment">-- - 'Gen1': a generator for \&quot;containers\&quot;, parameterized by a generator</span><span>
+</span><span id="line-276"></span><span class="hs-comment">--   for individual elements;</span><span>
+</span><span id="line-277"></span><span class="hs-comment">-- - 'Gen1_': a generator for unary type constructors that are not</span><span>
+</span><span id="line-278"></span><span class="hs-comment">--   containers.</span><span>
+</span><span id="line-279"></span><span class="hs-comment">--</span><span>
+</span><span id="line-280"></span><span class="hs-comment">-- Suggestions to add more modifiers or otherwise improve this tutorial are welcome!</span><span>
+</span><span id="line-281"></span><span class="hs-comment">-- &lt;https://github.com/Lysxia/generic-random/issues The issue tracker is this way.&gt;</span><span>
+</span><span id="line-282"></span><span>
+</span><span id="line-283"></span><span class="hs-pragma">{-# OPTIONS_GHC -Wno-unused-imports #-}</span><span>
+</span><span id="line-284"></span><span>
+</span><span id="line-285"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Generic.Random.Tutorial</span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-286"></span><span>
+</span><span id="line-287"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Generic.Random.html"><span class="hs-identifier">Generic.Random</span></a></span><span>
+</span><span id="line-288"></span></pre></body></html>

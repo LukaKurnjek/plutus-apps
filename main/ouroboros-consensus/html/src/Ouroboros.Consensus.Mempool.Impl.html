@@ -1,0 +1,724 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE FlexibleContexts    #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications    #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- | Monadic side of the Mempool implementation.</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Using the functions defined in Ouroboros.Consensus.Mempool.Impl.Pure,</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- a dedicated constructor 'openMempool' is provided to encapsulate the mempool</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- functionality.</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- The implementation is based on a MempoolEnv that captures the relevant</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- variables to manage the mempool and is then used to craft functions that</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- conform to the Mempool datatype API.</span><span>
+</span><span id="line-14"></span><span class="hs-comment">--</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- The operations performed on the Mempool are written in a pure fashion in</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- Ouroboros.Consensus.Mempool.Impl.Pure.</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Ouroboros.Consensus.Mempool.Impl</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-18"></span><span>    </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#openMempool"><span class="hs-identifier">openMempool</span></a></span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><span class="hs-comment">-- * For testing purposes</span></span><span>
+</span><span id="line-20"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier">LedgerInterface</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#chainDBLedgerInterface"><span class="hs-identifier">chainDBLedgerInterface</span></a></span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#openMempoolWithoutSyncThread"><span class="hs-identifier">openMempoolWithoutSyncThread</span></a></span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../mtl/html/src"><span class="hs-identifier">Control.Monad.Except</span></a></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Typeable</span></a></span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../contra-tracer/html/src"><span class="hs-identifier">Control.Tracer</span></a></span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Storage.ChainDB.html"><span class="hs-identifier">Ouroboros.Consensus.Storage.ChainDB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Storage.ChainDB.API.html#ChainDB"><span class="hs-identifier">ChainDB</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Storage.ChainDB.API.html"><span class="hs-identifier">Ouroboros.Consensus.Storage.ChainDB.API</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">ChainDB</span></span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Block.html"><span class="hs-identifier">Ouroboros.Consensus.Block</span></a></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html"><span class="hs-identifier">Ouroboros.Consensus.HeaderValidation</span></a></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Abstract.html"><span class="hs-identifier">Ouroboros.Consensus.Ledger.Abstract</span></a></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Extended.html"><span class="hs-identifier">Ouroboros.Consensus.Ledger.Extended</span></a></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html"><span class="hs-identifier">Ouroboros.Consensus.Ledger.SupportsMempool</span></a></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html"><span class="hs-identifier">Ouroboros.Consensus.Mempool.API</span></a></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html"><span class="hs-identifier">Ouroboros.Consensus.Mempool.Impl.Pure</span></a></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.Types.html"><span class="hs-identifier">Ouroboros.Consensus.Mempool.Impl.Types</span></a></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html"><span class="hs-identifier">Ouroboros.Consensus.Mempool.TxSeq</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html#TicketNo"><span class="hs-identifier">TicketNo</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html#zeroTicketNo"><span class="hs-identifier">zeroTicketNo</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Util.html"><span class="hs-identifier">Ouroboros.Consensus.Util</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Util.html#whenJust"><span class="hs-identifier">whenJust</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html"><span class="hs-identifier">Ouroboros.Consensus.Util.IOLike</span></a></span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Util.ResourceRegistry.html"><span class="hs-identifier">Ouroboros.Consensus.Util.ResourceRegistry</span></a></span><span>
+</span><span id="line-45"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Util.STM.html"><span class="hs-identifier">Ouroboros.Consensus.Util.STM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Util.STM.html#Watcher"><span class="hs-identifier">Watcher</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.STM.html#forkLinkedWatcher"><span class="hs-identifier">forkLinkedWatcher</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+  Top-level API
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- | Create a @Mempool m blk TicketNo@ in @m@ to manipulate the mempool. It</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- will also fork a thread that syncs the mempool and the ledger when the ledger</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- changes.</span><span>
+</span><span id="line-54"></span><span id="local-6989586621680061967"><span id="local-6989586621680061968"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#openMempool"><span class="hs-identifier hs-type">openMempool</span></a></span><span>
+</span><span id="line-55"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061968"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-56"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#LedgerSupportsMempool"><span class="hs-identifier hs-type">LedgerSupportsMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-57"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#HasTxId"><span class="hs-identifier hs-type">HasTxId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html#ValidateEnvelope"><span class="hs-identifier hs-type">ValidateEnvelope</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-59"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.ResourceRegistry.html#ResourceRegistry"><span class="hs-identifier hs-type">ResourceRegistry</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061968"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-61"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-type">LedgerInterface</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061968"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#LedgerConfig"><span class="hs-identifier hs-type">LedgerConfig</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#MempoolCapacityBytesOverride"><span class="hs-identifier hs-type">MempoolCapacityBytesOverride</span></a></span><span>
+</span><span id="line-64"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-type">Tracer</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061968"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#TraceEventMempool"><span class="hs-identifier hs-type">TraceEventMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">TxSizeInBytes</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680061968"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#Mempool"><span class="hs-identifier hs-type">Mempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061968"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061967"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html#TicketNo"><span class="hs-identifier hs-type">TicketNo</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-67"></span><span id="openMempool"><span class="annot"><span class="annottext">openMempool :: ResourceRegistry m
+-&gt; LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (Mempool m blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#openMempool"><span class="hs-identifier hs-var hs-var">openMempool</span></a></span></span><span> </span><span id="local-6989586621680061966"><span class="annot"><span class="annottext">ResourceRegistry m
+</span><a href="#local-6989586621680061966"><span class="hs-identifier hs-var">registry</span></a></span></span><span> </span><span id="local-6989586621680061965"><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061965"><span class="hs-identifier hs-var">ledger</span></a></span></span><span> </span><span id="local-6989586621680061964"><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061964"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span id="local-6989586621680061963"><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061963"><span class="hs-identifier hs-var">capacityOverride</span></a></span></span><span> </span><span id="local-6989586621680061962"><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061962"><span class="hs-identifier hs-var">tracer</span></a></span></span><span> </span><span id="local-6989586621680061961"><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061961"><span class="hs-identifier hs-var">txSize</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-68"></span><span>    </span><span id="local-6989586621680061960"><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061960"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (MempoolEnv m blk)
+forall (m :: * -&gt; *) blk.
+(IOLike m, NoThunks (GenTxId blk), LedgerSupportsMempool blk,
+ ValidateEnvelope blk) =&gt;
+LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (MempoolEnv m blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#initMempoolEnv"><span class="hs-identifier hs-var">initMempoolEnv</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061965"><span class="hs-identifier hs-var">ledger</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061964"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061963"><span class="hs-identifier hs-var">capacityOverride</span></a></span><span> </span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061962"><span class="hs-identifier hs-var">tracer</span></a></span><span> </span><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061961"><span class="hs-identifier hs-var">txSize</span></a></span><span>
+</span><span id="line-69"></span><span>    </span><span class="annot"><span class="annottext">ResourceRegistry m -&gt; MempoolEnv m blk -&gt; m ()
+forall (m :: * -&gt; *) blk.
+(IOLike m, LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+ResourceRegistry m -&gt; MempoolEnv m blk -&gt; m ()
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#forkSyncStateOnTipPointChange"><span class="hs-identifier hs-var">forkSyncStateOnTipPointChange</span></a></span><span> </span><span class="annot"><span class="annottext">ResourceRegistry m
+</span><a href="#local-6989586621680061966"><span class="hs-identifier hs-var">registry</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061960"><span class="hs-identifier hs-var">env</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><span class="annottext">Mempool m blk TicketNo -&gt; m (Mempool m blk TicketNo)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Mempool m blk TicketNo -&gt; m (Mempool m blk TicketNo))
+-&gt; Mempool m blk TicketNo -&gt; m (Mempool m blk TicketNo)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; Mempool m blk TicketNo
+forall (m :: * -&gt; *) blk.
+(IOLike m, LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+MempoolEnv m blk -&gt; Mempool m blk TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mkMempool"><span class="hs-identifier hs-var">mkMempool</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061960"><span class="hs-identifier hs-var">env</span></a></span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- | Unlike 'openMempool', this function does not fork a background thread</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- that synchronises with the ledger state whenever the later changes.</span><span>
+</span><span id="line-74"></span><span class="hs-comment">--</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- Intended for testing purposes.</span><span>
+</span><span id="line-76"></span><span id="local-6989586621680061955"><span id="local-6989586621680061956"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#openMempoolWithoutSyncThread"><span class="hs-identifier hs-type">openMempoolWithoutSyncThread</span></a></span><span>
+</span><span id="line-77"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061956"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-78"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#LedgerSupportsMempool"><span class="hs-identifier hs-type">LedgerSupportsMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-79"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#HasTxId"><span class="hs-identifier hs-type">HasTxId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html#ValidateEnvelope"><span class="hs-identifier hs-type">ValidateEnvelope</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-81"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-type">LedgerInterface</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061956"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-83"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#LedgerConfig"><span class="hs-identifier hs-type">LedgerConfig</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-84"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#MempoolCapacityBytesOverride"><span class="hs-identifier hs-type">MempoolCapacityBytesOverride</span></a></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-type">Tracer</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061956"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#TraceEventMempool"><span class="hs-identifier hs-type">TraceEventMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-86"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">TxSizeInBytes</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680061956"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#Mempool"><span class="hs-identifier hs-type">Mempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061956"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061955"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html#TicketNo"><span class="hs-identifier hs-type">TicketNo</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-88"></span><span id="openMempoolWithoutSyncThread"><span class="annot"><span class="annottext">openMempoolWithoutSyncThread :: LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (Mempool m blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#openMempoolWithoutSyncThread"><span class="hs-identifier hs-var hs-var">openMempoolWithoutSyncThread</span></a></span></span><span> </span><span id="local-6989586621680061954"><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061954"><span class="hs-identifier hs-var">ledger</span></a></span></span><span> </span><span id="local-6989586621680061953"><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061953"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span id="local-6989586621680061952"><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061952"><span class="hs-identifier hs-var">capacityOverride</span></a></span></span><span> </span><span id="local-6989586621680061951"><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061951"><span class="hs-identifier hs-var">tracer</span></a></span></span><span> </span><span id="local-6989586621680061950"><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061950"><span class="hs-identifier hs-var">txSize</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-89"></span><span>    </span><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; Mempool m blk TicketNo
+forall (m :: * -&gt; *) blk.
+(IOLike m, LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+MempoolEnv m blk -&gt; Mempool m blk TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mkMempool"><span class="hs-identifier hs-var">mkMempool</span></a></span><span> </span><span class="annot"><span class="annottext">(MempoolEnv m blk -&gt; Mempool m blk TicketNo)
+-&gt; m (MempoolEnv m blk) -&gt; m (Mempool m blk TicketNo)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (MempoolEnv m blk)
+forall (m :: * -&gt; *) blk.
+(IOLike m, NoThunks (GenTxId blk), LedgerSupportsMempool blk,
+ ValidateEnvelope blk) =&gt;
+LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (MempoolEnv m blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#initMempoolEnv"><span class="hs-identifier hs-var">initMempoolEnv</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061954"><span class="hs-identifier hs-var">ledger</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061953"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061952"><span class="hs-identifier hs-var">capacityOverride</span></a></span><span> </span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061951"><span class="hs-identifier hs-var">tracer</span></a></span><span> </span><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061950"><span class="hs-identifier hs-var">txSize</span></a></span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span id="local-6989586621680062078"><span id="local-6989586621680062079"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#mkMempool"><span class="hs-identifier hs-type">mkMempool</span></a></span><span>
+</span><span id="line-92"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062079"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-93"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#LedgerSupportsMempool"><span class="hs-identifier hs-type">LedgerSupportsMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062078"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-94"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#HasTxId"><span class="hs-identifier hs-type">HasTxId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062078"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html#ValidateEnvelope"><span class="hs-identifier hs-type">ValidateEnvelope</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062078"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-96"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062079"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062078"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#Mempool"><span class="hs-identifier hs-type">Mempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062079"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062078"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html#TicketNo"><span class="hs-identifier hs-type">TicketNo</span></a></span></span></span><span>
+</span><span id="line-98"></span><span id="mkMempool"><span class="annot"><span class="annottext">mkMempool :: MempoolEnv m blk -&gt; Mempool m blk TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mkMempool"><span class="hs-identifier hs-var hs-var">mkMempool</span></a></span></span><span> </span><span id="local-6989586621680061948"><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061948"><span class="hs-identifier hs-var">mpEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Mempool :: forall (m :: * -&gt; *) blk idx.
+(WhetherToIntervene
+ -&gt; [GenTx blk] -&gt; m ([MempoolAddTxResult blk], [GenTx blk]))
+-&gt; ([GenTxId blk] -&gt; m ())
+-&gt; m (MempoolSnapshot blk idx)
+-&gt; STM m (MempoolSnapshot blk idx)
+-&gt; (ForgeLedgerState blk -&gt; STM m (MempoolSnapshot blk idx))
+-&gt; STM m MempoolCapacityBytes
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; idx
+-&gt; Mempool m blk idx
+</span><a href="Ouroboros.Consensus.Mempool.API.html#Mempool"><span class="hs-identifier hs-type">Mempool</span></a></span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">tryAddTxs :: WhetherToIntervene
+-&gt; [GenTx blk] -&gt; m ([MempoolAddTxResult blk], [GenTx blk])
+</span><a href="Ouroboros.Consensus.Mempool.API.html#tryAddTxs"><span class="hs-identifier hs-var">tryAddTxs</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+-&gt; LedgerConfig blk
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; WhetherToIntervene
+-&gt; [GenTx blk]
+-&gt; m ([MempoolAddTxResult blk], [GenTx blk])
+forall (m :: * -&gt; *) blk.
+(MonadSTM m, LedgerSupportsMempool blk, HasTxId (GenTx blk)) =&gt;
+StrictTVar m (InternalState blk)
+-&gt; LedgerConfig blk
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; WhetherToIntervene
+-&gt; [GenTx blk]
+-&gt; m ([MempoolAddTxResult blk], [GenTx blk])
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#implTryAddTxs"><span class="hs-identifier hs-var">implTryAddTxs</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061943"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061942"><span class="hs-identifier hs-var">txSize</span></a></span><span> </span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061941"><span class="hs-identifier hs-var">trcr</span></a></span><span>
+</span><span id="line-100"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">removeTxs :: [GenTxId blk] -&gt; m ()
+</span><a href="Ouroboros.Consensus.Mempool.API.html#removeTxs"><span class="hs-identifier hs-var">removeTxs</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621680061939"><span class="annot"><span class="annottext">[GenTxId blk]
+</span><a href="#local-6989586621680061939"><span class="hs-identifier hs-var">txs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-101"></span><span>        </span><span id="local-6989586621680061938"><span class="annot"><span class="annottext">Maybe (TraceEventMempool blk)
+</span><a href="#local-6989586621680061938"><span class="hs-identifier hs-var">mTrace</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM m (Maybe (TraceEventMempool blk))
+-&gt; m (Maybe (TraceEventMempool blk))
+forall (m :: * -&gt; *) a.
+(MonadSTM m, HasCallStack) =&gt;
+STM m a -&gt; m a
+</span><a href="../../../../io-classes/html/src"><span class="hs-identifier hs-var">atomically</span></a></span><span> </span><span class="annot"><span class="annottext">(STM m (Maybe (TraceEventMempool blk))
+ -&gt; m (Maybe (TraceEventMempool blk)))
+-&gt; STM m (Maybe (TraceEventMempool blk))
+-&gt; m (Maybe (TraceEventMempool blk))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-102"></span><span>          </span><span id="local-6989586621680061936"><span class="annot"><span class="annottext">InternalState blk
+</span><a href="#local-6989586621680061936"><span class="hs-identifier hs-var">is</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk) -&gt; STM m (InternalState blk)
+forall (m :: * -&gt; *) a. MonadSTM m =&gt; StrictTVar m a -&gt; STM m a
+</span><a href="../../../../strict-stm/html/src"><span class="hs-identifier hs-var">readTVar</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span><span>
+</span><span id="line-103"></span><span>          </span><span id="local-6989586621680061934"><span class="annot"><span class="annottext">LedgerState blk
+</span><a href="#local-6989586621680061934"><span class="hs-identifier hs-var">ls</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk -&gt; STM m (LedgerState blk)
+forall (m :: * -&gt; *) blk.
+LedgerInterface m blk -&gt; STM m (LedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#getCurrentLedgerState"><span class="hs-identifier hs-var hs-var">getCurrentLedgerState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061932"><span class="hs-identifier hs-var">ldgr</span></a></span><span>
+</span><span id="line-104"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621680061931"><span class="annot"><span class="annottext">p :: RemoveTxs blk
+</span><a href="#local-6989586621680061931"><span class="hs-identifier hs-var hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; [GenTxId blk]
+-&gt; InternalState blk
+-&gt; LedgerState blk
+-&gt; RemoveTxs blk
+forall blk.
+(LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; [GenTxId blk]
+-&gt; InternalState blk
+-&gt; LedgerState blk
+-&gt; RemoveTxs blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#pureRemoveTxs"><span class="hs-identifier hs-var">pureRemoveTxs</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061943"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061929"><span class="hs-identifier hs-var">co</span></a></span><span> </span><span class="annot"><span class="annottext">[GenTxId blk]
+</span><a href="#local-6989586621680061939"><span class="hs-identifier hs-var">txs</span></a></span><span> </span><span class="annot"><span class="annottext">InternalState blk
+</span><a href="#local-6989586621680061936"><span class="hs-identifier hs-var">is</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState blk
+</span><a href="#local-6989586621680061934"><span class="hs-identifier hs-var">ls</span></a></span><span>
+</span><span id="line-105"></span><span>          </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+-&gt; RemoveTxs blk -&gt; STM m (Maybe (TraceEventMempool blk))
+forall (m :: * -&gt; *) blk.
+IOLike m =&gt;
+StrictTVar m (InternalState blk)
+-&gt; RemoveTxs blk -&gt; STM m (Maybe (TraceEventMempool blk))
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#runRemoveTxs"><span class="hs-identifier hs-var">runRemoveTxs</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span><span> </span><span class="annot"><span class="annottext">RemoveTxs blk
+</span><a href="#local-6989586621680061931"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-106"></span><span>        </span><span class="annot"><span class="annottext">Maybe (TraceEventMempool blk)
+-&gt; (TraceEventMempool blk -&gt; m ()) -&gt; m ()
+forall (f :: * -&gt; *) a.
+Applicative f =&gt;
+Maybe a -&gt; (a -&gt; f ()) -&gt; f ()
+</span><a href="Ouroboros.Consensus.Util.html#whenJust"><span class="hs-identifier hs-var">whenJust</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (TraceEventMempool blk)
+</span><a href="#local-6989586621680061938"><span class="hs-identifier hs-var">mTrace</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk) -&gt; TraceEventMempool blk -&gt; m ()
+forall (m :: * -&gt; *) a. Tracer m a -&gt; a -&gt; m ()
+</span><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-var">traceWith</span></a></span><span> </span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061941"><span class="hs-identifier hs-var">trcr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-107"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">syncWithLedger :: m (MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.API.html#syncWithLedger"><span class="hs-identifier hs-var">syncWithLedger</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; m (MempoolSnapshot blk TicketNo)
+forall (m :: * -&gt; *) blk.
+(IOLike m, LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+MempoolEnv m blk -&gt; m (MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#implSyncWithLedger"><span class="hs-identifier hs-var">implSyncWithLedger</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061948"><span class="hs-identifier hs-var">mpEnv</span></a></span><span>
+</span><span id="line-108"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">getSnapshot :: STM m (MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.API.html#getSnapshot"><span class="hs-identifier hs-var">getSnapshot</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">InternalState blk -&gt; MempoolSnapshot blk TicketNo
+forall blk.
+HasTxId (GenTx blk) =&gt;
+InternalState blk -&gt; MempoolSnapshot blk TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#implSnapshotFromIS"><span class="hs-identifier hs-var">implSnapshotFromIS</span></a></span><span> </span><span class="annot"><span class="annottext">(InternalState blk -&gt; MempoolSnapshot blk TicketNo)
+-&gt; STM m (InternalState blk)
+-&gt; STM m (MempoolSnapshot blk TicketNo)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk) -&gt; STM m (InternalState blk)
+forall (m :: * -&gt; *) a. MonadSTM m =&gt; StrictTVar m a -&gt; STM m a
+</span><a href="../../../../strict-stm/html/src"><span class="hs-identifier hs-var">readTVar</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span><span>
+</span><span id="line-109"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">getSnapshotFor :: ForgeLedgerState blk -&gt; STM m (MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.API.html#getSnapshotFor"><span class="hs-identifier hs-var">getSnapshotFor</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621680061921"><span class="annot"><span class="annottext">ForgeLedgerState blk
+</span><a href="#local-6989586621680061921"><span class="hs-identifier hs-var">fls</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+-&gt; ForgeLedgerState blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; InternalState blk
+-&gt; MempoolSnapshot blk TicketNo
+forall blk.
+(LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+LedgerConfig blk
+-&gt; ForgeLedgerState blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; InternalState blk
+-&gt; MempoolSnapshot blk TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#pureGetSnapshotFor"><span class="hs-identifier hs-var">pureGetSnapshotFor</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061943"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">ForgeLedgerState blk
+</span><a href="#local-6989586621680061921"><span class="hs-identifier hs-var">fls</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061929"><span class="hs-identifier hs-var">co</span></a></span><span> </span><span class="annot"><span class="annottext">(InternalState blk -&gt; MempoolSnapshot blk TicketNo)
+-&gt; STM m (InternalState blk)
+-&gt; STM m (MempoolSnapshot blk TicketNo)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk) -&gt; STM m (InternalState blk)
+forall (m :: * -&gt; *) a. MonadSTM m =&gt; StrictTVar m a -&gt; STM m a
+</span><a href="../../../../strict-stm/html/src"><span class="hs-identifier hs-var">readTVar</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span><span>
+</span><span id="line-110"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">getCapacity :: STM m MempoolCapacityBytes
+</span><a href="Ouroboros.Consensus.Mempool.API.html#getCapacity"><span class="hs-identifier hs-var">getCapacity</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">InternalState blk -&gt; MempoolCapacityBytes
+forall blk. InternalState blk -&gt; MempoolCapacityBytes
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Types.html#isCapacity"><span class="hs-identifier hs-var hs-var">isCapacity</span></a></span><span> </span><span class="annot"><span class="annottext">(InternalState blk -&gt; MempoolCapacityBytes)
+-&gt; STM m (InternalState blk) -&gt; STM m MempoolCapacityBytes
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk) -&gt; STM m (InternalState blk)
+forall (m :: * -&gt; *) a. MonadSTM m =&gt; StrictTVar m a -&gt; STM m a
+</span><a href="../../../../strict-stm/html/src"><span class="hs-identifier hs-var">readTVar</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span><span>
+</span><span id="line-111"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">getTxSize :: GenTx blk -&gt; TxSizeInBytes
+</span><a href="Ouroboros.Consensus.Mempool.API.html#getTxSize"><span class="hs-identifier hs-var">getTxSize</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061942"><span class="hs-identifier hs-var">txSize</span></a></span><span>
+</span><span id="line-112"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">zeroIdx :: TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.API.html#zeroIdx"><span class="hs-identifier hs-var">zeroIdx</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.TxSeq.html#zeroTicketNo"><span class="hs-identifier hs-var">zeroTicketNo</span></a></span><span>
+</span><span id="line-113"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-114"></span><span>   </span><span class="hs-keyword">where</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">mpEnvStateVar :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; StrictTVar m (InternalState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvStateVar"><span class="hs-identifier hs-var">mpEnvStateVar</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061944"><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061944"><span class="hs-identifier hs-var">istate</span></a></span></span><span>
+</span><span id="line-115"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvLedgerCfg :: forall (m :: * -&gt; *) blk. MempoolEnv m blk -&gt; LedgerConfig blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedgerCfg"><span class="hs-identifier hs-var">mpEnvLedgerCfg</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061943"><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061943"><span class="hs-identifier hs-var">cfg</span></a></span></span><span>
+</span><span id="line-116"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvTxSize :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; GenTx blk -&gt; TxSizeInBytes
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTxSize"><span class="hs-identifier hs-var">mpEnvTxSize</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061942"><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061942"><span class="hs-identifier hs-var">txSize</span></a></span></span><span>
+</span><span id="line-117"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvTracer :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; Tracer m (TraceEventMempool blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTracer"><span class="hs-identifier hs-var">mpEnvTracer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061941"><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061941"><span class="hs-identifier hs-var">trcr</span></a></span></span><span>
+</span><span id="line-118"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvLedger :: forall (m :: * -&gt; *) blk. MempoolEnv m blk -&gt; LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedger"><span class="hs-identifier hs-var">mpEnvLedger</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061932"><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061932"><span class="hs-identifier hs-var">ldgr</span></a></span></span><span>
+</span><span id="line-119"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvCapacityOverride :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; MempoolCapacityBytesOverride
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvCapacityOverride"><span class="hs-identifier hs-var">mpEnvCapacityOverride</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061929"><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061929"><span class="hs-identifier hs-var">co</span></a></span></span><span>
+</span><span id="line-120"></span><span>                   </span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061948"><span class="hs-identifier hs-var">mpEnv</span></a></span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span class="hs-comment">-- | Abstract interface needed to run a Mempool.</span><span>
+</span><span id="line-123"></span><span class="hs-keyword">data</span><span> </span><span id="LedgerInterface"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-var">LedgerInterface</span></a></span></span><span> </span><span id="local-6989586621680062050"><span class="annot"><a href="#local-6989586621680062050"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621680062049"><span class="annot"><a href="#local-6989586621680062049"><span class="hs-identifier hs-type">blk</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LedgerInterface"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-var">LedgerInterface</span></a></span></span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="getCurrentLedgerState"><span class="annot"><span class="annottext">LedgerInterface m blk -&gt; STM m (LedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#getCurrentLedgerState"><span class="hs-identifier hs-var hs-var">getCurrentLedgerState</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../io-classes/html/src"><span class="hs-identifier hs-type">STM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062050"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#LedgerState"><span class="hs-identifier hs-type">LedgerState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062049"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-126"></span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- | Create a 'LedgerInterface' from a 'ChainDB'.</span><span>
+</span><span id="line-128"></span><span id="local-6989586621680061906"><span id="local-6989586621680061907"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#chainDBLedgerInterface"><span class="hs-identifier hs-type">chainDBLedgerInterface</span></a></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-129"></span><span>     </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061907"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#IsLedger"><span class="hs-identifier hs-type">IsLedger</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#LedgerState"><span class="hs-identifier hs-type">LedgerState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061906"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Storage.ChainDB.API.html#ChainDB"><span class="hs-identifier hs-type">ChainDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061907"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061906"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-type">LedgerInterface</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061907"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680061906"><span class="hs-identifier hs-type">blk</span></a></span></span></span><span>
+</span><span id="line-131"></span><span id="chainDBLedgerInterface"><span class="annot"><span class="annottext">chainDBLedgerInterface :: ChainDB m blk -&gt; LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#chainDBLedgerInterface"><span class="hs-identifier hs-var hs-var">chainDBLedgerInterface</span></a></span></span><span> </span><span id="local-6989586621680061905"><span class="annot"><span class="annottext">ChainDB m blk
+</span><a href="#local-6989586621680061905"><span class="hs-identifier hs-var">chainDB</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerInterface :: forall (m :: * -&gt; *) blk.
+STM m (LedgerState blk) -&gt; LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-type">LedgerInterface</span></a></span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">getCurrentLedgerState :: STM m (LedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#getCurrentLedgerState"><span class="hs-identifier hs-var">getCurrentLedgerState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExtLedgerState blk -&gt; LedgerState blk
+forall blk. ExtLedgerState blk -&gt; LedgerState blk
+</span><a href="Ouroboros.Consensus.Ledger.Extended.html#ledgerState"><span class="hs-identifier hs-var hs-var">ledgerState</span></a></span><span> </span><span class="annot"><span class="annottext">(ExtLedgerState blk -&gt; LedgerState blk)
+-&gt; STM m (ExtLedgerState blk) -&gt; STM m (LedgerState blk)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ChainDB m blk -&gt; STM m (ExtLedgerState blk)
+forall (m :: * -&gt; *) blk.
+(Monad (STM m), IsLedger (LedgerState blk)) =&gt;
+ChainDB m blk -&gt; STM m (ExtLedgerState blk)
+</span><a href="Ouroboros.Consensus.Storage.ChainDB.API.html#getCurrentLedger"><span class="hs-identifier hs-var">ChainDB.getCurrentLedger</span></a></span><span> </span><span class="annot"><span class="annottext">ChainDB m blk
+</span><a href="#local-6989586621680061905"><span class="hs-identifier hs-var">chainDB</span></a></span><span>
+</span><span id="line-133"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-134"></span><span>
+</span><span id="line-135"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+  Mempool environment
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-138"></span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- | The mempool environment captures all the associated variables wrt the</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- Mempool and is accessed by the Mempool interface on demand to perform the</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- different operations.</span><span>
+</span><span id="line-142"></span><span class="hs-keyword">data</span><span> </span><span id="MempoolEnv"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-var">MempoolEnv</span></a></span></span><span> </span><span id="local-6989586621680062035"><span class="annot"><a href="#local-6989586621680062035"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621680062034"><span class="annot"><a href="#local-6989586621680062034"><span class="hs-identifier hs-type">blk</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="MempoolEnv"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-var">MempoolEnv</span></a></span></span><span> </span><span class="hs-special">{</span><span>
+</span><span id="line-143"></span><span>      </span><span id="mpEnvLedger"><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedger"><span class="hs-identifier hs-var hs-var">mpEnvLedger</span></a></span></span><span>           </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-type">LedgerInterface</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062035"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062034"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-144"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="mpEnvLedgerCfg"><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; LedgerConfig blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedgerCfg"><span class="hs-identifier hs-var hs-var">mpEnvLedgerCfg</span></a></span></span><span>        </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#LedgerConfig"><span class="hs-identifier hs-type">LedgerConfig</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062034"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-145"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="mpEnvStateVar"><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; StrictTVar m (InternalState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvStateVar"><span class="hs-identifier hs-var hs-var">mpEnvStateVar</span></a></span></span><span>         </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../strict-stm/html/src"><span class="hs-identifier hs-type">StrictTVar</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062035"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.Types.html#InternalState"><span class="hs-identifier hs-type">InternalState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062034"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-146"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="mpEnvTracer"><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; Tracer m (TraceEventMempool blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTracer"><span class="hs-identifier hs-var hs-var">mpEnvTracer</span></a></span></span><span>           </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-type">Tracer</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062035"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#TraceEventMempool"><span class="hs-identifier hs-type">TraceEventMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062034"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-147"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="mpEnvTxSize"><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; GenTx blk -&gt; TxSizeInBytes
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTxSize"><span class="hs-identifier hs-var hs-var">mpEnvTxSize</span></a></span></span><span>           </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062034"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">TxSizeInBytes</span></a></span><span>
+</span><span id="line-148"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="mpEnvCapacityOverride"><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; MempoolCapacityBytesOverride
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvCapacityOverride"><span class="hs-identifier hs-var hs-var">mpEnvCapacityOverride</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#MempoolCapacityBytesOverride"><span class="hs-identifier hs-type">MempoolCapacityBytesOverride</span></a></span><span>
+</span><span id="line-149"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-150"></span><span>
+</span><span id="line-151"></span><span id="local-6989586621680062092"><span id="local-6989586621680062094"><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#initMempoolEnv"><span class="hs-identifier hs-type">initMempoolEnv</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062094"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-152"></span><span>                  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../nothunks/html/src"><span class="hs-identifier hs-type">NoThunks</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTxId"><span class="hs-identifier hs-type">GenTxId</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-153"></span><span>                  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#LedgerSupportsMempool"><span class="hs-identifier hs-type">LedgerSupportsMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-154"></span><span>                  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html#ValidateEnvelope"><span class="hs-identifier hs-type">ValidateEnvelope</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-155"></span><span>                  </span><span class="hs-special">)</span><span>
+</span><span id="line-156"></span><span>               </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#LedgerInterface"><span class="hs-identifier hs-type">LedgerInterface</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062094"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-157"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.Basics.html#LedgerConfig"><span class="hs-identifier hs-type">LedgerConfig</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-158"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#MempoolCapacityBytesOverride"><span class="hs-identifier hs-type">MempoolCapacityBytesOverride</span></a></span><span>
+</span><span id="line-159"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-type">Tracer</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062094"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#TraceEventMempool"><span class="hs-identifier hs-type">TraceEventMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-160"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">TxSizeInBytes</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-161"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680062094"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062094"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062092"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-162"></span><span id="initMempoolEnv"><span class="annot"><span class="annottext">initMempoolEnv :: LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; m (MempoolEnv m blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#initMempoolEnv"><span class="hs-identifier hs-var hs-var">initMempoolEnv</span></a></span></span><span> </span><span id="local-6989586621680061902"><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061902"><span class="hs-identifier hs-var">ledgerInterface</span></a></span></span><span> </span><span id="local-6989586621680061901"><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061901"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span id="local-6989586621680061900"><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061900"><span class="hs-identifier hs-var">capacityOverride</span></a></span></span><span> </span><span id="local-6989586621680061899"><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061899"><span class="hs-identifier hs-var">tracer</span></a></span></span><span> </span><span id="local-6989586621680061898"><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061898"><span class="hs-identifier hs-var">txSize</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621680061897"><span class="annot"><span class="annottext">LedgerState blk
+</span><a href="#local-6989586621680061897"><span class="hs-identifier hs-var">st</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM m (LedgerState blk) -&gt; m (LedgerState blk)
+forall (m :: * -&gt; *) a.
+(MonadSTM m, HasCallStack) =&gt;
+STM m a -&gt; m a
+</span><a href="../../../../io-classes/html/src"><span class="hs-identifier hs-var">atomically</span></a></span><span> </span><span class="annot"><span class="annottext">(STM m (LedgerState blk) -&gt; m (LedgerState blk))
+-&gt; STM m (LedgerState blk) -&gt; m (LedgerState blk)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk -&gt; STM m (LedgerState blk)
+forall (m :: * -&gt; *) blk.
+LedgerInterface m blk -&gt; STM m (LedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#getCurrentLedgerState"><span class="hs-identifier hs-var hs-var">getCurrentLedgerState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061902"><span class="hs-identifier hs-var">ledgerInterface</span></a></span><span>
+</span><span id="line-164"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621680061896"><span class="annot"><span class="annottext">SlotNo
+</span><a href="#local-6989586621680061896"><span class="hs-identifier hs-var">slot</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621680061895"><span class="annot"><span class="annottext">TickedLedgerState blk
+</span><a href="#local-6989586621680061895"><span class="hs-identifier hs-var">st'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+-&gt; ForgeLedgerState blk -&gt; (SlotNo, TickedLedgerState blk)
+forall blk.
+(UpdateLedger blk, ValidateEnvelope blk) =&gt;
+LedgerConfig blk
+-&gt; ForgeLedgerState blk -&gt; (SlotNo, TickedLedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Types.html#tickLedgerState"><span class="hs-identifier hs-var">tickLedgerState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061901"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LedgerState blk -&gt; ForgeLedgerState blk
+forall blk. LedgerState blk -&gt; ForgeLedgerState blk
+</span><a href="Ouroboros.Consensus.Mempool.API.html#ForgeInUnknownSlot"><span class="hs-identifier hs-var">ForgeInUnknownSlot</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState blk
+</span><a href="#local-6989586621680061897"><span class="hs-identifier hs-var">st</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-165"></span><span>    </span><span id="local-6989586621680061892"><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061892"><span class="hs-identifier hs-var">isVar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">InternalState blk -&gt; m (StrictTVar m (InternalState blk))
+forall (m :: * -&gt; *) a.
+(MonadSTM m, HasCallStack, NoThunks a) =&gt;
+a -&gt; m (StrictTVar m a)
+</span><a href="Ouroboros.Consensus.Util.MonadSTM.NormalForm.html#newTVarIO"><span class="hs-identifier hs-var">newTVarIO</span></a></span><span> </span><span class="annot"><span class="annottext">(InternalState blk -&gt; m (StrictTVar m (InternalState blk)))
+-&gt; InternalState blk -&gt; m (StrictTVar m (InternalState blk))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+-&gt; TicketNo -&gt; SlotNo -&gt; TickedLedgerState blk -&gt; InternalState blk
+forall blk.
+LedgerSupportsMempool blk =&gt;
+MempoolCapacityBytesOverride
+-&gt; TicketNo -&gt; SlotNo -&gt; TickedLedgerState blk -&gt; InternalState blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Types.html#initInternalState"><span class="hs-identifier hs-var">initInternalState</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061900"><span class="hs-identifier hs-var">capacityOverride</span></a></span><span> </span><span class="annot"><span class="annottext">TicketNo
+</span><a href="Ouroboros.Consensus.Mempool.TxSeq.html#zeroTicketNo"><span class="hs-identifier hs-var">zeroTicketNo</span></a></span><span> </span><span class="annot"><span class="annottext">SlotNo
+</span><a href="#local-6989586621680061896"><span class="hs-identifier hs-var">slot</span></a></span><span> </span><span class="annot"><span class="annottext">TickedLedgerState blk
+</span><a href="#local-6989586621680061895"><span class="hs-identifier hs-var">st'</span></a></span><span>
+</span><span id="line-166"></span><span>    </span><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; m (MempoolEnv m blk)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv :: forall (m :: * -&gt; *) blk.
+LedgerInterface m blk
+-&gt; LedgerConfig blk
+-&gt; StrictTVar m (InternalState blk)
+-&gt; Tracer m (TraceEventMempool blk)
+-&gt; (GenTx blk -&gt; TxSizeInBytes)
+-&gt; MempoolCapacityBytesOverride
+-&gt; MempoolEnv m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span>
+</span><span id="line-167"></span><span>      </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">mpEnvLedger :: LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedger"><span class="hs-identifier hs-var">mpEnvLedger</span></a></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061902"><span class="hs-identifier hs-var">ledgerInterface</span></a></span><span>
+</span><span id="line-168"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvLedgerCfg :: LedgerConfig blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedgerCfg"><span class="hs-identifier hs-var">mpEnvLedgerCfg</span></a></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061901"><span class="hs-identifier hs-var">cfg</span></a></span><span>
+</span><span id="line-169"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvStateVar :: StrictTVar m (InternalState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvStateVar"><span class="hs-identifier hs-var">mpEnvStateVar</span></a></span><span>         </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061892"><span class="hs-identifier hs-var">isVar</span></a></span><span>
+</span><span id="line-170"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvTracer :: Tracer m (TraceEventMempool blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTracer"><span class="hs-identifier hs-var">mpEnvTracer</span></a></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061899"><span class="hs-identifier hs-var">tracer</span></a></span><span>
+</span><span id="line-171"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvTxSize :: GenTx blk -&gt; TxSizeInBytes
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTxSize"><span class="hs-identifier hs-var">mpEnvTxSize</span></a></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">GenTx blk -&gt; TxSizeInBytes
+</span><a href="#local-6989586621680061898"><span class="hs-identifier hs-var">txSize</span></a></span><span>
+</span><span id="line-172"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvCapacityOverride :: MempoolCapacityBytesOverride
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvCapacityOverride"><span class="hs-identifier hs-var">mpEnvCapacityOverride</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061900"><span class="hs-identifier hs-var">capacityOverride</span></a></span><span>
+</span><span id="line-173"></span><span>      </span><span class="hs-special">}</span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span class="hs-comment">-- | Spawn a thread which syncs the 'Mempool' state whenever the 'LedgerState'</span><span>
+</span><span id="line-176"></span><span class="hs-comment">-- changes.</span><span>
+</span><span id="line-177"></span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#forkSyncStateOnTipPointChange"><span class="hs-identifier hs-type">forkSyncStateOnTipPointChange</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621680062087"><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621680062086"><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-178"></span><span>                                   </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-179"></span><span>                                 </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#LedgerSupportsMempool"><span class="hs-identifier hs-type">LedgerSupportsMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-180"></span><span>                                 </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#HasTxId"><span class="hs-identifier hs-type">HasTxId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-181"></span><span>                                 </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html#ValidateEnvelope"><span class="hs-identifier hs-type">ValidateEnvelope</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-182"></span><span>                                 </span><span class="hs-special">)</span><span>
+</span><span id="line-183"></span><span>                              </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Util.ResourceRegistry.html#ResourceRegistry"><span class="hs-identifier hs-type">ResourceRegistry</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-184"></span><span>                              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-185"></span><span>                              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-186"></span><span id="forkSyncStateOnTipPointChange"><span class="annot"><span class="annottext">forkSyncStateOnTipPointChange :: ResourceRegistry m -&gt; MempoolEnv m blk -&gt; m ()
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#forkSyncStateOnTipPointChange"><span class="hs-identifier hs-var hs-var">forkSyncStateOnTipPointChange</span></a></span></span><span> </span><span id="local-6989586621680061889"><span class="annot"><span class="annottext">ResourceRegistry m
+</span><a href="#local-6989586621680061889"><span class="hs-identifier hs-var">registry</span></a></span></span><span> </span><span id="local-6989586621680061888"><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061888"><span class="hs-identifier hs-var">menv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-187"></span><span>    </span><span class="annot"><span class="annottext">m (Thread m Void) -&gt; m ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(m (Thread m Void) -&gt; m ()) -&gt; m (Thread m Void) -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ResourceRegistry m
+-&gt; String -&gt; Watcher m (Point blk) (Point blk) -&gt; m (Thread m Void)
+forall (m :: * -&gt; *) a fp.
+(IOLike m, Eq fp, HasCallStack) =&gt;
+ResourceRegistry m -&gt; String -&gt; Watcher m a fp -&gt; m (Thread m Void)
+</span><a href="Ouroboros.Consensus.Util.STM.html#forkLinkedWatcher"><span class="hs-identifier hs-var">forkLinkedWatcher</span></a></span><span>
+</span><span id="line-188"></span><span>      </span><span class="annot"><span class="annottext">ResourceRegistry m
+</span><a href="#local-6989586621680061889"><span class="hs-identifier hs-var">registry</span></a></span><span>
+</span><span id="line-189"></span><span>      </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Mempool.syncStateOnTipPointChange&quot;</span></span><span>
+</span><span id="line-190"></span><span>      </span><span class="annot"><span class="annottext">Watcher :: forall (m :: * -&gt; *) a fp.
+(a -&gt; fp) -&gt; Maybe fp -&gt; (a -&gt; m ()) -&gt; STM m a -&gt; Watcher m a fp
+</span><a href="Ouroboros.Consensus.Util.STM.html#Watcher"><span class="hs-identifier hs-type">Watcher</span></a></span><span> </span><span class="hs-special">{</span><span>
+</span><span id="line-191"></span><span>          </span><span class="annot"><span class="annottext">wFingerprint :: Point blk -&gt; Point blk
+</span><a href="Ouroboros.Consensus.Util.STM.html#wFingerprint"><span class="hs-identifier hs-var">wFingerprint</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Point blk -&gt; Point blk
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-192"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">wInitial :: Maybe (Point blk)
+</span><a href="Ouroboros.Consensus.Util.STM.html#wInitial"><span class="hs-identifier hs-var">wInitial</span></a></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (Point blk)
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-193"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">wNotify :: Point blk -&gt; m ()
+</span><a href="Ouroboros.Consensus.Util.STM.html#wNotify"><span class="hs-identifier hs-var">wNotify</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Point blk -&gt; m ()
+</span><a href="#local-6989586621680061881"><span class="hs-identifier hs-var">action</span></a></span><span>
+</span><span id="line-194"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">wReader :: STM m (Point blk)
+</span><a href="Ouroboros.Consensus.Util.STM.html#wReader"><span class="hs-identifier hs-var">wReader</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">STM m (Point blk)
+</span><a href="#local-6989586621680061879"><span class="hs-identifier hs-var">getCurrentTip</span></a></span><span>
+</span><span id="line-195"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-196"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-197"></span><span>
+</span><span id="line-198"></span><span>    </span><span class="annot"><a href="#local-6989586621680061881"><span class="hs-identifier hs-type">action</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Point</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-199"></span><span>    </span><span id="local-6989586621680061881"><span class="annot"><span class="annottext">action :: Point blk -&gt; m ()
+</span><a href="#local-6989586621680061881"><span class="hs-identifier hs-var hs-var">action</span></a></span></span><span> </span><span id="local-6989586621680061878"><span class="annot"><span class="annottext">Point blk
+</span><a href="#local-6989586621680061878"><span class="hs-identifier hs-var">_tipPoint</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m (MempoolSnapshot blk TicketNo) -&gt; m ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(m (MempoolSnapshot blk TicketNo) -&gt; m ())
+-&gt; m (MempoolSnapshot blk TicketNo) -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; m (MempoolSnapshot blk TicketNo)
+forall (m :: * -&gt; *) blk.
+(IOLike m, LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+MempoolEnv m blk -&gt; m (MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#implSyncWithLedger"><span class="hs-identifier hs-var">implSyncWithLedger</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061888"><span class="hs-identifier hs-var">menv</span></a></span><span>
+</span><span id="line-200"></span><span>
+</span><span id="line-201"></span><span>    </span><span class="hs-comment">-- Using the tip ('Point') allows for quicker equality checks</span><span>
+</span><span id="line-202"></span><span>    </span><span class="annot"><a href="#local-6989586621680061879"><span class="hs-identifier hs-type">getCurrentTip</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../io-classes/html/src"><span class="hs-identifier hs-type">STM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062087"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Point</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-203"></span><span>    </span><span id="local-6989586621680061879"><span class="annot"><span class="annottext">getCurrentTip :: STM m (Point blk)
+</span><a href="#local-6989586621680061879"><span class="hs-identifier hs-var hs-var">getCurrentTip</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-204"></span><span>          </span><span class="annot"><span class="annottext">Proxy blk -&gt; LedgerState blk -&gt; Point blk
+forall blk.
+UpdateLedger blk =&gt;
+Proxy blk -&gt; LedgerState blk -&gt; Point blk
+</span><a href="Ouroboros.Consensus.Ledger.Abstract.html#ledgerTipPoint"><span class="hs-identifier hs-var">ledgerTipPoint</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy blk
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621680062086"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-205"></span><span>      </span><span class="annot"><span class="annottext">(LedgerState blk -&gt; Point blk)
+-&gt; STM m (LedgerState blk) -&gt; STM m (Point blk)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk -&gt; STM m (LedgerState blk)
+forall (m :: * -&gt; *) blk.
+LedgerInterface m blk -&gt; STM m (LedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#getCurrentLedgerState"><span class="hs-identifier hs-var hs-var">getCurrentLedgerState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MempoolEnv m blk -&gt; LedgerInterface m blk
+forall (m :: * -&gt; *) blk. MempoolEnv m blk -&gt; LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedger"><span class="hs-identifier hs-var hs-var">mpEnvLedger</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061888"><span class="hs-identifier hs-var">menv</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span>
+</span><span id="line-207"></span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#implSyncWithLedger"><span class="hs-identifier hs-type">implSyncWithLedger</span></a></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-208"></span><span>     </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621680062040"><span class="annot"><a href="#local-6989586621680062040"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621680062039"><span class="annot"><a href="#local-6989586621680062039"><span class="hs-identifier hs-type">blk</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-209"></span><span>       </span><span class="annot"><a href="Ouroboros.Consensus.Util.IOLike.html#IOLike"><span class="hs-identifier hs-type">IOLike</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062040"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-210"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#LedgerSupportsMempool"><span class="hs-identifier hs-type">LedgerSupportsMempool</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062039"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-211"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#HasTxId"><span class="hs-identifier hs-type">HasTxId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Ledger.SupportsMempool.html#GenTx"><span class="hs-identifier hs-type">GenTx</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062039"><span class="hs-identifier hs-type">blk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-212"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.HeaderValidation.html#ValidateEnvelope"><span class="hs-identifier hs-type">ValidateEnvelope</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062039"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-213"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-214"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062040"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062039"><span class="hs-identifier hs-type">blk</span></a></span><span>
+</span><span id="line-215"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680062040"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Mempool.API.html#MempoolSnapshot"><span class="hs-identifier hs-type">MempoolSnapshot</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680062039"><span class="hs-identifier hs-type">blk</span></a></span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.TxSeq.html#TicketNo"><span class="hs-identifier hs-type">TicketNo</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-216"></span><span id="implSyncWithLedger"><span class="annot"><span class="annottext">implSyncWithLedger :: MempoolEnv m blk -&gt; m (MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#implSyncWithLedger"><span class="hs-identifier hs-var hs-var">implSyncWithLedger</span></a></span></span><span> </span><span id="local-6989586621680061875"><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061875"><span class="hs-identifier hs-var">menv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-217"></span><span>  </span><span class="hs-special">(</span><span id="local-6989586621680061874"><span class="annot"><span class="annottext">Maybe (TraceEventMempool blk)
+</span><a href="#local-6989586621680061874"><span class="hs-identifier hs-var">mTrace</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621680061873"><span class="annot"><span class="annottext">MempoolSnapshot blk TicketNo
+</span><a href="#local-6989586621680061873"><span class="hs-identifier hs-var">mp</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+-&gt; m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+forall (m :: * -&gt; *) a.
+(MonadSTM m, HasCallStack) =&gt;
+STM m a -&gt; m a
+</span><a href="../../../../io-classes/html/src"><span class="hs-identifier hs-var">atomically</span></a></span><span> </span><span class="annot"><span class="annottext">(STM
+   m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+ -&gt; m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo))
+-&gt; STM
+     m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+-&gt; m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-218"></span><span>    </span><span id="local-6989586621680061872"><span class="annot"><span class="annottext">InternalState blk
+</span><a href="#local-6989586621680061872"><span class="hs-identifier hs-var">is</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk) -&gt; STM m (InternalState blk)
+forall (m :: * -&gt; *) a. MonadSTM m =&gt; StrictTVar m a -&gt; STM m a
+</span><a href="../../../../strict-stm/html/src"><span class="hs-identifier hs-var">readTVar</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061871"><span class="hs-identifier hs-var">istate</span></a></span><span>
+</span><span id="line-219"></span><span>    </span><span id="local-6989586621680061870"><span class="annot"><span class="annottext">LedgerState blk
+</span><a href="#local-6989586621680061870"><span class="hs-identifier hs-var">ls</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk -&gt; STM m (LedgerState blk)
+forall (m :: * -&gt; *) blk.
+LedgerInterface m blk -&gt; STM m (LedgerState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#getCurrentLedgerState"><span class="hs-identifier hs-var hs-var">getCurrentLedgerState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061869"><span class="hs-identifier hs-var">ldgrInterface</span></a></span><span>
+</span><span id="line-220"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621680061868"><span class="annot"><span class="annottext">p :: SyncWithLedger blk
+</span><a href="#local-6989586621680061868"><span class="hs-identifier hs-var hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">InternalState blk
+-&gt; LedgerState blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; SyncWithLedger blk
+forall blk.
+(LedgerSupportsMempool blk, HasTxId (GenTx blk),
+ ValidateEnvelope blk) =&gt;
+InternalState blk
+-&gt; LedgerState blk
+-&gt; LedgerConfig blk
+-&gt; MempoolCapacityBytesOverride
+-&gt; SyncWithLedger blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#pureSyncWithLedger"><span class="hs-identifier hs-var">pureSyncWithLedger</span></a></span><span> </span><span class="annot"><span class="annottext">InternalState blk
+</span><a href="#local-6989586621680061872"><span class="hs-identifier hs-var">is</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState blk
+</span><a href="#local-6989586621680061870"><span class="hs-identifier hs-var">ls</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061866"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061865"><span class="hs-identifier hs-var">co</span></a></span><span>
+</span><span id="line-221"></span><span>    </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+-&gt; SyncWithLedger blk
+-&gt; STM
+     m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+forall (m :: * -&gt; *) blk.
+IOLike m =&gt;
+StrictTVar m (InternalState blk)
+-&gt; SyncWithLedger blk
+-&gt; STM
+     m (Maybe (TraceEventMempool blk), MempoolSnapshot blk TicketNo)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.Pure.html#runSyncWithLedger"><span class="hs-identifier hs-var">runSyncWithLedger</span></a></span><span> </span><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061871"><span class="hs-identifier hs-var">istate</span></a></span><span> </span><span class="annot"><span class="annottext">SyncWithLedger blk
+</span><a href="#local-6989586621680061868"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-222"></span><span>  </span><span class="annot"><span class="annottext">Maybe (TraceEventMempool blk)
+-&gt; (TraceEventMempool blk -&gt; m ()) -&gt; m ()
+forall (f :: * -&gt; *) a.
+Applicative f =&gt;
+Maybe a -&gt; (a -&gt; f ()) -&gt; f ()
+</span><a href="Ouroboros.Consensus.Util.html#whenJust"><span class="hs-identifier hs-var">whenJust</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (TraceEventMempool blk)
+</span><a href="#local-6989586621680061874"><span class="hs-identifier hs-var">mTrace</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk) -&gt; TraceEventMempool blk -&gt; m ()
+forall (m :: * -&gt; *) a. Tracer m a -&gt; a -&gt; m ()
+</span><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-var">traceWith</span></a></span><span> </span><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061863"><span class="hs-identifier hs-var">trcr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-223"></span><span>  </span><span class="annot"><span class="annottext">MempoolSnapshot blk TicketNo -&gt; m (MempoolSnapshot blk TicketNo)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">MempoolSnapshot blk TicketNo
+</span><a href="#local-6989586621680061873"><span class="hs-identifier hs-var">mp</span></a></span><span>
+</span><span id="line-224"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-225"></span><span>    </span><span class="annot"><a href="Ouroboros.Consensus.Mempool.Impl.html#MempoolEnv"><span class="hs-identifier hs-type">MempoolEnv</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">mpEnvStateVar :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; StrictTVar m (InternalState blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvStateVar"><span class="hs-identifier hs-var">mpEnvStateVar</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061871"><span class="annot"><span class="annottext">StrictTVar m (InternalState blk)
+</span><a href="#local-6989586621680061871"><span class="hs-identifier hs-var">istate</span></a></span></span><span>
+</span><span id="line-226"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvLedger :: forall (m :: * -&gt; *) blk. MempoolEnv m blk -&gt; LedgerInterface m blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedger"><span class="hs-identifier hs-var">mpEnvLedger</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061869"><span class="annot"><span class="annottext">LedgerInterface m blk
+</span><a href="#local-6989586621680061869"><span class="hs-identifier hs-var">ldgrInterface</span></a></span></span><span>
+</span><span id="line-227"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvTracer :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; Tracer m (TraceEventMempool blk)
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvTracer"><span class="hs-identifier hs-var">mpEnvTracer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061863"><span class="annot"><span class="annottext">Tracer m (TraceEventMempool blk)
+</span><a href="#local-6989586621680061863"><span class="hs-identifier hs-var">trcr</span></a></span></span><span>
+</span><span id="line-228"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvLedgerCfg :: forall (m :: * -&gt; *) blk. MempoolEnv m blk -&gt; LedgerConfig blk
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvLedgerCfg"><span class="hs-identifier hs-var">mpEnvLedgerCfg</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061866"><span class="annot"><span class="annottext">LedgerConfig blk
+</span><a href="#local-6989586621680061866"><span class="hs-identifier hs-var">cfg</span></a></span></span><span>
+</span><span id="line-229"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mpEnvCapacityOverride :: forall (m :: * -&gt; *) blk.
+MempoolEnv m blk -&gt; MempoolCapacityBytesOverride
+</span><a href="Ouroboros.Consensus.Mempool.Impl.html#mpEnvCapacityOverride"><span class="hs-identifier hs-var">mpEnvCapacityOverride</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621680061865"><span class="annot"><span class="annottext">MempoolCapacityBytesOverride
+</span><a href="#local-6989586621680061865"><span class="hs-identifier hs-var">co</span></a></span></span><span>
+</span><span id="line-230"></span><span>               </span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">MempoolEnv m blk
+</span><a href="#local-6989586621680061875"><span class="hs-identifier hs-var">menv</span></a></span><span>
+</span><span id="line-231"></span></pre></body></html>

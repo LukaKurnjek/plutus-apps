@@ -1,0 +1,201 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE TupleSections       #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Ouroboros.Consensus.Protocol.MockChainSel</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-5"></span><span>    </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectChain"><span class="hs-identifier">selectChain</span></a></span><span>
+</span><span id="line-6"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectUnvalidatedChain"><span class="hs-identifier">selectUnvalidatedChain</span></a></span><span>
+</span><span id="line-7"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">sortOn</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">listToMaybe</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">mapMaybe</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Ord</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Down</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Ouroboros.Network.MockChain.Chain</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Chain</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Ouroboros.Network.MockChain.Chain</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Chain</span></span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.Abstract.html"><span class="hs-identifier">Ouroboros.Consensus.Protocol.Abstract</span></a></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+  Chain selection
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- | Chain selection between our chain and list of candidates</span><span>
+</span><span id="line-23"></span><span class="hs-comment">--</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- This is only a /model/ of chain selection: in reality of course we will not</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- work with entire chains in memory. This function is intended as an</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- explanation of how chain selection should work conceptually.</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- The @l@ parameter here models the ledger state for each chain, and serves as</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- evidence that the chains we are selecting between have been validated. (It</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- would /not/ be  correct to run chain selection on unvalidated chains and then</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- somehow fail if the selected chain turns out to be invalid.)</span><span>
+</span><span id="line-32"></span><span class="hs-comment">--</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- Returns 'Nothing' if we stick with our current chain.</span><span>
+</span><span id="line-34"></span><span class="annot"><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectChain"><span class="hs-identifier hs-type">selectChain</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621680010699"><span class="annot"><a href="#local-6989586621680010699"><span class="hs-identifier hs-type">proxy</span></a></span></span><span> </span><span id="local-6989586621680010700"><span class="annot"><a href="#local-6989586621680010700"><span class="hs-identifier hs-type">p</span></a></span></span><span> </span><span id="local-6989586621680010698"><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span></span><span> </span><span id="local-6989586621680010697"><span class="annot"><a href="#local-6989586621680010697"><span class="hs-identifier hs-type">l</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.Abstract.html#ConsensusProtocol"><span class="hs-identifier hs-type">ConsensusProtocol</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010700"><span class="hs-identifier hs-type">p</span></a></span><span>
+</span><span id="line-35"></span><span>            </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680010699"><span class="hs-identifier hs-type">proxy</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010700"><span class="hs-identifier hs-type">p</span></a></span><span>
+</span><span id="line-36"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.Abstract.html#SelectView"><span class="hs-identifier hs-type">SelectView</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010700"><span class="hs-identifier hs-type">p</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span><span>           </span><span class="hs-comment">-- ^ Our chain</span><span>
+</span><span id="line-38"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621680010697"><span class="hs-identifier hs-type">l</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span>    </span><span class="hs-comment">-- ^ Upstream chains</span><span>
+</span><span id="line-39"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621680010697"><span class="hs-identifier hs-type">l</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span id="selectChain"><span class="annot"><span class="annottext">selectChain :: proxy p
+-&gt; (hdr -&gt; SelectView p)
+-&gt; Chain hdr
+-&gt; [(Chain hdr, l)]
+-&gt; Maybe (Chain hdr, l)
+</span><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectChain"><span class="hs-identifier hs-var hs-var">selectChain</span></a></span></span><span> </span><span id="local-6989586621680010691"><span class="annot"><span class="annottext">proxy p
+</span><a href="#local-6989586621680010691"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span id="local-6989586621680010690"><span class="annot"><span class="annottext">hdr -&gt; SelectView p
+</span><a href="#local-6989586621680010690"><span class="hs-identifier hs-var">view</span></a></span></span><span> </span><span id="local-6989586621680010689"><span class="annot"><span class="annottext">Chain hdr
+</span><a href="#local-6989586621680010689"><span class="hs-identifier hs-var">ours</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-41"></span><span>      </span><span class="annot"><span class="annottext">[(Chain hdr, l)] -&gt; Maybe (Chain hdr, l)
+forall a. [a] -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">listToMaybe</span></a></span><span>
+</span><span id="line-42"></span><span>    </span><span class="annot"><span class="annottext">([(Chain hdr, l)] -&gt; Maybe (Chain hdr, l))
+-&gt; ([(Chain hdr, l)] -&gt; [(Chain hdr, l)])
+-&gt; [(Chain hdr, l)]
+-&gt; Maybe (Chain hdr, l)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">((SelectView p, (Chain hdr, l)) -&gt; (Chain hdr, l))
+-&gt; [(SelectView p, (Chain hdr, l))] -&gt; [(Chain hdr, l)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(SelectView p, (Chain hdr, l)) -&gt; (Chain hdr, l)
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="annot"><span class="annottext">([(SelectView p, (Chain hdr, l))] -&gt; [(Chain hdr, l)])
+-&gt; ([(Chain hdr, l)] -&gt; [(SelectView p, (Chain hdr, l))])
+-&gt; [(Chain hdr, l)]
+-&gt; [(Chain hdr, l)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">((SelectView p, (Chain hdr, l)) -&gt; Down (SelectView p))
+-&gt; [(SelectView p, (Chain hdr, l))]
+-&gt; [(SelectView p, (Chain hdr, l))]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SelectView p -&gt; Down (SelectView p)
+forall a. a -&gt; Down a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Down</span></a></span><span> </span><span class="annot"><span class="annottext">(SelectView p -&gt; Down (SelectView p))
+-&gt; ((SelectView p, (Chain hdr, l)) -&gt; SelectView p)
+-&gt; (SelectView p, (Chain hdr, l))
+-&gt; Down (SelectView p)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(SelectView p, (Chain hdr, l)) -&gt; SelectView p
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span>    </span><span class="annot"><span class="annottext">([(SelectView p, (Chain hdr, l))]
+ -&gt; [(SelectView p, (Chain hdr, l))])
+-&gt; ([(Chain hdr, l)] -&gt; [(SelectView p, (Chain hdr, l))])
+-&gt; [(Chain hdr, l)]
+-&gt; [(SelectView p, (Chain hdr, l))]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">((Chain hdr, l) -&gt; Maybe (SelectView p, (Chain hdr, l)))
+-&gt; [(Chain hdr, l)] -&gt; [(SelectView p, (Chain hdr, l))]
+forall a b. (a -&gt; Maybe b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">(Chain hdr, l) -&gt; Maybe (SelectView p, (Chain hdr, l))
+</span><a href="#local-6989586621680010686"><span class="hs-identifier hs-var">selectPreferredCandidate</span></a></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-comment">-- | Only retain a candidate if it is preferred over the current chain. As</span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-comment">-- only a non-empty chain can be preferred over the current chain, we can</span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-comment">-- extract the 'SelectView' of the tip of the candidate.</span><span>
+</span><span id="line-49"></span><span>    </span><span class="annot"><a href="#local-6989586621680010686"><span class="hs-identifier hs-type">selectPreferredCandidate</span></a></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-50"></span><span>         </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621680010697"><span class="hs-identifier hs-type">l</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Ouroboros.Consensus.Protocol.Abstract.html#SelectView"><span class="hs-identifier hs-type">SelectView</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010700"><span class="hs-identifier hs-type">p</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010698"><span class="hs-identifier hs-type">hdr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621680010697"><span class="hs-identifier hs-type">l</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span>    </span><span id="local-6989586621680010686"><span class="annot"><span class="annottext">selectPreferredCandidate :: (Chain hdr, l) -&gt; Maybe (SelectView p, (Chain hdr, l))
+</span><a href="#local-6989586621680010686"><span class="hs-identifier hs-var hs-var">selectPreferredCandidate</span></a></span></span><span> </span><span id="local-6989586621680010685"><span class="annot"><span class="annottext">x :: (Chain hdr, l)
+</span><a href="#local-6989586621680010685"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span id="local-6989586621680010684"><span class="annot"><span class="annottext">Chain hdr
+</span><a href="#local-6989586621680010684"><span class="hs-identifier hs-var">cand</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">l
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-53"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Chain hdr -&gt; Maybe hdr
+forall b. Chain b -&gt; Maybe b
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">Chain.head</span></a></span><span> </span><span class="annot"><span class="annottext">Chain hdr
+</span><a href="#local-6989586621680010689"><span class="hs-identifier hs-var">ours</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Chain hdr -&gt; Maybe hdr
+forall b. Chain b -&gt; Maybe b
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">Chain.head</span></a></span><span> </span><span class="annot"><span class="annottext">Chain hdr
+</span><a href="#local-6989586621680010684"><span class="hs-identifier hs-var">cand</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-54"></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe hdr
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621680010682"><span class="annot"><span class="annottext">hdr
+</span><a href="#local-6989586621680010682"><span class="hs-identifier hs-var">candTip</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(SelectView p, (Chain hdr, l))
+-&gt; Maybe (SelectView p, (Chain hdr, l))
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">hdr -&gt; SelectView p
+</span><a href="#local-6989586621680010690"><span class="hs-identifier hs-var">view</span></a></span><span> </span><span class="annot"><span class="annottext">hdr
+</span><a href="#local-6989586621680010682"><span class="hs-identifier hs-var">candTip</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(Chain hdr, l)
+</span><a href="#local-6989586621680010685"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621680010681"><span class="annot"><span class="annottext">hdr
+</span><a href="#local-6989586621680010681"><span class="hs-identifier hs-var">ourTip</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621680010680"><span class="annot"><span class="annottext">hdr
+</span><a href="#local-6989586621680010680"><span class="hs-identifier hs-var">candTip</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621680010679"><span class="annot"><span class="annottext">candView :: SelectView p
+</span><a href="#local-6989586621680010679"><span class="hs-identifier hs-var hs-var">candView</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">hdr -&gt; SelectView p
+</span><a href="#local-6989586621680010690"><span class="hs-identifier hs-var">view</span></a></span><span> </span><span class="annot"><span class="annottext">hdr
+</span><a href="#local-6989586621680010680"><span class="hs-identifier hs-var">candTip</span></a></span><span>
+</span><span id="line-58"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">proxy p -&gt; SelectView p -&gt; SelectView p -&gt; Bool
+forall p (proxy :: * -&gt; *).
+ConsensusProtocol p =&gt;
+proxy p -&gt; SelectView p -&gt; SelectView p -&gt; Bool
+</span><a href="Ouroboros.Consensus.Protocol.Abstract.html#preferCandidate"><span class="hs-identifier hs-var">preferCandidate</span></a></span><span> </span><span class="annot"><span class="annottext">proxy p
+</span><a href="#local-6989586621680010691"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">hdr -&gt; SelectView p
+</span><a href="#local-6989586621680010690"><span class="hs-identifier hs-var">view</span></a></span><span> </span><span class="annot"><span class="annottext">hdr
+</span><a href="#local-6989586621680010681"><span class="hs-identifier hs-var">ourTip</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">SelectView p
+</span><a href="#local-6989586621680010679"><span class="hs-identifier hs-var">candView</span></a></span><span>
+</span><span id="line-59"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(SelectView p, (Chain hdr, l))
+-&gt; Maybe (SelectView p, (Chain hdr, l))
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SelectView p
+</span><a href="#local-6989586621680010679"><span class="hs-identifier hs-var">candView</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(Chain hdr, l)
+</span><a href="#local-6989586621680010685"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>          </span><span id="local-6989586621680010677"><span class="annot"><span class="annottext">(Maybe hdr, Maybe hdr)
+</span><a href="#local-6989586621680010677"><span class="hs-identifier hs-var">_otherwise</span></a></span></span><span>
+</span><span id="line-61"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe (SelectView p, (Chain hdr, l))
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- | Chain selection on unvalidated chains</span><span>
+</span><span id="line-64"></span><span id="local-6989586621680010674"><span id="local-6989586621680010675"><span id="local-6989586621680010676"><span class="annot"><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectUnvalidatedChain"><span class="hs-identifier hs-type">selectUnvalidatedChain</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.Abstract.html#ConsensusProtocol"><span class="hs-identifier hs-type">ConsensusProtocol</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010676"><span class="hs-identifier hs-type">p</span></a></span><span>
+</span><span id="line-65"></span><span>                       </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621680010675"><span class="hs-identifier hs-type">proxy</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010676"><span class="hs-identifier hs-type">p</span></a></span><span>
+</span><span id="line-66"></span><span>                       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621680010674"><span class="hs-identifier hs-type">hdr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Ouroboros.Consensus.Protocol.Abstract.html#SelectView"><span class="hs-identifier hs-type">SelectView</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010676"><span class="hs-identifier hs-type">p</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>                       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010674"><span class="hs-identifier hs-type">hdr</span></a></span><span>
+</span><span id="line-68"></span><span>                       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010674"><span class="hs-identifier hs-type">hdr</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-69"></span><span>                       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">Chain</span></a></span><span> </span><span class="annot"><a href="#local-6989586621680010674"><span class="hs-identifier hs-type">hdr</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-70"></span><span id="selectUnvalidatedChain"><span class="annot"><span class="annottext">selectUnvalidatedChain :: proxy p
+-&gt; (hdr -&gt; SelectView p)
+-&gt; Chain hdr
+-&gt; [Chain hdr]
+-&gt; Maybe (Chain hdr)
+</span><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectUnvalidatedChain"><span class="hs-identifier hs-var hs-var">selectUnvalidatedChain</span></a></span></span><span> </span><span id="local-6989586621680010673"><span class="annot"><span class="annottext">proxy p
+</span><a href="#local-6989586621680010673"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span id="local-6989586621680010672"><span class="annot"><span class="annottext">hdr -&gt; SelectView p
+</span><a href="#local-6989586621680010672"><span class="hs-identifier hs-var">view</span></a></span></span><span> </span><span id="local-6989586621680010671"><span class="annot"><span class="annottext">Chain hdr
+</span><a href="#local-6989586621680010671"><span class="hs-identifier hs-var">ours</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-71"></span><span>      </span><span class="annot"><span class="annottext">((Chain hdr, ()) -&gt; Chain hdr)
+-&gt; Maybe (Chain hdr, ()) -&gt; Maybe (Chain hdr)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">(Chain hdr, ()) -&gt; Chain hdr
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><span class="annottext">(Maybe (Chain hdr, ()) -&gt; Maybe (Chain hdr))
+-&gt; ([Chain hdr] -&gt; Maybe (Chain hdr, ()))
+-&gt; [Chain hdr]
+-&gt; Maybe (Chain hdr)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">proxy p
+-&gt; (hdr -&gt; SelectView p)
+-&gt; Chain hdr
+-&gt; [(Chain hdr, ())]
+-&gt; Maybe (Chain hdr, ())
+forall (proxy :: * -&gt; *) p hdr l.
+ConsensusProtocol p =&gt;
+proxy p
+-&gt; (hdr -&gt; SelectView p)
+-&gt; Chain hdr
+-&gt; [(Chain hdr, l)]
+-&gt; Maybe (Chain hdr, l)
+</span><a href="Ouroboros.Consensus.Protocol.MockChainSel.html#selectChain"><span class="hs-identifier hs-var">selectChain</span></a></span><span> </span><span class="annot"><span class="annottext">proxy p
+</span><a href="#local-6989586621680010673"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">hdr -&gt; SelectView p
+</span><a href="#local-6989586621680010672"><span class="hs-identifier hs-var">view</span></a></span><span> </span><span class="annot"><span class="annottext">Chain hdr
+</span><a href="#local-6989586621680010671"><span class="hs-identifier hs-var">ours</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="annot"><span class="annottext">([(Chain hdr, ())] -&gt; Maybe (Chain hdr, ()))
+-&gt; ([Chain hdr] -&gt; [(Chain hdr, ())])
+-&gt; [Chain hdr]
+-&gt; Maybe (Chain hdr, ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Chain hdr -&gt; (Chain hdr, ())) -&gt; [Chain hdr] -&gt; [(Chain hdr, ())]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-special">,</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span></pre></body></html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- | This module provides support for parsing values from 'InputStream's using</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- @attoparsec@.</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE BangPatterns       #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE DeriveDataTypeable #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts   #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings  #-}</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">System.IO.Streams.Internal.Attoparsec</span><span>
+</span><span id="line-10"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Parsing</span></span><span>
+</span><span id="line-11"></span><span>    </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#parseFromStreamInternal"><span class="hs-identifier">parseFromStreamInternal</span></a></span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseData"><span class="hs-identifier">ParseData</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Parse Exceptions</span></span><span>
+</span><span id="line-16"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier">ParseException</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#eitherResult"><span class="hs-identifier">eitherResult</span></a></span><span>
+</span><span id="line-19"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span>                </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Exception</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">throwIO</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>                    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">unless</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">Data.Attoparsec.ByteString.Char8</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">Data.Attoparsec.Text</span></a></span><span>             </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">Data.Attoparsec.Types</span></a></span><span>            </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">IResult</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier">Parser</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>                  </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span>                        </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">intercalate</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.String</span></a></span><span>                      </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">IsString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span>                        </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Typeable</span></a></span><span>                    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Typeable</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>                          </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">null</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">read</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="System.IO.Streams.Internal.html"><span class="hs-identifier">System.IO.Streams.Internal</span></a></span><span>       </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier">InputStream</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html"><span class="hs-identifier">System.IO.Streams.Internal</span></a></span><span>       </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Streams</span></span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- | An exception raised when parsing fails.</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">data</span><span> </span><span id="ParseException"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier hs-var">ParseException</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="ParseException"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier hs-var">ParseException</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-41"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Typeable</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679082367"><span id="local-6989586621679082370"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier hs-type">ParseException</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-44"></span><span>    </span><span id="local-6989586621679082365"><span class="annot"><span class="annottext">show :: ParseException -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">show</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier hs-type">ParseException</span></a></span><span> </span><span id="local-6989586621679082363"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679082363"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Parse exception: &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679082363"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679082355"><span id="local-6989586621679082357"><span id="local-6989586621679082359"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Exception</span></a></span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier hs-type">ParseException</span></a></span></span></span></span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span>
+</span><span id="line-49"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-50"></span><span class="hs-keyword">class</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IsString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span id="ParseData"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseData"><span class="hs-identifier hs-var">ParseData</span></a></span></span><span> </span><span id="local-6989586621679082419"><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>  </span><span id="local-6989586621679082424"><span id="parse"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#parse"><span class="hs-identifier hs-type">parse</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Parser</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082424"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082424"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-52"></span><span>  </span><span id="local-6989586621679082421"><span id="feed"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#feed"><span class="hs-identifier hs-type">feed</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082421"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082421"><span class="hs-identifier hs-type">r</span></a></span></span><span>
+</span><span id="line-53"></span><span>  </span><span id="null"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#null"><span class="hs-identifier hs-type">null</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679082419"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-57"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseData"><span class="hs-identifier hs-type">ParseData</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">S.ByteString</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-58"></span><span>  </span><span id="local-6989586621679082345"><span class="annot"><span class="annottext">parse :: Parser ByteString a -&gt; ByteString -&gt; IResult ByteString a
+</span><a href="#local-6989586621679082345"><span class="hs-identifier hs-var hs-var hs-var hs-var">parse</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Parser ByteString a -&gt; ByteString -&gt; IResult ByteString a
+forall a. Parser ByteString a -&gt; ByteString -&gt; IResult ByteString a
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">S.parse</span></a></span><span>
+</span><span id="line-59"></span><span>  </span><span id="local-6989586621679082343"><span class="annot"><span class="annottext">feed :: IResult ByteString r -&gt; ByteString -&gt; IResult ByteString r
+</span><a href="#local-6989586621679082343"><span class="hs-identifier hs-var hs-var hs-var hs-var">feed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IResult ByteString r -&gt; ByteString -&gt; IResult ByteString r
+forall i r. Monoid i =&gt; IResult i r -&gt; i -&gt; IResult i r
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">S.feed</span></a></span><span>
+</span><span id="line-60"></span><span>  </span><span id="local-6989586621679082341"><span class="annot"><span class="annottext">null :: ByteString -&gt; Bool
+</span><a href="#local-6989586621679082341"><span class="hs-identifier hs-var hs-var hs-var hs-var">null</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.null</span></a></span><span>
+</span><span id="line-61"></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-64"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseData"><span class="hs-identifier hs-type">ParseData</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">T.Text</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-65"></span><span>  </span><span id="local-6989586621679082335"><span class="annot"><span class="annottext">parse :: Parser Text a -&gt; Text -&gt; IResult Text a
+</span><a href="#local-6989586621679082335"><span class="hs-identifier hs-var hs-var hs-var hs-var">parse</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Parser Text a -&gt; Text -&gt; IResult Text a
+forall a. Parser Text a -&gt; Text -&gt; IResult Text a
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">T.parse</span></a></span><span>
+</span><span id="line-66"></span><span>  </span><span id="local-6989586621679082333"><span class="annot"><span class="annottext">feed :: IResult Text r -&gt; Text -&gt; IResult Text r
+</span><a href="#local-6989586621679082333"><span class="hs-identifier hs-var hs-var hs-var hs-var">feed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IResult Text r -&gt; Text -&gt; IResult Text r
+forall i r. Monoid i =&gt; IResult i r -&gt; i -&gt; IResult i r
+</span><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-var">T.feed</span></a></span><span>
+</span><span id="line-67"></span><span>  </span><span id="local-6989586621679082332"><span class="annot"><span class="annottext">null :: Text -&gt; Bool
+</span><a href="#local-6989586621679082332"><span class="hs-identifier hs-var hs-var hs-var hs-var">null</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.null</span></a></span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- | Internal version of parseFromStream allowing dependency injection of the</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- parse functions for testing.</span><span>
+</span><span id="line-73"></span><span id="local-6989586621679082398"><span id="local-6989586621679082399"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#parseFromStreamInternal"><span class="hs-identifier hs-type">parseFromStreamInternal</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#ParseData"><span class="hs-identifier hs-type">ParseData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span>
+</span><span id="line-74"></span><span>                        </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Parser</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082398"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082398"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>                        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082398"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082398"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span>                        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Parser</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082398"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-77"></span><span>                        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082399"><span class="hs-identifier hs-type">i</span></a></span><span>
+</span><span id="line-78"></span><span>                        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082398"><span class="hs-identifier hs-type">r</span></a></span></span></span><span>
+</span><span id="line-79"></span><span id="parseFromStreamInternal"><span class="annot"><span class="annottext">parseFromStreamInternal :: (Parser i r -&gt; i -&gt; IResult i r)
+-&gt; (IResult i r -&gt; i -&gt; IResult i r)
+-&gt; Parser i r
+-&gt; InputStream i
+-&gt; IO r
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#parseFromStreamInternal"><span class="hs-identifier hs-var hs-var">parseFromStreamInternal</span></a></span></span><span> </span><span id="local-6989586621679082330"><span class="annot"><span class="annottext">Parser i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082330"><span class="hs-identifier hs-var">parseFunc</span></a></span></span><span> </span><span id="local-6989586621679082329"><span class="annot"><span class="annottext">IResult i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082329"><span class="hs-identifier hs-var">feedFunc</span></a></span></span><span> </span><span id="local-6989586621679082328"><span class="annot"><span class="annottext">Parser i r
+</span><a href="#local-6989586621679082328"><span class="hs-identifier hs-var">parser</span></a></span></span><span> </span><span id="local-6989586621679082327"><span class="annot"><span class="annottext">InputStream i
+</span><a href="#local-6989586621679082327"><span class="hs-identifier hs-var">is</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-80"></span><span>    </span><span class="annot"><span class="annottext">InputStream i -&gt; IO (Maybe i)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">Streams.read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream i
+</span><a href="#local-6989586621679082327"><span class="hs-identifier hs-var">is</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe i) -&gt; (Maybe i -&gt; IO r) -&gt; IO r
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><span class="annottext">IO r -&gt; (i -&gt; IO r) -&gt; Maybe i -&gt; IO r
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082324"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">(IResult i r -&gt; IO r) -&gt; IResult i r -&gt; IO r
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Parser i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082330"><span class="hs-identifier hs-var">parseFunc</span></a></span><span> </span><span class="annot"><span class="annottext">Parser i r
+</span><a href="#local-6989586621679082328"><span class="hs-identifier hs-var">parser</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><span class="hs-string">&quot;&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>          </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679082323"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082323"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">i -&gt; Bool
+forall i. ParseData i =&gt; i -&gt; Bool
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#null"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082323"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-83"></span><span>                   </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">(Parser i r -&gt; i -&gt; IResult i r)
+-&gt; (IResult i r -&gt; i -&gt; IResult i r)
+-&gt; Parser i r
+-&gt; InputStream i
+-&gt; IO r
+forall i r.
+ParseData i =&gt;
+(Parser i r -&gt; i -&gt; IResult i r)
+-&gt; (IResult i r -&gt; i -&gt; IResult i r)
+-&gt; Parser i r
+-&gt; InputStream i
+-&gt; IO r
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#parseFromStreamInternal"><span class="hs-identifier hs-var">parseFromStreamInternal</span></a></span><span> </span><span class="annot"><span class="annottext">Parser i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082330"><span class="hs-identifier hs-var">parseFunc</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082329"><span class="hs-identifier hs-var">feedFunc</span></a></span><span> </span><span class="annot"><span class="annottext">Parser i r
+</span><a href="#local-6989586621679082328"><span class="hs-identifier hs-var">parser</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream i
+</span><a href="#local-6989586621679082327"><span class="hs-identifier hs-var">is</span></a></span><span>
+</span><span id="line-84"></span><span>                   </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082322"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">(IResult i r -&gt; IO r) -&gt; IResult i r -&gt; IO r
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Parser i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082330"><span class="hs-identifier hs-var">parseFunc</span></a></span><span> </span><span class="annot"><span class="annottext">Parser i r
+</span><a href="#local-6989586621679082328"><span class="hs-identifier hs-var">parser</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082323"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-86"></span><span>    </span><span id="local-6989586621679082320"><span class="annot"><span class="annottext">leftover :: i -&gt; IO ()
+</span><a href="#local-6989586621679082320"><span class="hs-identifier hs-var hs-var">leftover</span></a></span></span><span> </span><span id="local-6989586621679082319"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082319"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unless</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">i -&gt; Bool
+forall i. ParseData i =&gt; i -&gt; Bool
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#null"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082319"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ()) -&gt; IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">i -&gt; InputStream i -&gt; IO ()
+forall a. a -&gt; InputStream a -&gt; IO ()
+</span><a href="System.IO.Streams.Internal.html#unRead"><span class="hs-identifier hs-var">Streams.unRead</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082319"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream i
+</span><a href="#local-6989586621679082327"><span class="hs-identifier hs-var">is</span></a></span><span>
+</span><span id="line-87"></span><span>
+</span><span id="line-88"></span><span>    </span><span id="local-6989586621679082324"><span class="annot"><span class="annottext">finish :: IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082324"><span class="hs-identifier hs-var hs-var">finish</span></a></span></span><span> </span><span id="local-6989586621679082317"><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082317"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679082316"><span class="annot"><span class="annottext">k' :: IResult i r
+</span><a href="#local-6989586621679082316"><span class="hs-identifier hs-var hs-var">k'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082329"><span class="hs-identifier hs-var">feedFunc</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IResult i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082329"><span class="hs-identifier hs-var">feedFunc</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082317"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><span class="hs-string">&quot;&quot;</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">i
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-89"></span><span>               </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082316"><span class="hs-identifier hs-var">k'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-90"></span><span>                    </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Fail</span></a></span><span> </span><span id="local-6989586621679082314"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082314"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">i -&gt; IO ()
+</span><a href="#local-6989586621679082320"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082314"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO r -&gt; IO r
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+forall a b a. IsString a =&gt; IResult a b -&gt; IO a
+</span><a href="#local-6989586621679082313"><span class="hs-identifier hs-var">err</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082316"><span class="hs-identifier hs-var">k'</span></a></span><span>
+</span><span id="line-91"></span><span>                    </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Partial</span></a></span><span> </span><span class="annot"><span class="annottext">i -&gt; IResult i r
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+forall a b a. IsString a =&gt; IResult a b -&gt; IO a
+</span><a href="#local-6989586621679082313"><span class="hs-identifier hs-var">err</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082316"><span class="hs-identifier hs-var">k'</span></a></span><span>                </span><span class="hs-comment">-- should be impossible</span><span>
+</span><span id="line-92"></span><span>                    </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Done</span></a></span><span> </span><span id="local-6989586621679082310"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082310"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679082309"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679082309"><span class="hs-identifier hs-var">r</span></a></span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">i -&gt; IO ()
+</span><a href="#local-6989586621679082320"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082310"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO r -&gt; IO r
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">r -&gt; IO r
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679082309"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span>    </span><span id="local-6989586621679082313"><span class="annot"><span class="annottext">err :: IResult a b -&gt; IO a
+</span><a href="#local-6989586621679082313"><span class="hs-identifier hs-var hs-var">err</span></a></span></span><span> </span><span id="local-6989586621679082308"><span class="annot"><span class="annottext">IResult a b
+</span><a href="#local-6989586621679082308"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">!</span><span class="annot"><span class="annottext">a
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span id="local-6989586621679082307"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679082307"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679082306"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679082306"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IResult a b -&gt; Either (a, [String], String) b
+forall i r.
+IsString i =&gt;
+IResult i r -&gt; Either (i, [String], String) r
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#eitherResult"><span class="hs-identifier hs-var">eitherResult</span></a></span><span> </span><span class="annot"><span class="annottext">IResult a b
+</span><a href="#local-6989586621679082308"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-95"></span><span>            </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">ParseException -&gt; IO a
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">(ParseException -&gt; IO a) -&gt; ParseException -&gt; IO a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; ParseException
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#ParseException"><span class="hs-identifier hs-var">ParseException</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[String] -&gt; String
+</span><a href="#local-6989586621679082305"><span class="hs-identifier hs-var">ctxMsg</span></a></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679082307"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679082306"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span>    </span><span id="local-6989586621679082305"><span class="annot"><span class="annottext">ctxMsg :: [String] -&gt; String
+</span><a href="#local-6989586621679082305"><span class="hs-identifier hs-var hs-var">ctxMsg</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-98"></span><span>    </span><span class="annot"><a href="#local-6989586621679082305"><span class="hs-identifier hs-var">ctxMsg</span></a></span><span> </span><span id="local-6989586621679082304"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679082304"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;[parsing &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; String
+forall a. [a] -&gt; [[a]] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">intercalate</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;/&quot;</span></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679082304"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;] &quot;</span></span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span>    </span><span id="local-6989586621679082322"><span class="annot"><span class="annottext">go :: IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082322"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679082303"><span class="annot"><span class="annottext">r :: IResult i r
+</span><a href="#local-6989586621679082303"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Fail</span></a></span><span> </span><span id="local-6989586621679082302"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082302"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; IO ()
+</span><a href="#local-6989586621679082320"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082302"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO r -&gt; IO r
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+forall a b a. IsString a =&gt; IResult a b -&gt; IO a
+</span><a href="#local-6989586621679082313"><span class="hs-identifier hs-var">err</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082303"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><a href="#local-6989586621679082322"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Done</span></a></span><span> </span><span id="local-6989586621679082301"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082301"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679082300"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679082300"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">i -&gt; IO ()
+</span><a href="#local-6989586621679082320"><span class="hs-identifier hs-var">leftover</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082301"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO r -&gt; IO r
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">r -&gt; IO r
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679082300"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-102"></span><span>    </span><span class="annot"><a href="#local-6989586621679082322"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span id="local-6989586621679082299"><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082299"><span class="hs-identifier hs-var">r</span></a></span></span><span>              </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">InputStream i -&gt; IO (Maybe i)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">Streams.read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream i
+</span><a href="#local-6989586621679082327"><span class="hs-identifier hs-var">is</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe i) -&gt; (Maybe i -&gt; IO r) -&gt; IO r
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span>
+</span><span id="line-103"></span><span>                        </span><span class="annot"><span class="annottext">IO r -&gt; (i -&gt; IO r) -&gt; Maybe i -&gt; IO r
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082324"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082299"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-104"></span><span>                              </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679082298"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082298"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">i -&gt; Bool
+forall i. ParseData i =&gt; i -&gt; Bool
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#null"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082298"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-105"></span><span>                                       </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082322"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082299"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-106"></span><span>                                       </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; IO r
+</span><a href="#local-6989586621679082322"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">(IResult i r -&gt; IO r) -&gt; IResult i r -&gt; IO r
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r -&gt; i -&gt; IResult i r
+</span><a href="#local-6989586621679082329"><span class="hs-identifier hs-var">feedFunc</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><a href="#local-6989586621679082299"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082298"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-107"></span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- A replacement for attoparsec's 'eitherResult', which discards information</span><span>
+</span><span id="line-111"></span><span class="hs-comment">-- about the context of the failed parse.</span><span>
+</span><span id="line-112"></span><span id="local-6989586621679082388"><span id="local-6989586621679082389"><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#eitherResult"><span class="hs-identifier hs-type">eitherResult</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IsString</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082389"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">IResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082389"><span class="hs-identifier hs-type">i</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679082388"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679082389"><span class="hs-identifier hs-type">i</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679082388"><span class="hs-identifier hs-type">r</span></a></span></span></span><span>
+</span><span id="line-113"></span><span id="eitherResult"><span class="annot"><span class="annottext">eitherResult :: IResult i r -&gt; Either (i, [String], String) r
+</span><a href="System.IO.Streams.Internal.Attoparsec.html#eitherResult"><span class="hs-identifier hs-var hs-var">eitherResult</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Done</span></a></span><span> </span><span class="annot"><span class="annottext">i
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679082297"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679082297"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span>              </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">r -&gt; Either (i, [String], String) r
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679082297"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-114"></span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#eitherResult"><span class="hs-identifier hs-var">eitherResult</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../attoparsec/html/src"><span class="hs-identifier hs-type">Fail</span></a></span><span> </span><span id="local-6989586621679082296"><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082296"><span class="hs-identifier hs-var">residual</span></a></span></span><span> </span><span id="local-6989586621679082295"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679082295"><span class="hs-identifier hs-var">ctx</span></a></span></span><span> </span><span id="local-6989586621679082294"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679082294"><span class="hs-identifier hs-var">msg</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(i, [String], String) -&gt; Either (i, [String], String) r
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">i
+</span><a href="#local-6989586621679082296"><span class="hs-identifier hs-var">residual</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679082295"><span class="hs-identifier hs-var">ctx</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679082294"><span class="hs-identifier hs-var">msg</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span class="annot"><a href="System.IO.Streams.Internal.Attoparsec.html#eitherResult"><span class="hs-identifier hs-var">eitherResult</span></a></span><span> </span><span class="annot"><span class="annottext">IResult i r
+</span><span class="hs-identifier">_</span></span><span>                       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(i, [String], String) -&gt; Either (i, [String], String) r
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">i
+</span><span class="hs-string">&quot;&quot;</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Result: incomplete input&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-116"></span></pre></body></html>

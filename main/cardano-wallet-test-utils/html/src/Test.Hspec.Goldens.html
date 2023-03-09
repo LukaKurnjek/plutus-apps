@@ -1,0 +1,312 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE LambdaCase #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE TupleSections #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- | Small module for writing text-based golden tests.</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- In contrast to `hspec-golden-aeson` this module works with manually provided</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- values instead of QuickCheck, and with text instead of JSON.</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- If the tests are run with the OVERWRITE_GOLDENS environment variable set,</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- they will all fail, and write the current values to disk.</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- If some goldens are os-dependent (like some optparse-applicative help text</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- using getProgName), you can create a windows specific variant by appending</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- &quot;.win&quot; to the golden file name.</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- This seems to work for now with just two windows specific goldens, but if</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- there are more, it might be more convenient if windows goldens always are</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- separate, as OVERWRITE_GOLDENS will never currently write the .win version.</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Test.Hspec.Goldens</span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Test.Hspec.Goldens.html#Settings"><span class="hs-identifier">Settings</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Test.Hspec.Goldens.html#textGolden"><span class="hs-identifier">textGolden</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../either/html/src"><span class="hs-identifier">Data.Either.Combinators</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../either/html/src"><span class="hs-identifier">rightToMaybe</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">Fmt</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Builder</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">fmt</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-operator">(+|)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-operator">(+||)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-operator">(|+)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-operator">(||+)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.Environment</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">lookupEnv</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-identifier">System.FilePath</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-operator">(&lt;.&gt;)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-operator">(&lt;/&gt;)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.IO.Error</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">ioeGetErrorType</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">isDoesNotExistErrorType</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../hspec/html/src"><span class="hs-identifier">Test.Hspec</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../hspec-expectations/html/src"><span class="hs-identifier">Expectation</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../hspec-expectations/html/src"><span class="hs-identifier">expectationFailure</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../hspec-expectations/html/src"><span class="hs-identifier">shouldBe</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Test.Utils.Platform.html"><span class="hs-identifier">Test.Utils.Platform</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Test.Utils.Platform.html#isWindows"><span class="hs-identifier">isWindows</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.Exception</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">IOException</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">try</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">tryJust</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-48"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.IO</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TIO</span></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="hs-keyword">data</span><span> </span><span id="Settings"><span class="annot"><a href="Test.Hspec.Goldens.html#Settings"><span class="hs-identifier hs-var">Settings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Settings"><span class="annot"><a href="Test.Hspec.Goldens.html#Settings"><span class="hs-identifier hs-var">Settings</span></a></span></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="goldenDirectory"><span class="annot"><span class="annottext">Settings -&gt; FilePath
+</span><a href="Test.Hspec.Goldens.html#goldenDirectory"><span class="hs-identifier hs-var hs-var">goldenDirectory</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="postProcess"><span class="annot"><span class="annottext">Settings -&gt; Text -&gt; Text
+</span><a href="Test.Hspec.Goldens.html#postProcess"><span class="hs-identifier hs-var hs-var">postProcess</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- | Wrapper for text which is easier to read in HSpec failure messages.</span><span>
+</span><span id="line-56"></span><span class="hs-keyword">newtype</span><span> </span><span id="GoldenText"><span class="annot"><a href="Test.Hspec.Goldens.html#GoldenText"><span class="hs-identifier hs-var">GoldenText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="GoldenText"><span class="annot"><a href="Test.Hspec.Goldens.html#GoldenText"><span class="hs-identifier hs-var">GoldenText</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="getGoldenText"><span class="annot"><span class="annottext">GoldenText -&gt; Text
+</span><a href="Test.Hspec.Goldens.html#getGoldenText"><span class="hs-identifier hs-var hs-var">getGoldenText</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679138799"><span id="local-6989586621679138801"><span class="annot"><span class="annottext">GoldenText -&gt; GoldenText -&gt; Bool
+(GoldenText -&gt; GoldenText -&gt; Bool)
+-&gt; (GoldenText -&gt; GoldenText -&gt; Bool) -&gt; Eq GoldenText
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: GoldenText -&gt; GoldenText -&gt; Bool
+$c/= :: GoldenText -&gt; GoldenText -&gt; Bool
+== :: GoldenText -&gt; GoldenText -&gt; Bool
+$c== :: GoldenText -&gt; GoldenText -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679138793"><span id="local-6989586621679138796"><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="Test.Hspec.Goldens.html#GoldenText"><span class="hs-identifier hs-type">GoldenText</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-59"></span><span>    </span><span id="local-6989586621679138791"><span class="annot"><span class="annottext">show :: GoldenText -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">show</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; FilePath
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.unpack</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; FilePath)
+-&gt; (GoldenText -&gt; Text) -&gt; GoldenText -&gt; FilePath
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">GoldenText -&gt; Text
+</span><a href="Test.Hspec.Goldens.html#getGoldenText"><span class="hs-identifier hs-var hs-var">getGoldenText</span></a></span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span class="annot"><a href="Test.Hspec.Goldens.html#textGolden"><span class="hs-identifier hs-type">textGolden</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Test.Hspec.Goldens.html#Settings"><span class="hs-identifier hs-type">Settings</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-comment">-- ^ Filename for the test</span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>  </span><span class="hs-comment">-- ^ Value to compare with the golden file</span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../hspec-expectations/html/src"><span class="hs-identifier hs-type">Expectation</span></a></span><span>
+</span><span id="line-66"></span><span id="textGolden"><span class="annot"><span class="annottext">textGolden :: Settings -&gt; FilePath -&gt; Text -&gt; Expectation
+</span><a href="Test.Hspec.Goldens.html#textGolden"><span class="hs-identifier hs-var hs-var">textGolden</span></a></span></span><span> </span><span id="local-6989586621679138786"><span class="annot"><span class="annottext">Settings
+</span><a href="#local-6989586621679138786"><span class="hs-identifier hs-var">settings</span></a></span></span><span> </span><span id="local-6989586621679138785"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138785"><span class="hs-identifier hs-var">title</span></a></span></span><span> </span><span id="local-6989586621679138784"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138784"><span class="hs-identifier hs-var">value</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-special">(</span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Maybe FilePath
+ -&gt; (FilePath, Maybe GoldenText)
+ -&gt; (Maybe FilePath, (FilePath, Maybe GoldenText)))
+-&gt; IO (Maybe FilePath)
+-&gt; IO
+     ((FilePath, Maybe GoldenText)
+      -&gt; (Maybe FilePath, (FilePath, Maybe GoldenText)))
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">lookupEnv</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;OVERWRITE_GOLDENS&quot;</span></span><span> </span><span class="annot"><span class="annottext">IO
+  ((FilePath, Maybe GoldenText)
+   -&gt; (Maybe FilePath, (FilePath, Maybe GoldenText)))
+-&gt; IO (FilePath, Maybe GoldenText)
+-&gt; IO (Maybe FilePath, (FilePath, Maybe GoldenText))
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO (FilePath, Maybe GoldenText)
+</span><a href="#local-6989586621679138782"><span class="hs-identifier hs-var">readGolden</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe FilePath, (FilePath, Maybe GoldenText))
+-&gt; ((Maybe FilePath, (FilePath, Maybe GoldenText)) -&gt; Expectation)
+-&gt; Expectation
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-68"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679138781"><span class="annot"><span class="annottext">GoldenText
+</span><a href="#local-6989586621679138781"><span class="hs-identifier hs-var">expected</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-69"></span><span>            </span><span class="annot"><span class="annottext">Text -&gt; GoldenText
+</span><a href="Test.Hspec.Goldens.html#GoldenText"><span class="hs-identifier hs-var">GoldenText</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Settings -&gt; Text -&gt; Text
+</span><a href="Test.Hspec.Goldens.html#postProcess"><span class="hs-identifier hs-var hs-var">postProcess</span></a></span><span> </span><span class="annot"><span class="annottext">Settings
+</span><a href="#local-6989586621679138786"><span class="hs-identifier hs-var">settings</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138784"><span class="hs-identifier hs-var">value</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">GoldenText -&gt; GoldenText -&gt; Expectation
+forall a. (HasCallStack, Show a, Eq a) =&gt; a -&gt; a -&gt; Expectation
+</span><a href="../../../../hspec-expectations/html/src"><span class="hs-operator hs-var">`shouldBe`</span></a></span><span> </span><span class="annot"><span class="annottext">GoldenText
+</span><a href="#local-6989586621679138781"><span class="hs-identifier hs-var">expected</span></a></span><span>
+</span><span id="line-70"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679138780"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138780"><span class="hs-identifier hs-var">_overwrite</span></a></span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679138779"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138779"><span class="hs-identifier hs-var">f</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679138778"><span class="annot"><span class="annottext">GoldenText
+</span><a href="#local-6989586621679138778"><span class="hs-identifier hs-var">_expected</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-71"></span><span>            </span><span class="annot"><span class="annottext">FilePath -&gt; Text -&gt; FilePath -&gt; Expectation
+</span><a href="#local-6989586621679138777"><span class="hs-identifier hs-var">writeGoldenAndFail</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138779"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138784"><span class="hs-identifier hs-var">value</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Overwriting goldens&quot;</span></span><span>
+</span><span id="line-72"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe FilePath
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679138776"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138776"><span class="hs-identifier hs-var">f</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe GoldenText
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-73"></span><span>            </span><span class="annot"><span class="annottext">FilePath -&gt; Text -&gt; FilePath -&gt; Expectation
+</span><a href="#local-6989586621679138777"><span class="hs-identifier hs-var">writeGoldenAndFail</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138776"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138784"><span class="hs-identifier hs-var">value</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;No existing golden file found&quot;</span></span><span>
+</span><span id="line-74"></span><span>
+</span><span id="line-75"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-76"></span><span>    </span><span id="local-6989586621679138775"><span class="annot"><span class="annottext">golden :: FilePath
+</span><a href="#local-6989586621679138775"><span class="hs-identifier hs-var hs-var">golden</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Settings -&gt; FilePath
+</span><a href="Test.Hspec.Goldens.html#goldenDirectory"><span class="hs-identifier hs-var hs-var">goldenDirectory</span></a></span><span> </span><span class="annot"><span class="annottext">Settings
+</span><a href="#local-6989586621679138786"><span class="hs-identifier hs-var">settings</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; ShowS
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138785"><span class="hs-identifier hs-var">title</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-comment">-- If running on windows, we will use the windows-specific golden first,</span><span>
+</span><span id="line-78"></span><span>    </span><span class="hs-comment">-- if it exists.</span><span>
+</span><span id="line-79"></span><span>    </span><span id="local-6989586621679138774"><span class="annot"><span class="annottext">goldenWin :: Maybe FilePath
+</span><a href="#local-6989586621679138774"><span class="hs-identifier hs-var hs-var">goldenWin</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="Test.Utils.Platform.html#isWindows"><span class="hs-identifier hs-var">isWindows</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138775"><span class="hs-identifier hs-var">golden</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; ShowS
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;.&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;win&quot;</span></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span>    </span><span class="hs-comment">-- | Gets the contents of a golden text file, if it exists, and returns the</span><span>
+</span><span id="line-82"></span><span>    </span><span class="hs-comment">-- path of the actual file which was read.</span><span>
+</span><span id="line-83"></span><span>    </span><span class="annot"><a href="#local-6989586621679138782"><span class="hs-identifier hs-type">readGolden</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Test.Hspec.Goldens.html#GoldenText"><span class="hs-identifier hs-type">GoldenText</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-84"></span><span>    </span><span id="local-6989586621679138782"><span class="annot"><span class="annottext">readGolden :: IO (FilePath, Maybe GoldenText)
+</span><a href="#local-6989586621679138782"><span class="hs-identifier hs-var hs-var">readGolden</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Maybe Text -&gt; Maybe GoldenText)
+-&gt; (FilePath, Maybe Text) -&gt; (FilePath, Maybe GoldenText)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Text -&gt; GoldenText) -&gt; Maybe Text -&gt; Maybe GoldenText
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; GoldenText
+</span><a href="Test.Hspec.Goldens.html#GoldenText"><span class="hs-identifier hs-var">GoldenText</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">((FilePath, Maybe Text) -&gt; (FilePath, Maybe GoldenText))
+-&gt; IO (FilePath, Maybe Text) -&gt; IO (FilePath, Maybe GoldenText)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621679138774"><span class="hs-identifier hs-var">goldenWin</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-85"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679138773"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138773"><span class="hs-identifier hs-var">win</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe Text)
+</span><a href="#local-6989586621679138772"><span class="hs-identifier hs-var">readTextFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138773"><span class="hs-identifier hs-var">win</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe Text)
+-&gt; (Maybe Text -&gt; IO (FilePath, Maybe Text))
+-&gt; IO (FilePath, Maybe Text)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-86"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679138771"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138771"><span class="hs-identifier hs-var">text</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(FilePath, Maybe Text) -&gt; IO (FilePath, Maybe Text)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138773"><span class="hs-identifier hs-var">win</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138771"><span class="hs-identifier hs-var">text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>            </span><span class="annot"><span class="annottext">Maybe Text
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138775"><span class="hs-identifier hs-var">golden</span></a></span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Maybe Text -&gt; (FilePath, Maybe Text))
+-&gt; IO (Maybe Text) -&gt; IO (FilePath, Maybe Text)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe Text)
+</span><a href="#local-6989586621679138772"><span class="hs-identifier hs-var">readTextFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138775"><span class="hs-identifier hs-var">golden</span></a></span><span>
+</span><span id="line-88"></span><span>        </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138775"><span class="hs-identifier hs-var">golden</span></a></span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Maybe Text -&gt; (FilePath, Maybe Text))
+-&gt; IO (Maybe Text) -&gt; IO (FilePath, Maybe Text)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe Text)
+</span><a href="#local-6989586621679138772"><span class="hs-identifier hs-var">readTextFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138775"><span class="hs-identifier hs-var">golden</span></a></span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span>    </span><span class="annot"><a href="#local-6989586621679138772"><span class="hs-identifier hs-type">readTextFile</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-91"></span><span>    </span><span id="local-6989586621679138772"><span class="annot"><span class="annottext">readTextFile :: FilePath -&gt; IO (Maybe Text)
+</span><a href="#local-6989586621679138772"><span class="hs-identifier hs-var hs-var">readTextFile</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Either IOError Text -&gt; Maybe Text)
+-&gt; IO (Either IOError Text) -&gt; IO (Maybe Text)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">Either IOError Text -&gt; Maybe Text
+forall a b. Either a b -&gt; Maybe b
+</span><a href="../../../../either/html/src"><span class="hs-identifier hs-var">rightToMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Either IOError Text) -&gt; IO (Maybe Text))
+-&gt; (FilePath -&gt; IO (Either IOError Text))
+-&gt; FilePath
+-&gt; IO (Maybe Text)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(IOError -&gt; Maybe IOError) -&gt; IO Text -&gt; IO (Either IOError Text)
+forall (m :: * -&gt; *) e b a.
+(MonadUnliftIO m, Exception e) =&gt;
+(e -&gt; Maybe b) -&gt; m a -&gt; m (Either b a)
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">tryJust</span></a></span><span> </span><span class="annot"><span class="annottext">IOError -&gt; Maybe IOError
+</span><a href="#local-6989586621679138770"><span class="hs-identifier hs-var">handler</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Text -&gt; IO (Either IOError Text))
+-&gt; (FilePath -&gt; IO Text) -&gt; FilePath -&gt; IO (Either IOError Text)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TIO.readFile</span></a></span><span>
+</span><span id="line-92"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-93"></span><span>        </span><span id="local-6989586621679138770"><span class="annot"><span class="annottext">handler :: IOError -&gt; Maybe IOError
+</span><a href="#local-6989586621679138770"><span class="hs-identifier hs-var hs-var">handler</span></a></span></span><span> </span><span id="local-6989586621679138768"><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679138768"><span class="hs-identifier hs-var">e</span></a></span></span><span>
+</span><span id="line-94"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">IOErrorType -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">isDoesNotExistErrorType</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IOError -&gt; IOErrorType
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ioeGetErrorType</span></a></span><span> </span><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679138768"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IOError -&gt; Maybe IOError
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679138768"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-95"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe IOError
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span>    </span><span class="annot"><a href="#local-6989586621679138777"><span class="hs-identifier hs-type">writeGoldenAndFail</span></a></span><span>
+</span><span id="line-98"></span><span>        </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-99"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-100"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-comment">-- ^ Error message prefix on failure</span><span>
+</span><span id="line-101"></span><span>        </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-102"></span><span>    </span><span id="local-6989586621679138777"><span class="annot"><span class="annottext">writeGoldenAndFail :: FilePath -&gt; Text -&gt; FilePath -&gt; Expectation
+</span><a href="#local-6989586621679138777"><span class="hs-identifier hs-var hs-var">writeGoldenAndFail</span></a></span></span><span> </span><span id="local-6989586621679138767"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138767"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679138766"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138766"><span class="hs-identifier hs-var">text</span></a></span></span><span> </span><span id="local-6989586621679138765"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138765"><span class="hs-identifier hs-var">errMsg</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-103"></span><span>        </span><span class="annot"><span class="annottext">Expectation -&gt; IO (Either IOError ())
+forall (m :: * -&gt; *) e a.
+(MonadUnliftIO m, Exception e) =&gt;
+m a -&gt; m (Either e a)
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">try</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; Text -&gt; Expectation
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">TIO.writeFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138767"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138763"><span class="hs-identifier hs-var">text'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO (Either IOError ())
+-&gt; (Either IOError () -&gt; Expectation) -&gt; Expectation
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">HasCallStack =&gt; FilePath -&gt; Expectation
+FilePath -&gt; Expectation
+</span><a href="../../../../hspec-expectations/html/src"><span class="hs-identifier hs-var">expectationFailure</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Expectation)
+-&gt; (Either IOError () -&gt; FilePath)
+-&gt; Either IOError ()
+-&gt; Expectation
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; FilePath
+forall b. FromBuilder b =&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">fmt</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; FilePath)
+-&gt; (Either IOError () -&gt; Builder) -&gt; Either IOError () -&gt; FilePath
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Either IOError () -&gt; Builder
+</span><a href="#local-6989586621679138762"><span class="hs-identifier hs-var">msg</span></a></span><span>
+</span><span id="line-104"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-105"></span><span>        </span><span id="local-6989586621679138763"><span class="annot"><span class="annottext">text' :: Text
+</span><a href="#local-6989586621679138763"><span class="hs-identifier hs-var hs-var">text'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Settings -&gt; Text -&gt; Text
+</span><a href="Test.Hspec.Goldens.html#postProcess"><span class="hs-identifier hs-var hs-var">postProcess</span></a></span><span> </span><span class="annot"><span class="annottext">Settings
+</span><a href="#local-6989586621679138786"><span class="hs-identifier hs-var">settings</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679138766"><span class="hs-identifier hs-var">text</span></a></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span>        </span><span class="annot"><a href="#local-6989586621679138762"><span class="hs-identifier hs-type">msg</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IOException</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-108"></span><span>        </span><span id="local-6989586621679138762"><span class="annot"><span class="annottext">msg :: Either IOError () -&gt; Builder
+</span><a href="#local-6989586621679138762"><span class="hs-identifier hs-var hs-var">msg</span></a></span></span><span> </span><span id="local-6989586621679138761"><span class="annot"><span class="annottext">Either IOError ()
+</span><a href="#local-6989586621679138761"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138765"><span class="hs-identifier hs-var">errMsg</span></a></span><span class="annot"><span class="annottext">FilePath -&gt; Builder -&gt; Builder
+forall a b. (Buildable a, FromBuilder b) =&gt; a -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">|+</span></a></span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;... &quot;</span></span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall b. FromBuilder b =&gt; Builder -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">+|</span></a></span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either IOError ()
+</span><a href="#local-6989586621679138761"><span class="hs-identifier hs-var">res</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-109"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-110"></span><span>                </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Now written to disk. Please check for correctness and commit.&quot;</span></span><span>
+</span><span id="line-111"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679138760"><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679138760"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-112"></span><span>                </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Unable to write the new value to disk because of:\n&quot;</span></span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall b. FromBuilder b =&gt; Builder -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">+||</span></a></span><span class="annot"><span class="annottext">IOError
+</span><a href="#local-6989586621679138760"><span class="hs-identifier hs-var">err</span></a></span><span class="annot"><span class="annottext">IOError -&gt; Builder -&gt; Builder
+forall a b. (Show a, FromBuilder b) =&gt; a -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">||+</span></a></span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-113"></span></pre></body></html>

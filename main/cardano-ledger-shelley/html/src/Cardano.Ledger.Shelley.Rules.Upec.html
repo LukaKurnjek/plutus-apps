@@ -1,0 +1,400 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE PatternSynonyms #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-8"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-9"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-10"></span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- | Epoch change registration.</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- The rules of this module determine how the update subsystem of the ledger</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- handles the epoch transitions.</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Ledger.Shelley.Rules.Upec</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-16"></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Cardano.Ledger.BaseTypes</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Globals</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">ProtVer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">ShelleyBase</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../strict-containers/html/src"><span class="hs-identifier">StrictMaybe</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Cardano.Ledger.Coin</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Coin</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Cardano.Ledger.Core</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Core</span></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Cardano.Ledger.Era</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier">Era</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html"><span class="hs-identifier">Cardano.Ledger.Shelley.Constraints</span></a></span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesAuxiliary"><span class="hs-identifier">UsesAuxiliary</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-23"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesPParams"><span class="hs-identifier">UsesPParams</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#mergePPUpdates"><span class="hs-identifier">mergePPUpdates</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesScript"><span class="hs-identifier">UsesScript</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-25"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesTxBody"><span class="hs-identifier">UsesTxBody</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-26"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesValue"><span class="hs-identifier">UsesValue</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html"><span class="hs-identifier">Cardano.Ledger.Shelley.LedgerState</span></a></span><span>
+</span><span id="line-29"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#EpochState"><span class="hs-identifier">EpochState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-30"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#PPUPState"><span class="hs-identifier">PPUPState</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-31"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#UpecState"><span class="hs-identifier">UpecState</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-32"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#esAccountState"><span class="hs-identifier">esAccountState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-33"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#esLState"><span class="hs-identifier">esLState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-34"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#lsDPState"><span class="hs-identifier">lsDPState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#lsUTxOState"><span class="hs-identifier">lsUTxOState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-36"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#_ppups"><span class="hs-identifier">_ppups</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-keyword">pattern</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#DPState"><span class="hs-identifier">DPState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-38"></span><span>    </span><span class="hs-keyword">pattern</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#EpochState"><span class="hs-identifier">EpochState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-39"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.PParams.html"><span class="hs-identifier">Cardano.Ledger.Shelley.PParams</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.PParams.html#ProposedPPUpdates"><span class="hs-identifier">ProposedPPUpdates</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html"><span class="hs-identifier">Cardano.Ledger.Shelley.Rules.Newpp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NEWPP"><span class="hs-identifier">NEWPP</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NewppEnv"><span class="hs-identifier">NewppEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NewppState"><span class="hs-identifier">NewppState</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">Control.Monad.Trans.Reader</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../transformers/html/src"><span class="hs-identifier">asks</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">Control.State.Transition</span></a></span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">Embed</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-45"></span><span>    </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">STS</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-46"></span><span>    </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">TRC</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-47"></span><span>    </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">judgmentContext</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-48"></span><span>    </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">liftSTS</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-49"></span><span>    </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier">trans</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../data-default-class/html/src"><span class="hs-identifier">Data.Default.Class</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../data-default-class/html/src"><span class="hs-identifier">Default</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-54"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Proxy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Proxy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Generics</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Records</span></a></span><span>
+</span><span id="line-57"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../nothunks/html/src"><span class="hs-identifier">NoThunks.Class</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../nothunks/html/src"><span class="hs-identifier">NoThunks</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Numeric.Natural</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Natural</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- | Update epoch change</span><span>
+</span><span id="line-61"></span><span class="hs-keyword">data</span><span> </span><span id="UPEC"><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-var">UPEC</span></a></span></span><span> </span><span id="local-6989586621679478000"><span class="annot"><a href="#local-6989586621679478000"><span class="hs-identifier hs-type">era</span></a></span></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span id="local-6989586621679477998"><span id="local-6989586621679477999"></span></span><span class="hs-keyword">newtype</span><span> </span><span id="UpecPredicateFailure"><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UpecPredicateFailure"><span class="hs-identifier hs-var">UpecPredicateFailure</span></a></span></span><span> </span><span id="local-6989586621679478015"><span class="annot"><a href="#local-6989586621679478015"><span class="hs-identifier hs-type">era</span></a></span></span><span>
+</span><span id="line-64"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="NewPpFailure"><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#NewPpFailure"><span class="hs-identifier hs-var">NewPpFailure</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-type">PredicateFailure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NEWPP"><span class="hs-identifier hs-type">NEWPP</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679478015"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679477993"><span id="local-6989586621679477995"><span class="annot"><span class="annottext">UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool
+(UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool)
+-&gt; (UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool)
+-&gt; Eq (UpecPredicateFailure era)
+forall era.
+UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool
+$c/= :: forall era.
+UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool
+== :: UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool
+$c== :: forall era.
+UpecPredicateFailure era -&gt; UpecPredicateFailure era -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679477986"><span id="local-6989586621679477988"><span id="local-6989586621679477990"><span class="annot"><span class="annottext">Int -&gt; UpecPredicateFailure era -&gt; ShowS
+[UpecPredicateFailure era] -&gt; ShowS
+UpecPredicateFailure era -&gt; String
+(Int -&gt; UpecPredicateFailure era -&gt; ShowS)
+-&gt; (UpecPredicateFailure era -&gt; String)
+-&gt; ([UpecPredicateFailure era] -&gt; ShowS)
+-&gt; Show (UpecPredicateFailure era)
+forall era. Int -&gt; UpecPredicateFailure era -&gt; ShowS
+forall era. [UpecPredicateFailure era] -&gt; ShowS
+forall era. UpecPredicateFailure era -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [UpecPredicateFailure era] -&gt; ShowS
+$cshowList :: forall era. [UpecPredicateFailure era] -&gt; ShowS
+show :: UpecPredicateFailure era -&gt; String
+$cshow :: forall era. UpecPredicateFailure era -&gt; String
+showsPrec :: Int -&gt; UpecPredicateFailure era -&gt; ShowS
+$cshowsPrec :: forall era. Int -&gt; UpecPredicateFailure era -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x.
+ UpecPredicateFailure era -&gt; Rep (UpecPredicateFailure era) x)
+-&gt; (forall x.
+    Rep (UpecPredicateFailure era) x -&gt; UpecPredicateFailure era)
+-&gt; Generic (UpecPredicateFailure era)
+forall x.
+Rep (UpecPredicateFailure era) x -&gt; UpecPredicateFailure era
+forall x.
+UpecPredicateFailure era -&gt; Rep (UpecPredicateFailure era) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall era x.
+Rep (UpecPredicateFailure era) x -&gt; UpecPredicateFailure era
+forall era x.
+UpecPredicateFailure era -&gt; Rep (UpecPredicateFailure era) x
+$cto :: forall era x.
+Rep (UpecPredicateFailure era) x -&gt; UpecPredicateFailure era
+$cfrom :: forall era x.
+UpecPredicateFailure era -&gt; Rep (UpecPredicateFailure era) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>
+</span><span id="line-67"></span><span id="local-6989586621679477981"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679477975"><span id="local-6989586621679477977"><span id="local-6989586621679477979"><span class="annot"><a href="../../../../nothunks/html/src"><span class="hs-identifier hs-type">NoThunks</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UpecPredicateFailure"><span class="hs-identifier hs-type">UpecPredicateFailure</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477981"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span id="local-6989586621679477973"><span class="hs-keyword">instance</span><span>
+</span><span id="line-70"></span><span>  </span><span id="local-6989586621679477963"><span id="local-6989586621679477965"><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesAuxiliary"><span class="hs-identifier hs-type">UsesAuxiliary</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-71"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesTxBody"><span class="hs-identifier hs-type">UsesTxBody</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesScript"><span class="hs-identifier hs-type">UsesScript</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-73"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesValue"><span class="hs-identifier hs-type">UsesValue</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-74"></span><span>    </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesPParams"><span class="hs-identifier hs-type">UsesPParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><a href="../../../../data-default-class/html/src"><span class="hs-identifier hs-type">Default</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-76"></span><span>    </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.EraRule</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;PPUP&quot;</span></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#PPUPState"><span class="hs-identifier hs-type">PPUPState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-77"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_keyDeposit&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Coin</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-78"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_maxBBSize&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Natural</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-79"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_maxTxSize&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Natural</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-80"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_maxBHSize&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Natural</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_poolDeposit&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Coin</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-82"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_protocolVersion&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">ProtVer</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-83"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">HasField</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_protocolVersion&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParamsDelta</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../strict-containers/html/src"><span class="hs-identifier hs-type">StrictMaybe</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">ProtVer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-84"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-85"></span><span>  </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-type">STS</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-86"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="State"><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">State</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#UpecState"><span class="hs-identifier hs-type">UpecState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span>
+</span><span id="line-88"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="Signal"><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">Signal</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="Environment"><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">Environment</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#EpochState"><span class="hs-identifier hs-type">EpochState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="BaseM"><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">BaseM</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">ShelleyBase</span></a></span><span>
+</span><span id="line-91"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="PredicateFailure"><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">PredicateFailure</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UpecPredicateFailure"><span class="hs-identifier hs-type">UpecPredicateFailure</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span>
+</span><span id="line-92"></span><span>  </span><span id="local-6989586621679477961"><span class="annot"><span class="annottext">initialRules :: [InitialRule (UPEC era)]
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">initialRules</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-93"></span><span>  </span><span id="local-6989586621679477959"><span class="annot"><span class="annottext">transitionRules :: [TransitionRule (UPEC era)]
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">transitionRules</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-94"></span><span>    </span><span class="hs-special">[</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-95"></span><span>        </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-type">TRC</span></a></span><span>
+</span><span id="line-96"></span><span>          </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#EpochState"><span class="hs-identifier hs-type">EpochState</span></a></span><span>
+</span><span id="line-97"></span><span>              </span><span class="hs-special">{</span><span> </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#esAccountState"><span class="hs-identifier hs-var">esAccountState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621679477956"><span class="annot"><a href="#local-6989586621679477956"><span class="hs-identifier hs-var">acnt</span></a></span></span><span class="hs-special">,</span><span>
+</span><span id="line-98"></span><span>                </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#esLState"><span class="hs-identifier hs-var">esLState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621679477955"><span class="annot"><a href="#local-6989586621679477955"><span class="hs-identifier hs-var">ls</span></a></span></span><span>
+</span><span id="line-99"></span><span>              </span><span class="hs-special">}</span><span class="hs-special">,</span><span>
+</span><span id="line-100"></span><span>            </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#UpecState"><span class="hs-identifier hs-type">UpecState</span></a></span><span> </span><span id="local-6989586621679477953"><span class="annot"><a href="#local-6989586621679477953"><span class="hs-identifier hs-var">pp</span></a></span></span><span> </span><span id="local-6989586621679477952"><span class="annot"><a href="#local-6989586621679477952"><span class="hs-identifier hs-var">ppupSt</span></a></span></span><span class="hs-special">,</span><span>
+</span><span id="line-101"></span><span>            </span><span class="annot"><span class="annottext">Signal (UPEC era)
+</span><span class="hs-identifier">_</span></span><span>
+</span><span id="line-102"></span><span>            </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-103"></span><span>          </span><span class="annot"><span class="annottext">F (Clause (UPEC era) 'Transition) (TRC (UPEC era))
+forall sts (rtype :: RuleType).
+Rule sts rtype (RuleContext rtype sts)
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">judgmentContext</span></a></span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span>        </span><span id="local-6989586621679477951"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679477951"><span class="hs-identifier hs-var">coreNodeQuorum</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">BaseM (UPEC era) Word64 -&gt; Rule (UPEC era) 'Transition Word64
+forall sts a (ctx :: RuleType).
+STS sts =&gt;
+BaseM sts a -&gt; Rule sts ctx a
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">liftSTS</span></a></span><span> </span><span class="annot"><span class="annottext">(BaseM (UPEC era) Word64 -&gt; Rule (UPEC era) 'Transition Word64)
+-&gt; BaseM (UPEC era) Word64 -&gt; Rule (UPEC era) 'Transition Word64
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(Globals -&gt; Word64) -&gt; ReaderT Globals Identity Word64
+forall (m :: * -&gt; *) r a. Monad m =&gt; (r -&gt; a) -&gt; ReaderT r m a
+</span><a href="../../../../transformers/html/src"><span class="hs-identifier hs-var">asks</span></a></span><span> </span><span class="annot"><span class="annottext">Globals -&gt; Word64
+</span><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-var hs-var">quorum</span></a></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679477949"><span class="annot"><span class="annottext">utxoSt :: UTxOState era
+</span><a href="#local-6989586621679477949"><span class="hs-identifier hs-var hs-var">utxoSt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerState era -&gt; UTxOState era
+forall era. LedgerState era -&gt; UTxOState era
+</span><a href="Cardano.Ledger.Shelley.LedgerState.html#lsUTxOState"><span class="hs-identifier hs-var hs-var">lsUTxOState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState era
+</span><a href="#local-6989586621679477955"><span class="hs-identifier hs-var">ls</span></a></span><span>
+</span><span id="line-108"></span><span>            </span><span class="annot"><a href="Cardano.Ledger.Shelley.LedgerState.html#DPState"><span class="hs-identifier hs-type">DPState</span></a></span><span> </span><span id="local-6989586621679477948"><span class="annot"><span class="annottext">DState (Crypto era)
+</span><a href="#local-6989586621679477948"><span class="hs-identifier hs-var">dstate</span></a></span></span><span> </span><span id="local-6989586621679477947"><span class="annot"><span class="annottext">PState (Crypto era)
+</span><a href="#local-6989586621679477947"><span class="hs-identifier hs-var">pstate</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LedgerState era -&gt; DPState (Crypto era)
+forall era. LedgerState era -&gt; DPState (Crypto era)
+</span><a href="Cardano.Ledger.Shelley.LedgerState.html#lsDPState"><span class="hs-identifier hs-var hs-var">lsDPState</span></a></span><span> </span><span class="annot"><span class="annottext">LedgerState era
+</span><a href="#local-6989586621679477955"><span class="hs-identifier hs-var">ls</span></a></span><span>
+</span><span id="line-109"></span><span>            </span><span id="local-6989586621679477946"><span class="annot"><span class="annottext">pup :: ProposedPPUpdates era
+</span><a href="#local-6989586621679477946"><span class="hs-identifier hs-var hs-var">pup</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">PPUPState era -&gt; ProposedPPUpdates era
+forall era. PPUPState era -&gt; ProposedPPUpdates era
+</span><a href="Cardano.Ledger.Shelley.LedgerState.html#proposals"><span class="hs-identifier hs-var hs-var">proposals</span></a></span><span> </span><span class="annot"><span class="annottext">(PPUPState era -&gt; ProposedPPUpdates era)
+-&gt; (UTxOState era -&gt; PPUPState era)
+-&gt; UTxOState era
+-&gt; ProposedPPUpdates era
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">UTxOState era -&gt; PPUPState era
+forall era. UTxOState era -&gt; State (EraRule &quot;PPUP&quot; era)
+</span><a href="Cardano.Ledger.Shelley.LedgerState.html#_ppups"><span class="hs-identifier hs-var hs-var">_ppups</span></a></span><span> </span><span class="annot"><span class="annottext">(UTxOState era -&gt; ProposedPPUpdates era)
+-&gt; UTxOState era -&gt; ProposedPPUpdates era
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">UTxOState era
+</span><a href="#local-6989586621679477949"><span class="hs-identifier hs-var">utxoSt</span></a></span><span>
+</span><span id="line-110"></span><span>            </span><span id="local-6989586621679477943"><span class="annot"><span class="annottext">ppNew :: Maybe (PParams era)
+</span><a href="#local-6989586621679477943"><span class="hs-identifier hs-var hs-var">ppNew</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProposedPPUpdates era -&gt; PParams era -&gt; Int -&gt; Maybe (PParams era)
+forall era.
+UsesPParams era =&gt;
+ProposedPPUpdates era -&gt; PParams era -&gt; Int -&gt; Maybe (PParams era)
+</span><a href="Cardano.Ledger.Shelley.Rules.Upec.html#votedValue"><span class="hs-identifier hs-var">votedValue</span></a></span><span> </span><span class="annot"><span class="annottext">ProposedPPUpdates era
+</span><a href="#local-6989586621679477946"><span class="hs-identifier hs-var">pup</span></a></span><span> </span><span class="annot"><span class="annottext">PParams era
+</span><a href="#local-6989586621679477953"><span class="hs-identifier hs-var">pp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word64 -&gt; Int
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679477951"><span class="hs-identifier hs-var">coreNodeQuorum</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-111"></span><span>        </span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NewppState"><span class="hs-identifier hs-type">NewppState</span></a></span><span> </span><span id="local-6989586621679477940"><span class="annot"><span class="annottext">PParams era
+</span><a href="#local-6989586621679477940"><span class="hs-identifier hs-var">pp'</span></a></span></span><span> </span><span id="local-6989586621679477939"><span class="annot"><span class="annottext">PPUPState era
+</span><a href="#local-6989586621679477939"><span class="hs-identifier hs-var">ppupSt'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-112"></span><span>          </span><span class="annot"><span class="annottext">forall sub super (rtype :: RuleType).
+Embed sub super =&gt;
+RuleContext rtype sub -&gt; Rule super rtype (State sub)
+forall super (rtype :: RuleType).
+Embed (NEWPP era) super =&gt;
+RuleContext rtype (NEWPP era)
+-&gt; Rule super rtype (State (NEWPP era))
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">trans</span></a></span><span> </span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NEWPP"><span class="hs-identifier hs-type">NEWPP</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477973"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(RuleContext 'Transition (NEWPP era)
+ -&gt; Rule (UPEC era) 'Transition (State (NEWPP era)))
+-&gt; RuleContext 'Transition (NEWPP era)
+-&gt; Rule (UPEC era) 'Transition (State (NEWPP era))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-113"></span><span>            </span><span class="annot"><span class="annottext">(Environment (NEWPP era), State (NEWPP era), Signal (NEWPP era))
+-&gt; TRC (NEWPP era)
+forall sts. (Environment sts, State sts, Signal sts) -&gt; TRC sts
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var">TRC</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">DState (Crypto era)
+-&gt; PState (Crypto era)
+-&gt; UTxOState era
+-&gt; AccountState
+-&gt; NewppEnv era
+forall era.
+DState (Crypto era)
+-&gt; PState (Crypto era)
+-&gt; UTxOState era
+-&gt; AccountState
+-&gt; NewppEnv era
+</span><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NewppEnv"><span class="hs-identifier hs-var">NewppEnv</span></a></span><span> </span><span class="annot"><span class="annottext">DState (Crypto era)
+</span><a href="#local-6989586621679477948"><span class="hs-identifier hs-var">dstate</span></a></span><span> </span><span class="annot"><span class="annottext">PState (Crypto era)
+</span><a href="#local-6989586621679477947"><span class="hs-identifier hs-var">pstate</span></a></span><span> </span><span class="annot"><span class="annottext">UTxOState era
+</span><a href="#local-6989586621679477949"><span class="hs-identifier hs-var">utxoSt</span></a></span><span> </span><span class="annot"><span class="annottext">AccountState
+</span><a href="#local-6989586621679477956"><span class="hs-identifier hs-var">acnt</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">PParams era -&gt; PPUPState era -&gt; NewppState era
+forall era. PParams era -&gt; PPUPState era -&gt; NewppState era
+</span><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NewppState"><span class="hs-identifier hs-var">NewppState</span></a></span><span> </span><span class="annot"><span class="annottext">PParams era
+</span><a href="#local-6989586621679477953"><span class="hs-identifier hs-var">pp</span></a></span><span> </span><span class="annot"><span class="annottext">State (EraRule &quot;PPUP&quot; era)
+PPUPState era
+</span><a href="#local-6989586621679477952"><span class="hs-identifier hs-var">ppupSt</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe (PParams era)
+Signal (NEWPP era)
+</span><a href="#local-6989586621679477943"><span class="hs-identifier hs-var">ppNew</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>        </span><span class="annot"><span class="annottext">UpecState era -&gt; F (Clause (UPEC era) 'Transition) (UpecState era)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(UpecState era
+ -&gt; F (Clause (UPEC era) 'Transition) (UpecState era))
+-&gt; UpecState era
+-&gt; F (Clause (UPEC era) 'Transition) (UpecState era)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-115"></span><span>          </span><span class="annot"><span class="annottext">PParams era -&gt; State (EraRule &quot;PPUP&quot; era) -&gt; UpecState era
+forall era.
+PParams era -&gt; State (EraRule &quot;PPUP&quot; era) -&gt; UpecState era
+</span><a href="Cardano.Ledger.Shelley.LedgerState.html#UpecState"><span class="hs-identifier hs-var">UpecState</span></a></span><span> </span><span class="annot"><span class="annottext">PParams era
+</span><a href="#local-6989586621679477940"><span class="hs-identifier hs-var">pp'</span></a></span><span> </span><span class="annot"><span class="annottext">State (EraRule &quot;PPUP&quot; era)
+PPUPState era
+</span><a href="#local-6989586621679477939"><span class="hs-identifier hs-var">ppupSt'</span></a></span><span>
+</span><span id="line-116"></span><span>    </span><span class="hs-special">]</span></span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- | If at least @n@ nodes voted to change __the same__ protocol parameters to</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- __the same__ values, return the given protocol parameters updated to these</span><span>
+</span><span id="line-120"></span><span class="hs-comment">-- values. Here @n@ is the quorum needed.</span><span>
+</span><span id="line-121"></span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#votedValue"><span class="hs-identifier hs-type">votedValue</span></a></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-122"></span><span>  </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679478068"><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span></span><span class="hs-operator">.</span><span>
+</span><span id="line-123"></span><span>  </span><span class="annot"><a href="Cardano.Ledger.Shelley.Constraints.html#UsesPParams"><span class="hs-identifier hs-type">UsesPParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-124"></span><span>  </span><span class="annot"><a href="Cardano.Ledger.Shelley.PParams.html#ProposedPPUpdates"><span class="hs-identifier hs-type">ProposedPPUpdates</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-125"></span><span>  </span><span class="hs-comment">-- | Protocol parameters to which the change will be applied.</span><span>
+</span><span id="line-126"></span><span>  </span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-127"></span><span>  </span><span class="hs-comment">-- | Quorum needed to change the protocol parameters.</span><span>
+</span><span id="line-128"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-129"></span><span>  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParams</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span id="votedValue"><span class="annot"><span class="annottext">votedValue :: ProposedPPUpdates era -&gt; PParams era -&gt; Int -&gt; Maybe (PParams era)
+</span><a href="Cardano.Ledger.Shelley.Rules.Upec.html#votedValue"><span class="hs-identifier hs-var hs-var">votedValue</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.PParams.html#ProposedPPUpdates"><span class="hs-identifier hs-type">ProposedPPUpdates</span></a></span><span> </span><span id="local-6989586621679477936"><span class="annot"><span class="annottext">Map (KeyHash 'Genesis (Crypto era)) (PParamsDelta era)
+</span><a href="#local-6989586621679477936"><span class="hs-identifier hs-var">pup</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679477935"><span class="annot"><span class="annottext">PParams era
+</span><a href="#local-6989586621679477935"><span class="hs-identifier hs-var">pps</span></a></span></span><span> </span><span id="local-6989586621679477934"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679477934"><span class="hs-identifier hs-var">quorumN</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-131"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679477933"><span class="annot"><span class="annottext">incrTally :: k -&gt; Map k a -&gt; a
+</span><a href="#local-6989586621679477933"><span class="hs-identifier hs-var hs-var">incrTally</span></a></span></span><span> </span><span id="local-6989586621679477932"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679477932"><span class="hs-identifier hs-var">vote</span></a></span></span><span> </span><span id="local-6989586621679477931"><span class="annot"><span class="annottext">Map k a
+</span><a href="#local-6989586621679477931"><span class="hs-identifier hs-var">tally</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; k -&gt; Map k a -&gt; a
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679477932"><span class="hs-identifier hs-var">vote</span></a></span><span> </span><span class="annot"><span class="annottext">Map k a
+</span><a href="#local-6989586621679477931"><span class="hs-identifier hs-var">tally</span></a></span><span>
+</span><span id="line-132"></span><span>      </span><span id="local-6989586621679477928"><span class="annot"><span class="annottext">votes :: Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477928"><span class="hs-identifier hs-var hs-var">votes</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-133"></span><span>        </span><span class="annot"><span class="annottext">(PParamsDelta era
+ -&gt; Map (PParamsDelta era) Int -&gt; Map (PParamsDelta era) Int)
+-&gt; Map (PParamsDelta era) Int
+-&gt; Map (KeyHash 'Genesis (Crypto era)) (PParamsDelta era)
+-&gt; Map (PParamsDelta era) Int
+forall a b k. (a -&gt; b -&gt; b) -&gt; b -&gt; Map k a -&gt; b
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.foldr</span></a></span><span>
+</span><span id="line-134"></span><span>          </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679477926"><span class="annot"><span class="annottext">PParamsDelta era
+</span><a href="#local-6989586621679477926"><span class="hs-identifier hs-var">vote</span></a></span></span><span> </span><span id="local-6989586621679477925"><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477925"><span class="hs-identifier hs-var">tally</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">PParamsDelta era
+-&gt; Int -&gt; Map (PParamsDelta era) Int -&gt; Map (PParamsDelta era) Int
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.insert</span></a></span><span> </span><span class="annot"><span class="annottext">PParamsDelta era
+</span><a href="#local-6989586621679477926"><span class="hs-identifier hs-var">vote</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PParamsDelta era -&gt; Map (PParamsDelta era) Int -&gt; Int
+forall a k. (Num a, Ord k) =&gt; k -&gt; Map k a -&gt; a
+</span><a href="#local-6989586621679477933"><span class="hs-identifier hs-var">incrTally</span></a></span><span> </span><span class="annot"><span class="annottext">PParamsDelta era
+</span><a href="#local-6989586621679477926"><span class="hs-identifier hs-var">vote</span></a></span><span> </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477925"><span class="hs-identifier hs-var">tally</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477925"><span class="hs-identifier hs-var">tally</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+forall k a. Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.empty</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Core.PParamsDelta</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-136"></span><span>          </span><span class="annot"><span class="annottext">Map (KeyHash 'Genesis (Crypto era)) (PParamsDelta era)
+</span><a href="#local-6989586621679477936"><span class="hs-identifier hs-var">pup</span></a></span><span>
+</span><span id="line-137"></span><span>      </span><span id="local-6989586621679477922"><span class="annot"><span class="annottext">consensus :: Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477922"><span class="hs-identifier hs-var hs-var">consensus</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Bool)
+-&gt; Map (PParamsDelta era) Int -&gt; Map (PParamsDelta era) Int
+forall a k. (a -&gt; Bool) -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.filter</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679477934"><span class="hs-identifier hs-var">quorumN</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477928"><span class="hs-identifier hs-var">votes</span></a></span><span>
+</span><span id="line-138"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477922"><span class="hs-identifier hs-var">consensus</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-139"></span><span>        </span><span class="hs-comment">-- NOTE that `quorumN` is a global constant, and that we require</span><span>
+</span><span id="line-140"></span><span>        </span><span class="hs-comment">-- it to be strictly greater than half the number of genesis nodes.</span><span>
+</span><span id="line-141"></span><span>        </span><span class="hs-comment">-- The keys in the `pup` correspond to the genesis nodes,</span><span>
+</span><span id="line-142"></span><span>        </span><span class="hs-comment">-- and therefore either:</span><span>
+</span><span id="line-143"></span><span>        </span><span class="hs-comment">--   1) `consensus` is empty, or</span><span>
+</span><span id="line-144"></span><span>        </span><span class="hs-comment">--   2) `consensus` has exactly one element.</span><span>
+</span><span id="line-145"></span><span>        </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-146"></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PParams era -&gt; Maybe (PParams era)
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(PParams era -&gt; Maybe (PParams era))
+-&gt; (Map (PParamsDelta era) Int -&gt; PParams era)
+-&gt; Map (PParamsDelta era) Int
+-&gt; Maybe (PParams era)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy era -&gt; PParams era -&gt; PParamsDelta era -&gt; PParams era
+forall era (proxy :: * -&gt; *).
+UsesPParams era =&gt;
+proxy era -&gt; PParams era -&gt; PParamsDelta era -&gt; PParams era
+</span><a href="Cardano.Ledger.Shelley.Constraints.html#mergePPUpdates"><span class="hs-identifier hs-var">mergePPUpdates</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy era
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679478068"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">PParams era
+</span><a href="#local-6989586621679477935"><span class="hs-identifier hs-var">pps</span></a></span><span> </span><span class="annot"><span class="annottext">(PParamsDelta era -&gt; PParams era)
+-&gt; (Map (PParamsDelta era) Int -&gt; PParamsDelta era)
+-&gt; Map (PParamsDelta era) Int
+-&gt; PParams era
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(PParamsDelta era, Int) -&gt; PParamsDelta era
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">((PParamsDelta era, Int) -&gt; PParamsDelta era)
+-&gt; (Map (PParamsDelta era) Int -&gt; (PParamsDelta era, Int))
+-&gt; Map (PParamsDelta era) Int
+-&gt; PParamsDelta era
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[(PParamsDelta era, Int)] -&gt; (PParamsDelta era, Int)
+forall a. [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">head</span></a></span><span> </span><span class="annot"><span class="annottext">([(PParamsDelta era, Int)] -&gt; (PParamsDelta era, Int))
+-&gt; (Map (PParamsDelta era) Int -&gt; [(PParamsDelta era, Int)])
+-&gt; Map (PParamsDelta era) Int
+-&gt; (PParamsDelta era, Int)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int -&gt; [(PParamsDelta era, Int)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.toList</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-147"></span><span>            </span><span class="annot"><span class="annottext">Map (PParamsDelta era) Int
+</span><a href="#local-6989586621679477922"><span class="hs-identifier hs-var">consensus</span></a></span><span>
+</span><span id="line-148"></span><span>        </span><span class="hs-comment">-- NOTE that `updatePParams` corresponds to the union override right</span><span>
+</span><span id="line-149"></span><span>        </span><span class="hs-comment">-- operation in the formal spec.</span><span>
+</span><span id="line-150"></span><span>        </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe (PParams era)
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span id="local-6989586621679477916"><span class="hs-keyword">instance</span><span>
+</span><span id="line-153"></span><span>  </span><span id="local-6989586621679477911"><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-ledger-core/html/src"><span class="hs-identifier hs-type">Era</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477916"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-type">STS</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NEWPP"><span class="hs-identifier hs-type">NEWPP</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477916"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-154"></span><span>  </span><span class="annot"><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-type">Embed</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Newpp.html#NEWPP"><span class="hs-identifier hs-type">NEWPP</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477916"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Ledger.Shelley.Rules.Upec.html#UPEC"><span class="hs-identifier hs-type">UPEC</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679477916"><span class="hs-identifier hs-type">era</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-155"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-156"></span><span>  </span><span id="local-6989586621679477909"><span class="annot"><span class="annottext">wrapFailed :: PredicateFailure (NEWPP era) -&gt; PredicateFailure (UPEC era)
+</span><a href="../../../../small-steps/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">wrapFailed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">PredicateFailure (NEWPP era) -&gt; PredicateFailure (UPEC era)
+forall era.
+PredicateFailure (NEWPP era) -&gt; UpecPredicateFailure era
+</span><a href="Cardano.Ledger.Shelley.Rules.Upec.html#NewPpFailure"><span class="hs-identifier hs-var">NewPpFailure</span></a></span></span><span>
+</span><span id="line-157"></span></pre></body></html>

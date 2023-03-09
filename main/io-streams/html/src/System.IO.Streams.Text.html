@@ -1,0 +1,385 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE BangPatterns #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE CPP          #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- | Stream primitives for decoding and encoding 'Text' values in UTF-8 format.</span><span>
+</span><span id="line-5"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">System.IO.Streams.Text</span><span>
+</span><span id="line-6"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Decoders and Encoders</span></span><span>
+</span><span id="line-7"></span><span>    </span><span class="annot"><a href="System.IO.Streams.Text.html#decodeUtf8"><span class="hs-identifier">decodeUtf8</span></a></span><span>
+</span><span id="line-8"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#decodeUtf8With"><span class="hs-identifier">decodeUtf8With</span></a></span><span>
+</span><span id="line-9"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#encodeUtf8"><span class="hs-identifier">encodeUtf8</span></a></span><span>
+</span><span id="line-10"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-11"></span><span>
+</span><span id="line-12"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>                 </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">when</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad.IO.Class</span></a></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">MonadIO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>               </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>               </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Unsafe</span></a></span><span>        </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span class="hs-cpp">
+#if !MIN_VERSION_base(4,8,0)
+</span><span class="hs-keyword">import</span><span>           </span><span class="hs-identifier">Data.Monoid</span><span>                   </span><span class="hs-special">(</span><span class="hs-identifier">mappend</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span>                     </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Encoding</span></a></span><span>            </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Encoding.Error</span></a></span><span>      </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">OnDecodeError</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Word</span></a></span><span>                     </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Word8</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="System.IO.Streams.Combinators.html"><span class="hs-identifier">System.IO.Streams.Combinators</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Streams</span></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="System.IO.Streams.Internal.html"><span class="hs-identifier">System.IO.Streams.Internal</span></a></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier">InputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier">OutputStream</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html"><span class="hs-identifier">System.IO.Streams.Internal</span></a></span><span>    </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Streams</span></span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- | Convert an 'OutputStream' taking 'ByteString's to an 'OutputStream' that</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- takes 'Text', encoding the data as UTF-8. See</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- @Data.Text.Encoding.'T.encodeUtf8'@.</span><span>
+</span><span id="line-35"></span><span class="annot"><a href="System.IO.Streams.Text.html#encodeUtf8"><span class="hs-identifier hs-type">encodeUtf8</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span id="encodeUtf8"><span class="annot"><span class="annottext">encodeUtf8 :: OutputStream ByteString -&gt; IO (OutputStream Text)
+</span><a href="System.IO.Streams.Text.html#encodeUtf8"><span class="hs-identifier hs-var hs-var">encodeUtf8</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; ByteString)
+-&gt; OutputStream ByteString -&gt; IO (OutputStream Text)
+forall a b. (a -&gt; b) -&gt; OutputStream b -&gt; IO (OutputStream a)
+</span><a href="System.IO.Streams.Combinators.html#contramap"><span class="hs-identifier hs-var">Streams.contramap</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.encodeUtf8</span></a></span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- | Decode an 'InputStream' of 'ByteString's in UTF-8 format into an</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- 'InputStream' of 'Text' values. If decoding fails, will throw an exception.</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- See @Data.Text.Encoding.'T.decodeUtf8'@.</span><span>
+</span><span id="line-43"></span><span class="annot"><a href="System.IO.Streams.Text.html#decodeUtf8"><span class="hs-identifier hs-type">decodeUtf8</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span id="decodeUtf8"><span class="annot"><span class="annottext">decodeUtf8 :: InputStream ByteString -&gt; IO (InputStream Text)
+</span><a href="System.IO.Streams.Text.html#decodeUtf8"><span class="hs-identifier hs-var hs-var">decodeUtf8</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Text)
+-&gt; InputStream ByteString -&gt; IO (InputStream Text)
+</span><a href="System.IO.Streams.Text.html#decode"><span class="hs-identifier hs-var">decode</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.decodeUtf8</span></a></span><span>
+</span><span id="line-45"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#decodeUtf8"><span class="hs-pragma hs-type">decodeUtf8</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- | Decode an 'InputStream' of 'ByteString's in UTF-8 format into an</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- 'InputStream' of 'Text' values. If decoding fails, invokes the given</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- 'OnDecodeError' function to decide what to do. See</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- @Data.Text.Encoding.'T.decodeUtf8With'@.</span><span>
+</span><span id="line-53"></span><span class="annot"><a href="System.IO.Streams.Text.html#decodeUtf8With"><span class="hs-identifier hs-type">decodeUtf8With</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">OnDecodeError</span></a></span><span>
+</span><span id="line-54"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-55"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span id="decodeUtf8With"><span class="annot"><span class="annottext">decodeUtf8With :: OnDecodeError -&gt; InputStream ByteString -&gt; IO (InputStream Text)
+</span><a href="System.IO.Streams.Text.html#decodeUtf8With"><span class="hs-identifier hs-var hs-var">decodeUtf8With</span></a></span></span><span> </span><span id="local-6989586621679083412"><span class="annot"><span class="annottext">OnDecodeError
+</span><a href="#local-6989586621679083412"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Text)
+-&gt; InputStream ByteString -&gt; IO (InputStream Text)
+</span><a href="System.IO.Streams.Text.html#decode"><span class="hs-identifier hs-var">decode</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">OnDecodeError -&gt; ByteString -&gt; Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.decodeUtf8With</span></a></span><span> </span><span class="annot"><span class="annottext">OnDecodeError
+</span><a href="#local-6989586621679083412"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#decodeUtf8With"><span class="hs-pragma hs-type">decodeUtf8With</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-61"></span><span class="annot"><a href="System.IO.Streams.Text.html#decode"><span class="hs-identifier hs-type">decode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-62"></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-63"></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span id="decode"><span class="annot"><span class="annottext">decode :: (ByteString -&gt; Text)
+-&gt; InputStream ByteString -&gt; IO (InputStream Text)
+</span><a href="System.IO.Streams.Text.html#decode"><span class="hs-identifier hs-var hs-var">decode</span></a></span></span><span> </span><span id="local-6989586621679083410"><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><a href="#local-6989586621679083410"><span class="hs-identifier hs-var">decodeFunc</span></a></span></span><span> </span><span id="local-6989586621679083409"><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083409"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Generator Text () -&gt; IO (InputStream Text)
+forall r a. Generator r a -&gt; IO (InputStream r)
+</span><a href="System.IO.Streams.Internal.html#fromGenerator"><span class="hs-identifier hs-var">Streams.fromGenerator</span></a></span><span> </span><span class="annot"><span class="annottext">(Generator Text () -&gt; IO (InputStream Text))
+-&gt; Generator Text () -&gt; IO (InputStream Text)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083407"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-66"></span><span>    </span><span id="local-6989586621679083407"><span class="annot"><span class="annottext">go :: Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083407"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679083406"><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679083406"><span class="hs-identifier hs-var">soFar</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe ByteString) -&gt; Generator Text (Maybe ByteString)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftIO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">InputStream ByteString -&gt; IO (Maybe ByteString)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">Streams.read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream ByteString
+</span><a href="#local-6989586621679083409"><span class="hs-identifier hs-var">input</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Generator Text (Maybe ByteString)
+-&gt; (Maybe ByteString -&gt; Generator Text ()) -&gt; Generator Text ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span>
+</span><span id="line-67"></span><span>                </span><span class="annot"><span class="annottext">Generator Text ()
+-&gt; (ByteString -&gt; Generator Text ())
+-&gt; Maybe ByteString
+-&gt; Generator Text ()
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083402"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679083406"><span class="hs-identifier hs-var">soFar</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe ByteString -&gt; ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083401"><span class="hs-identifier hs-var">chunk</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="#local-6989586621679083406"><span class="hs-identifier hs-var">soFar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span>    </span><span id="local-6989586621679083402"><span class="annot"><span class="annottext">finish :: Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083402"><span class="hs-identifier hs-var hs-var">finish</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">() -&gt; Generator Text ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(() -&gt; Generator Text ()) -&gt; () -&gt; Generator Text ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><a href="#local-6989586621679083402"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679083399"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083399"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Generator Text ()
+forall r. r -&gt; Generator r ()
+</span><a href="System.IO.Streams.Internal.html#yield"><span class="hs-identifier hs-var">Streams.yield</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Generator Text ()) -&gt; Text -&gt; Generator Text ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><a href="#local-6989586621679083410"><span class="hs-identifier hs-var">decodeFunc</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083399"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span>    </span><span id="local-6989586621679083401"><span class="annot"><span class="annottext">chunk :: Maybe ByteString -&gt; ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083401"><span class="hs-identifier hs-var hs-var">chunk</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>  </span><span id="local-6989586621679083397"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083397"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083396"><span class="hs-identifier hs-var">process</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083397"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="annot"><a href="#local-6989586621679083401"><span class="hs-identifier hs-var">chunk</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679083395"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083395"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679083394"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083394"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083396"><span class="hs-identifier hs-var">process</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Generator Text ())
+-&gt; ByteString -&gt; Generator Text ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083395"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`mappend`</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083394"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-74"></span><span>
+</span><span id="line-75"></span><span>    </span><span id="local-6989586621679083396"><span class="annot"><span class="annottext">process :: ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083396"><span class="hs-identifier hs-var hs-var">process</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679083393"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083393"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-76"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#findLastFullCode"><span class="hs-identifier hs-var">findLastFullCode</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083393"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><a href="System.IO.Streams.Text.html#LastCodeIsComplete"><span class="hs-identifier hs-type">LastCodeIsComplete</span></a></span><span> </span><span id="local-6989586621679083390"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083390"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Generator Text ()
+forall r. r -&gt; Generator r ()
+</span><a href="System.IO.Streams.Internal.html#yield"><span class="hs-identifier hs-var">Streams.yield</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Generator Text ()) -&gt; Text -&gt; Generator Text ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><a href="#local-6989586621679083410"><span class="hs-identifier hs-var">decodeFunc</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083390"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Generator Text () -&gt; Generator Text () -&gt; Generator Text ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083407"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe ByteString
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-78"></span><span>        </span><span class="annot"><a href="System.IO.Streams.Text.html#Split"><span class="hs-identifier hs-type">Split</span></a></span><span> </span><span id="local-6989586621679083388"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083388"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679083387"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083387"><span class="hs-identifier hs-var">b</span></a></span></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-79"></span><span>                                  </span><span class="annot"><span class="annottext">Bool -&gt; Generator Text () -&gt; Generator Text ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">when</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; Bool -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.null</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083388"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Generator Text () -&gt; Generator Text ())
+-&gt; Generator Text () -&gt; Generator Text ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-80"></span><span>                                      </span><span class="annot"><span class="annottext">Text -&gt; Generator Text ()
+forall r. r -&gt; Generator r ()
+</span><a href="System.IO.Streams.Internal.html#yield"><span class="hs-identifier hs-var">Streams.yield</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Generator Text ()) -&gt; Text -&gt; Generator Text ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><a href="#local-6989586621679083410"><span class="hs-identifier hs-var">decodeFunc</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083388"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-81"></span><span>                                  </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083407"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083387"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>        </span><span class="annot"><a href="System.IO.Streams.Text.html#NoCodesAreComplete"><span class="hs-identifier hs-type">NoCodesAreComplete</span></a></span><span> </span><span id="local-6989586621679083383"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083383"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; Generator Text ()
+</span><a href="#local-6989586621679083407"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083383"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-86"></span><span class="hs-keyword">data</span><span> </span><span id="ByteType"><span class="annot"><a href="System.IO.Streams.Text.html#ByteType"><span class="hs-identifier hs-var">ByteType</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Regular"><span class="annot"><a href="System.IO.Streams.Text.html#Regular"><span class="hs-identifier hs-var">Regular</span></a></span></span><span>
+</span><span id="line-87"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span id="Continuation"><span class="annot"><a href="System.IO.Streams.Text.html#Continuation"><span class="hs-identifier hs-var">Continuation</span></a></span></span><span>
+</span><span id="line-88"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span id="Start"><span class="annot"><a href="System.IO.Streams.Text.html#Start"><span class="hs-identifier hs-var">Start</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-92"></span><span class="annot"><a href="System.IO.Streams.Text.html#between"><span class="hs-identifier hs-type">between</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-93"></span><span id="between"><span class="annot"><span class="annottext">between :: Word8 -&gt; Word8 -&gt; Word8 -&gt; Bool
+</span><a href="System.IO.Streams.Text.html#between"><span class="hs-identifier hs-var hs-var">between</span></a></span></span><span> </span><span id="local-6989586621679083378"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083378"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679083377"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083377"><span class="hs-identifier hs-var">y</span></a></span></span><span> </span><span id="local-6989586621679083376"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083376"><span class="hs-identifier hs-var">z</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083378"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083377"><span class="hs-identifier hs-var">y</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083378"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083376"><span class="hs-identifier hs-var">z</span></a></span><span>
+</span><span id="line-94"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#between"><span class="hs-pragma hs-type">between</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-95"></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-98"></span><span class="annot"><a href="System.IO.Streams.Text.html#characterizeByte"><span class="hs-identifier hs-type">characterizeByte</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#ByteType"><span class="hs-identifier hs-type">ByteType</span></a></span><span>
+</span><span id="line-99"></span><span id="characterizeByte"><span class="annot"><span class="annottext">characterizeByte :: Word8 -&gt; ByteType
+</span><a href="System.IO.Streams.Text.html#characterizeByte"><span class="hs-identifier hs-var hs-var">characterizeByte</span></a></span></span><span> </span><span id="local-6989586621679083372"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083372"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Word8 -&gt; Bool
+</span><a href="System.IO.Streams.Text.html#between"><span class="hs-identifier hs-var">between</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083372"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7F</span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteType
+</span><a href="System.IO.Streams.Text.html#Regular"><span class="hs-identifier hs-var">Regular</span></a></span><span>
+</span><span id="line-100"></span><span>                   </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Word8 -&gt; Bool
+</span><a href="System.IO.Streams.Text.html#between"><span class="hs-identifier hs-var">between</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083372"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x80</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0xBF</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteType
+</span><a href="System.IO.Streams.Text.html#Continuation"><span class="hs-identifier hs-var">Continuation</span></a></span><span>
+</span><span id="line-101"></span><span>                   </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Word8 -&gt; Bool
+</span><a href="System.IO.Streams.Text.html#between"><span class="hs-identifier hs-var">between</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083372"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0xC0</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0xDF</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; ByteType
+</span><a href="System.IO.Streams.Text.html#Start"><span class="hs-identifier hs-var">Start</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-102"></span><span>                   </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Word8 -&gt; Bool
+</span><a href="System.IO.Streams.Text.html#between"><span class="hs-identifier hs-var">between</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083372"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0xE0</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0xEF</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; ByteType
+</span><a href="System.IO.Streams.Text.html#Start"><span class="hs-identifier hs-var">Start</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">2</span></span><span>
+</span><span id="line-103"></span><span>                   </span><span class="hs-comment">-- Technically utf-8 ends after 0xf4, but those sequences</span><span>
+</span><span id="line-104"></span><span>                   </span><span class="hs-comment">-- won't decode anyways.</span><span>
+</span><span id="line-105"></span><span>                   </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>           </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; ByteType
+</span><a href="System.IO.Streams.Text.html#Start"><span class="hs-identifier hs-var">Start</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">3</span></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span>
+</span><span id="line-108"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-109"></span><span class="hs-keyword">data</span><span> </span><span id="FindOutput"><span class="annot"><a href="System.IO.Streams.Text.html#FindOutput"><span class="hs-identifier hs-var">FindOutput</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LastCodeIsComplete"><span class="annot"><a href="System.IO.Streams.Text.html#LastCodeIsComplete"><span class="hs-identifier hs-var">LastCodeIsComplete</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-110"></span><span>                </span><span class="hs-glyph">|</span><span> </span><span id="Split"><span class="annot"><a href="System.IO.Streams.Text.html#Split"><span class="hs-identifier hs-var">Split</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-111"></span><span>                </span><span class="hs-glyph">|</span><span> </span><span id="NoCodesAreComplete"><span class="annot"><a href="System.IO.Streams.Text.html#NoCodesAreComplete"><span class="hs-identifier hs-var">NoCodesAreComplete</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>   </span><span class="hs-comment">-- should be impossibly rare</span><span>
+</span><span id="line-112"></span><span>                                                   </span><span class="hs-comment">-- in real data</span><span>
+</span><span id="line-113"></span><span>
+</span><span id="line-114"></span><span>
+</span><span id="line-115"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-116"></span><span class="annot"><a href="System.IO.Streams.Text.html#findLastFullCode"><span class="hs-identifier hs-type">findLastFullCode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#FindOutput"><span class="hs-identifier hs-type">FindOutput</span></a></span><span>
+</span><span id="line-117"></span><span id="findLastFullCode"><span class="annot"><span class="annottext">findLastFullCode :: ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#findLastFullCode"><span class="hs-identifier hs-var hs-var">findLastFullCode</span></a></span></span><span> </span><span id="local-6989586621679083371"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083370"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#LastCodeIsComplete"><span class="hs-identifier hs-var">LastCodeIsComplete</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-118"></span><span>                   </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FindOutput
+</span><a href="#local-6989586621679083369"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-119"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-120"></span><span>    </span><span id="local-6989586621679083370"><span class="annot"><span class="annottext">len :: Int
+</span><a href="#local-6989586621679083370"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.length</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span>    </span><span id="local-6989586621679083369"><span class="annot"><span class="annottext">go :: FindOutput
+</span><a href="#local-6989586621679083369"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679083367"><span class="annot"><span class="annottext">idx :: Int
+</span><a href="#local-6989586621679083367"><span class="hs-identifier hs-var hs-var">idx</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083370"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-123"></span><span>             </span><span class="hs-glyph">!</span><span id="local-6989586621679083366"><span class="annot"><span class="annottext">c :: Word8
+</span><a href="#local-6989586621679083366"><span class="hs-identifier hs-var hs-var">c</span></a></span></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.unsafeIndex</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083367"><span class="hs-identifier hs-var">idx</span></a></span><span>
+</span><span id="line-124"></span><span>         </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; ByteType
+</span><a href="System.IO.Streams.Text.html#characterizeByte"><span class="hs-identifier hs-var">characterizeByte</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083366"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-125"></span><span>              </span><span class="annot"><span class="annottext">ByteType
+</span><a href="System.IO.Streams.Text.html#Regular"><span class="hs-identifier hs-var">Regular</span></a></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#LastCodeIsComplete"><span class="hs-identifier hs-var">LastCodeIsComplete</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-126"></span><span>              </span><span class="annot"><span class="annottext">ByteType
+</span><a href="System.IO.Streams.Text.html#Continuation"><span class="hs-identifier hs-var">Continuation</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int -&gt; FindOutput
+</span><a href="#local-6989586621679083364"><span class="hs-identifier hs-var">cont</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083370"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">2</span></span><span class="hs-special">)</span><span>
+</span><span id="line-127"></span><span>              </span><span class="annot"><span class="annottext">ByteType
+</span><span class="hs-identifier">_</span></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#Split"><span class="hs-identifier hs-var">Split</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.unsafeTake</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083367"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.unsafeDrop</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083367"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span>    </span><span id="local-6989586621679083364"><span class="annot"><span class="annottext">cont :: Int -&gt; FindOutput
+</span><a href="#local-6989586621679083364"><span class="hs-identifier hs-var hs-var">cont</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679083361"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#NoCodesAreComplete"><span class="hs-identifier hs-var">NoCodesAreComplete</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-130"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-131"></span><span>                  </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679083359"><span class="annot"><span class="annottext">c :: Word8
+</span><a href="#local-6989586621679083359"><span class="hs-identifier hs-var hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int -&gt; Word8
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.unsafeIndex</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span><span>
+</span><span id="line-132"></span><span>                  </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; ByteType
+</span><a href="System.IO.Streams.Text.html#characterizeByte"><span class="hs-identifier hs-var">characterizeByte</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679083359"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-133"></span><span>                       </span><span class="hs-comment">-- what do we do with this? decoding will fail. give up</span><span>
+</span><span id="line-134"></span><span>                       </span><span class="hs-comment">-- and lie, the text decoder will deal with it..</span><span>
+</span><span id="line-135"></span><span>                       </span><span class="annot"><span class="annottext">ByteType
+</span><a href="System.IO.Streams.Text.html#Regular"><span class="hs-identifier hs-var">Regular</span></a></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#LastCodeIsComplete"><span class="hs-identifier hs-var">LastCodeIsComplete</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-136"></span><span>                       </span><span class="annot"><span class="annottext">ByteType
+</span><a href="System.IO.Streams.Text.html#Continuation"><span class="hs-identifier hs-var">Continuation</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int -&gt; FindOutput
+</span><a href="#local-6989586621679083364"><span class="hs-identifier hs-var">cont</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-137"></span><span>                       </span><span class="annot"><a href="System.IO.Streams.Text.html#Start"><span class="hs-identifier hs-type">Start</span></a></span><span> </span><span id="local-6989586621679083358"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083358"><span class="hs-identifier hs-var">n</span></a></span></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083358"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083370"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-138"></span><span>                                         </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#LastCodeIsComplete"><span class="hs-identifier hs-var">LastCodeIsComplete</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-139"></span><span>                                         </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; FindOutput
+</span><a href="System.IO.Streams.Text.html#Split"><span class="hs-identifier hs-var">Split</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.unsafeTake</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span><span>                                                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.unsafeDrop</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679083361"><span class="hs-identifier hs-var">idx</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679083371"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="System.IO.Streams.Text.html#findLastFullCode"><span class="hs-pragma hs-type">findLastFullCode</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-142"></span></pre></body></html>

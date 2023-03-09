@@ -1,0 +1,965 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveGeneric #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE PackageImports #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Copyright: &#169; 2018-2020 IOHK</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Restore benchmark CLI handling and setup functions which are shared between</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- backends.</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Wallet.BenchShared</span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * CLI Parser</span></span><span>
+</span><span id="line-15"></span><span>      </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier">RestoreBenchArgs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgs"><span class="hs-identifier">getRestoreBenchArgs</span></a></span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#argsNetworkDir"><span class="hs-identifier">argsNetworkDir</span></a></span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Main function</span></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#execBenchWithNode"><span class="hs-identifier">execBenchWithNode</span></a></span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#initBenchmarkLogging"><span class="hs-identifier">initBenchmarkLogging</span></a></span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Benchmark runner</span></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#runBenchmarks"><span class="hs-identifier">runBenchmarks</span></a></span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#bench"><span class="hs-identifier">bench</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier">Time</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-31"></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Configuration.Static</span></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">defaultConfigStdout</span></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Data.Severity</span></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">Severity</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Setup</span></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">setupTrace_</span></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Trace</span></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">Trace</span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../contra-tracer/html/src"><span class="hs-identifier">nullTracer</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">Cardano.Launcher.Node</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">CardanoNodeConfig</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">CardanoNodeConn</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">NodePort</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">cardanoNodeConn</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">withCardanoNode</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">Cardano.Startup</span></a></span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier">installSignalHandlers</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">Cardano.Wallet.Logging</span></a></span><span>
+</span><span id="line-50"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">trMessageText</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">Cardano.Wallet.Network.Ports</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">getRandomPort</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">Control.DeepSeq</span></a></span><span>
+</span><span id="line-54"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">NFData</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">rnf</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forM</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier">Criterion.Measurement</span></a></span><span>
+</span><span id="line-58"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier">getTime</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier">initializeTime</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier">secs</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson</span></a></span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">ToJSON</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Functor</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(&lt;&amp;&gt;)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-63"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Maybe</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">fromMaybe</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text-class/html/src"><span class="hs-identifier">Data.Text.Class</span></a></span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../text-class/html/src"><span class="hs-identifier">ToText</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">Fmt</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier">Buildable</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">nameF</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">pretty</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-71"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Generics</span></a></span><span>
+</span><span id="line-72"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Generic</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- See ADP-1910</span><span>
+</span><span id="line-74"></span><span class="hs-keyword">import</span><span> </span><span class="hs-string">&quot;optparse-applicative&quot;</span><span> </span><span class="annot"><a href="../../../../optparse-applicative-fork/html/src"><span class="hs-identifier">Options.Applicative</span></a></span><span>
+</span><span id="line-75"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">HasValue</span></a></span><span>
+</span><span id="line-76"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">Mod</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">Parser</span></a></span><span>
+</span><span id="line-78"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">eitherReader</span></a></span><span>
+</span><span id="line-79"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">execParser</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">help</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">helper</span></a></span><span>
+</span><span id="line-82"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">info</span></a></span><span>
+</span><span id="line-83"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">long</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">metavar</span></a></span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">option</span></a></span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">optional</span></a></span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">short</span></a></span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">showDefaultWith</span></a></span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">strArgument</span></a></span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">strOption</span></a></span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">switch</span></a></span><span>
+</span><span id="line-92"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier">value</span></a></span><span>
+</span><span id="line-93"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-94"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../say/html/src"><span class="hs-identifier">Say</span></a></span><span>
+</span><span id="line-95"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../say/html/src"><span class="hs-identifier">sayErr</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../directory/html/src"><span class="hs-identifier">System.Directory</span></a></span><span>
+</span><span id="line-97"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../directory/html/src"><span class="hs-identifier">createDirectoryIfMissing</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-98"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.Environment</span></a></span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">lookupEnv</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-100"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.Exit</span></a></span><span>
+</span><span id="line-101"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">ExitCode</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">die</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-102"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-identifier">System.FilePath</span></a></span><span>
+</span><span id="line-103"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-operator">(&lt;/&gt;)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-104"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-test-utils/html/src"><span class="hs-identifier">Test.Utils.Startup</span></a></span><span>
+</span><span id="line-105"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-test-utils/html/src"><span class="hs-identifier">withNoBuffering</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.Concurrent</span></a></span><span>
+</span><span id="line-107"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">threadDelay</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.Exception</span></a></span><span>
+</span><span id="line-109"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">evaluate</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.Temporary</span></a></span><span>
+</span><span id="line-111"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">withSystemTempDirectory</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Configuration.Model</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CM</span></span><span>
+</span><span id="line-114"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Data.BackendKind</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CM</span></span><span>
+</span><span id="line-115"></span><span>
+</span><span id="line-116"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+               CLI option handling and cardano-node configuration
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-119"></span><span>
+</span><span id="line-120"></span><span id="local-6989586621682935730"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#execBenchWithNode"><span class="hs-identifier hs-type">execBenchWithNode</span></a></span><span>
+</span><span id="line-121"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-type">RestoreBenchArgs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682935730"><span class="hs-identifier hs-type">cfg</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-comment">-- ^ Get backend-specific network configuration from args</span><span>
+</span><span id="line-123"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Trace</span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682935730"><span class="hs-identifier hs-type">cfg</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-type">CardanoNodeConn</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-comment">-- ^ Action to run</span><span>
+</span><span id="line-125"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ExitCode</span></a></span></span><span>
+</span><span id="line-126"></span><span id="execBenchWithNode"><span class="annot"><span class="annottext">execBenchWithNode :: (RestoreBenchArgs -&gt; cfg)
+-&gt; (Trace IO Text -&gt; cfg -&gt; CardanoNodeConn -&gt; IO ())
+-&gt; IO ExitCode
+</span><a href="Cardano.Wallet.BenchShared.html#execBenchWithNode"><span class="hs-identifier hs-var hs-var">execBenchWithNode</span></a></span></span><span> </span><span id="local-6989586621682935729"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; cfg
+</span><a href="#local-6989586621682935729"><span class="hs-identifier hs-var">networkConfig</span></a></span></span><span> </span><span id="local-6989586621682935728"><span class="annot"><span class="annottext">Trace IO Text -&gt; cfg -&gt; CardanoNodeConn -&gt; IO ()
+</span><a href="#local-6989586621682935728"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO ExitCode -&gt; IO ExitCode
+forall (m :: * -&gt; *) a. MonadUnliftIO m =&gt; m a -&gt; m a
+</span><a href="../../../../cardano-wallet-test-utils/html/src"><span class="hs-identifier hs-var">withNoBuffering</span></a></span><span> </span><span class="annot"><span class="annottext">(IO ExitCode -&gt; IO ExitCode) -&gt; IO ExitCode -&gt; IO ExitCode
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-127"></span><span>    </span><span id="local-6989586621682935727"><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935727"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO RestoreBenchArgs
+</span><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgs"><span class="hs-identifier hs-var">getRestoreBenchArgs</span></a></span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621682935726"><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935726"><span class="hs-identifier hs-var">_logCfg</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682935725"><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935725"><span class="hs-identifier hs-var">tr'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Severity -&gt; IO (Configuration, Trace IO Text)
+</span><a href="Cardano.Wallet.BenchShared.html#initBenchmarkLogging"><span class="hs-identifier hs-var">initBenchmarkLogging</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;bench-restore&quot;</span></span><span> </span><span class="annot"><span class="annottext">Severity
+</span><span class="hs-identifier hs-var">Info</span></span><span>
+</span><span id="line-130"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682935723"><span class="annot"><span class="annottext">tr :: Trace IO Text
+</span><a href="#local-6989586621682935723"><span class="hs-identifier hs-var hs-var">tr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Bool
+</span><a href="Cardano.Wallet.BenchShared.html#argQuiet"><span class="hs-identifier hs-var hs-var">argQuiet</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935727"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Trace IO Text
+forall (m :: * -&gt; *) a. Applicative m =&gt; Tracer m a
+</span><a href="../../../../contra-tracer/html/src"><span class="hs-identifier hs-var">nullTracer</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935725"><span class="hs-identifier hs-var">tr'</span></a></span><span>
+</span><span id="line-131"></span><span>    </span><span class="annot"><span class="annottext">IO () -&gt; IO ()
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">installSignalHandlers</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>
+</span><span id="line-133"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Maybe CardanoNodeConn
+</span><a href="Cardano.Wallet.BenchShared.html#argUseAlreadyRunningNodeSocketPath"><span class="hs-identifier hs-var hs-var">argUseAlreadyRunningNodeSocketPath</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935727"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-134"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682935720"><span class="annot"><span class="annottext">CardanoNodeConn
+</span><a href="#local-6989586621682935720"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-135"></span><span>            </span><span class="annot"><span class="annottext">Trace IO Text -&gt; cfg -&gt; CardanoNodeConn -&gt; IO ()
+</span><a href="#local-6989586621682935728"><span class="hs-identifier hs-var">action</span></a></span><span> </span><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935723"><span class="hs-identifier hs-var">tr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; cfg
+</span><a href="#local-6989586621682935729"><span class="hs-identifier hs-var">networkConfig</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935727"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">CardanoNodeConn
+</span><a href="#local-6989586621682935720"><span class="hs-identifier hs-var">conn</span></a></span><span>
+</span><span id="line-136"></span><span>            </span><span class="annot"><span class="annottext">ExitCode -&gt; IO ExitCode
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">ExitCode
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ExitSuccess</span></a></span><span>
+</span><span id="line-137"></span><span>        </span><span class="annot"><span class="annottext">Maybe CardanoNodeConn
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-138"></span><span>            </span><span id="local-6989586621682935718"><span class="annot"><span class="annottext">Either ProcessHasExited ()
+</span><a href="#local-6989586621682935718"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+-&gt; (CardanoNodeConfig -&gt; IO (Either ProcessHasExited ()))
+-&gt; IO (Either ProcessHasExited ())
+forall a. RestoreBenchArgs -&gt; (CardanoNodeConfig -&gt; IO a) -&gt; IO a
+</span><a href="Cardano.Wallet.BenchShared.html#withNetworkConfiguration"><span class="hs-identifier hs-var">withNetworkConfiguration</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935727"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="annot"><span class="annottext">((CardanoNodeConfig -&gt; IO (Either ProcessHasExited ()))
+ -&gt; IO (Either ProcessHasExited ()))
+-&gt; (CardanoNodeConfig -&gt; IO (Either ProcessHasExited ()))
+-&gt; IO (Either ProcessHasExited ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682935716"><span class="annot"><span class="annottext">CardanoNodeConfig
+</span><a href="#local-6989586621682935716"><span class="hs-identifier hs-var">nodeConfig</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-139"></span><span>                </span><span class="annot"><span class="annottext">Tracer IO LauncherLog
+-&gt; CardanoNodeConfig
+-&gt; (CardanoNodeConn -&gt; IO ())
+-&gt; IO (Either ProcessHasExited ())
+forall a.
+Tracer IO LauncherLog
+-&gt; CardanoNodeConfig
+-&gt; (CardanoNodeConn -&gt; IO a)
+-&gt; IO (Either ProcessHasExited a)
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">withCardanoNode</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Trace IO Text -&gt; Tracer IO LauncherLog
+forall (m :: * -&gt; *) a.
+(MonadIO m, ToText a, HasPrivacyAnnotation a,
+ HasSeverityAnnotation a) =&gt;
+Tracer m (Text, LogObject Text) -&gt; Tracer m a
+</span><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-var">trMessageText</span></a></span><span> </span><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935723"><span class="hs-identifier hs-var">tr</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">CardanoNodeConfig
+</span><a href="#local-6989586621682935716"><span class="hs-identifier hs-var">nodeConfig</span></a></span><span> </span><span class="annot"><span class="annottext">((CardanoNodeConn -&gt; IO ()) -&gt; IO (Either ProcessHasExited ()))
+-&gt; (CardanoNodeConn -&gt; IO ()) -&gt; IO (Either ProcessHasExited ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-140"></span><span>                    </span><span class="annot"><span class="annottext">Trace IO Text -&gt; cfg -&gt; CardanoNodeConn -&gt; IO ()
+</span><a href="#local-6989586621682935728"><span class="hs-identifier hs-var">action</span></a></span><span> </span><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935723"><span class="hs-identifier hs-var">tr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; cfg
+</span><a href="#local-6989586621682935729"><span class="hs-identifier hs-var">networkConfig</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935727"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>            </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either ProcessHasExited ()
+</span><a href="#local-6989586621682935718"><span class="hs-identifier hs-var">res</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-142"></span><span>                </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621682935715"><span class="annot"><span class="annottext">ProcessHasExited
+</span><a href="#local-6989586621682935715"><span class="hs-identifier hs-var">exited</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-143"></span><span>                    </span><span class="annot"><span class="annottext">Text -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayErr</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; IO ()) -&gt; Text -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;FAIL: cardano-node exited with status &quot;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Text
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessHasExited -&gt; Text
+forall a. ToText a =&gt; a -&gt; Text
+</span><a href="../../../../text-class/html/src"><span class="hs-identifier hs-var">toText</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessHasExited
+</span><a href="#local-6989586621682935715"><span class="hs-identifier hs-var">exited</span></a></span><span>
+</span><span id="line-144"></span><span>                    </span><span class="annot"><span class="annottext">ExitCode -&gt; IO ExitCode
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(ExitCode -&gt; IO ExitCode) -&gt; ExitCode -&gt; IO ExitCode
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; ExitCode
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ExitFailure</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-145"></span><span>                </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="annot"><span class="annottext">()
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ExitCode -&gt; IO ExitCode
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">ExitCode
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ExitSuccess</span></a></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span id="local-6989586621682935911"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#withNetworkConfiguration"><span class="hs-identifier hs-type">withNetworkConfiguration</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-type">RestoreBenchArgs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-type">CardanoNodeConfig</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935911"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935911"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-148"></span><span id="withNetworkConfiguration"><span class="annot"><span class="annottext">withNetworkConfiguration :: RestoreBenchArgs -&gt; (CardanoNodeConfig -&gt; IO a) -&gt; IO a
+</span><a href="Cardano.Wallet.BenchShared.html#withNetworkConfiguration"><span class="hs-identifier hs-var hs-var">withNetworkConfiguration</span></a></span></span><span> </span><span id="local-6989586621682935712"><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935712"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span id="local-6989586621682935711"><span class="annot"><span class="annottext">CardanoNodeConfig -&gt; IO a
+</span><a href="#local-6989586621682935711"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-149"></span><span>    </span><span class="hs-comment">-- Temporary directory for storing socket and node database</span><span>
+</span><span id="line-150"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682935710"><span class="annot"><span class="annottext">withNodeDir :: (FilePath -&gt; IO a) -&gt; IO a
+</span><a href="#local-6989586621682935710"><span class="hs-identifier hs-var hs-var">withNodeDir</span></a></span></span><span> </span><span id="local-6989586621682935709"><span class="annot"><span class="annottext">FilePath -&gt; IO a
+</span><a href="#local-6989586621682935709"><span class="hs-identifier hs-var">cb</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Maybe FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argNodeDatabaseDir"><span class="hs-identifier hs-var hs-var">argNodeDatabaseDir</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935712"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-151"></span><span>            </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; (FilePath -&gt; IO a) -&gt; IO a
+forall (m :: * -&gt; *) a.
+MonadUnliftIO m =&gt;
+FilePath -&gt; (FilePath -&gt; m a) -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">withSystemTempDirectory</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;cw-node&quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO a
+</span><a href="#local-6989586621682935709"><span class="hs-identifier hs-var">cb</span></a></span><span>
+</span><span id="line-152"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682935707"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935707"><span class="hs-identifier hs-var">d</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-153"></span><span>                </span><span class="annot"><span class="annottext">Bool -&gt; FilePath -&gt; IO ()
+</span><a href="../../../../directory/html/src"><span class="hs-identifier hs-var">createDirectoryIfMissing</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935707"><span class="hs-identifier hs-var">d</span></a></span><span>
+</span><span id="line-154"></span><span>                </span><span class="annot"><span class="annottext">FilePath -&gt; IO a
+</span><a href="#local-6989586621682935709"><span class="hs-identifier hs-var">cb</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935707"><span class="hs-identifier hs-var">d</span></a></span><span>
+</span><span id="line-155"></span><span>
+</span><span id="line-156"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682935706"><span class="annot"><span class="annottext">networkDir :: FilePath
+</span><a href="#local-6989586621682935706"><span class="hs-identifier hs-var hs-var">networkDir</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argsNetworkDir"><span class="hs-identifier hs-var">argsNetworkDir</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935712"><span class="hs-identifier hs-var">args</span></a></span><span>
+</span><span id="line-157"></span><span>    </span><span id="local-6989586621682935705"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682935705"><span class="hs-identifier hs-var">port</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">PortNumber -&gt; Int
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(PortNumber -&gt; Int) -&gt; IO PortNumber -&gt; IO Int
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO PortNumber
+</span><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-var">getRandomPort</span></a></span><span>
+</span><span id="line-158"></span><span>    </span><span class="annot"><span class="annottext">(FilePath -&gt; IO a) -&gt; IO a
+forall a. (FilePath -&gt; IO a) -&gt; IO a
+</span><a href="#local-6989586621682935710"><span class="hs-identifier hs-var">withNodeDir</span></a></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; IO a) -&gt; IO a) -&gt; (FilePath -&gt; IO a) -&gt; IO a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682935703"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935703"><span class="hs-identifier hs-var">dir</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">CardanoNodeConfig -&gt; IO a
+</span><a href="#local-6989586621682935711"><span class="hs-identifier hs-var">action</span></a></span><span> </span><span class="annot"><span class="annottext">CardanoNodeConfig :: FilePath
+-&gt; FilePath
+-&gt; FilePath
+-&gt; FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe NodePort
+-&gt; Maybe FilePath
+-&gt; CardanoNodeConfig
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-type">CardanoNodeConfig</span></a></span><span>
+</span><span id="line-159"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">nodeDir :: FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeDir</span></a></span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935703"><span class="hs-identifier hs-var">dir</span></a></span><span>
+</span><span id="line-160"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeConfigFile :: FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeConfigFile</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935706"><span class="hs-identifier hs-var">networkDir</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;configuration.json&quot;</span></span><span>
+</span><span id="line-161"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeDatabaseDir :: FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeDatabaseDir</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath -&gt; FilePath
+forall a. a -&gt; Maybe a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;db&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Maybe FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argNodeDatabaseDir"><span class="hs-identifier hs-var hs-var">argNodeDatabaseDir</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935712"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-162"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeDlgCertFile :: Maybe FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeDlgCertFile</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-163"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeSignKeyFile :: Maybe FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeSignKeyFile</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-164"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeTopologyFile :: FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeTopologyFile</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935706"><span class="hs-identifier hs-var">networkDir</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;topology.json&quot;</span></span><span>
+</span><span id="line-165"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeOpCertFile :: Maybe FilePath
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">nodeOpCertFile</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-166"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeKesKeyFile :: Maybe FilePath
+</span><a href="#local-6989586621682935694"><span class="hs-identifier hs-var">nodeKesKeyFile</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-167"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeVrfKeyFile :: Maybe FilePath
+</span><a href="#local-6989586621682935693"><span class="hs-identifier hs-var">nodeVrfKeyFile</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-168"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodePort :: Maybe NodePort
+</span><a href="#local-6989586621682935692"><span class="hs-identifier hs-var">nodePort</span></a></span><span>         </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NodePort -&gt; Maybe NodePort
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; NodePort
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">NodePort</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682935705"><span class="hs-identifier hs-var">port</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-169"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeLoggingHostname :: Maybe FilePath
+</span><a href="#local-6989586621682935690"><span class="hs-identifier hs-var">nodeLoggingHostname</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-170"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-171"></span><span>
+</span><span id="line-172"></span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#argsNetworkDir"><span class="hs-identifier hs-type">argsNetworkDir</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-type">RestoreBenchArgs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-173"></span><span id="argsNetworkDir"><span class="annot"><span class="annottext">argsNetworkDir :: RestoreBenchArgs -&gt; FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argsNetworkDir"><span class="hs-identifier hs-var hs-var">argsNetworkDir</span></a></span></span><span> </span><span id="local-6989586621682935689"><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935689"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argConfigsDir"><span class="hs-identifier hs-var hs-var">argConfigsDir</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935689"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argNetworkName"><span class="hs-identifier hs-var hs-var">argNetworkName</span></a></span><span> </span><span class="annot"><span class="annottext">RestoreBenchArgs
+</span><a href="#local-6989586621682935689"><span class="hs-identifier hs-var">args</span></a></span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+                                   CLI Parser
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-178"></span><span>
+</span><span id="line-179"></span><span class="hs-keyword">data</span><span> </span><span id="RestoreBenchArgs"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-var">RestoreBenchArgs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="RestoreBenchArgs"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-var">RestoreBenchArgs</span></a></span></span><span>
+</span><span id="line-180"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="argNetworkName"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argNetworkName"><span class="hs-identifier hs-var hs-var">argNetworkName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-181"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="argConfigsDir"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argConfigsDir"><span class="hs-identifier hs-var hs-var">argConfigsDir</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-182"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="argNodeDatabaseDir"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Maybe FilePath
+</span><a href="Cardano.Wallet.BenchShared.html#argNodeDatabaseDir"><span class="hs-identifier hs-var hs-var">argNodeDatabaseDir</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-183"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="argUseAlreadyRunningNodeSocketPath"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Maybe CardanoNodeConn
+</span><a href="Cardano.Wallet.BenchShared.html#argUseAlreadyRunningNodeSocketPath"><span class="hs-identifier hs-var hs-var">argUseAlreadyRunningNodeSocketPath</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-type">CardanoNodeConn</span></a></span><span>
+</span><span id="line-184"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="argQuiet"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; Bool
+</span><a href="Cardano.Wallet.BenchShared.html#argQuiet"><span class="hs-identifier hs-var hs-var">argQuiet</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-185"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682935679"><span id="local-6989586621682935681"><span id="local-6989586621682935683"><span class="annot"><span class="annottext">Int -&gt; RestoreBenchArgs -&gt; FilePath -&gt; FilePath
+[RestoreBenchArgs] -&gt; FilePath -&gt; FilePath
+RestoreBenchArgs -&gt; FilePath
+(Int -&gt; RestoreBenchArgs -&gt; FilePath -&gt; FilePath)
+-&gt; (RestoreBenchArgs -&gt; FilePath)
+-&gt; ([RestoreBenchArgs] -&gt; FilePath -&gt; FilePath)
+-&gt; Show RestoreBenchArgs
+forall a.
+(Int -&gt; a -&gt; FilePath -&gt; FilePath)
+-&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; FilePath -&gt; FilePath) -&gt; Show a
+showList :: [RestoreBenchArgs] -&gt; FilePath -&gt; FilePath
+$cshowList :: [RestoreBenchArgs] -&gt; FilePath -&gt; FilePath
+show :: RestoreBenchArgs -&gt; FilePath
+$cshow :: RestoreBenchArgs -&gt; FilePath
+showsPrec :: Int -&gt; RestoreBenchArgs -&gt; FilePath -&gt; FilePath
+$cshowsPrec :: Int -&gt; RestoreBenchArgs -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682935674"><span id="local-6989586621682935676"><span class="annot"><span class="annottext">RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool
+(RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool)
+-&gt; (RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool)
+-&gt; Eq RestoreBenchArgs
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool
+$c/= :: RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool
+== :: RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool
+$c== :: RestoreBenchArgs -&gt; RestoreBenchArgs -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-186"></span><span>
+</span><span id="line-187"></span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#restoreBenchArgsParser"><span class="hs-identifier hs-type">restoreBenchArgsParser</span></a></span><span>
+</span><span id="line-188"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-189"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-190"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span>
+</span><span id="line-191"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-type">CardanoNodeConn</span></a></span><span>
+</span><span id="line-192"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-type">Parser</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-type">RestoreBenchArgs</span></a></span><span>
+</span><span id="line-193"></span><span id="restoreBenchArgsParser"><span class="annot"><span class="annottext">restoreBenchArgsParser :: Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe CardanoNodeConn
+-&gt; Parser RestoreBenchArgs
+</span><a href="Cardano.Wallet.BenchShared.html#restoreBenchArgsParser"><span class="hs-identifier hs-var hs-var">restoreBenchArgsParser</span></a></span></span><span> </span><span id="local-6989586621682935671"><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621682935671"><span class="hs-identifier hs-var">envNetwork</span></a></span></span><span> </span><span id="local-6989586621682935670"><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621682935670"><span class="hs-identifier hs-var">envConfigsDir</span></a></span></span><span> </span><span id="local-6989586621682935669"><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621682935669"><span class="hs-identifier hs-var">envNodeDatabaseDir</span></a></span></span><span> </span><span id="local-6989586621682935668"><span class="annot"><span class="annottext">Maybe CardanoNodeConn
+</span><a href="#local-6989586621682935668"><span class="hs-identifier hs-var">envNodeSocket</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+-&gt; FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe CardanoNodeConn
+-&gt; Bool
+-&gt; RestoreBenchArgs
+</span><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-var">RestoreBenchArgs</span></a></span><span>
+</span><span id="line-194"></span><span>    </span><span class="annot"><span class="annottext">(FilePath
+ -&gt; FilePath
+ -&gt; Maybe FilePath
+ -&gt; Maybe CardanoNodeConn
+ -&gt; Bool
+ -&gt; RestoreBenchArgs)
+-&gt; Parser FilePath
+-&gt; Parser
+     (FilePath
+      -&gt; Maybe FilePath
+      -&gt; Maybe CardanoNodeConn
+      -&gt; Bool
+      -&gt; RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Mod ArgumentFields FilePath -&gt; Parser FilePath
+forall s. IsString s =&gt; Mod ArgumentFields s -&gt; Parser s
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">strArgument</span></a></span><span>
+</span><span id="line-195"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod ArgumentFields FilePath
+forall (f :: * -&gt; *) a. HasMetavar f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">metavar</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NETWORK&quot;</span></span><span>
+</span><span id="line-196"></span><span>          </span><span class="annot"><span class="annottext">Mod ArgumentFields FilePath
+-&gt; Mod ArgumentFields FilePath -&gt; Mod ArgumentFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath -&gt; Mod ArgumentFields FilePath
+forall (f :: * -&gt; *) a.
+HasValue f =&gt;
+FilePath -&gt; Maybe a -&gt; Mod f a
+</span><a href="#local-6989586621682935667"><span class="hs-identifier hs-var">envDefault</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NETWORK&quot;</span></span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621682935671"><span class="hs-identifier hs-var">envNetwork</span></a></span><span>
+</span><span id="line-197"></span><span>          </span><span class="annot"><span class="annottext">Mod ArgumentFields FilePath
+-&gt; Mod ArgumentFields FilePath -&gt; Mod ArgumentFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod ArgumentFields FilePath
+forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">help</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Blockchain to use. Defaults to $NETWORK.&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-198"></span><span>    </span><span class="annot"><span class="annottext">Parser
+  (FilePath
+   -&gt; Maybe FilePath
+   -&gt; Maybe CardanoNodeConn
+   -&gt; Bool
+   -&gt; RestoreBenchArgs)
+-&gt; Parser FilePath
+-&gt; Parser
+     (Maybe FilePath
+      -&gt; Maybe CardanoNodeConn -&gt; Bool -&gt; RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Mod OptionFields FilePath -&gt; Parser FilePath
+forall s. IsString s =&gt; Mod OptionFields s -&gt; Parser s
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">strOption</span></a></span><span>
+</span><span id="line-199"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. HasName f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">long</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;cardano-node-configs&quot;</span></span><span>
+</span><span id="line-200"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. HasName f =&gt; Char -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">short</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'c'</span></span><span>
+</span><span id="line-201"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. HasMetavar f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">metavar</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;DIR&quot;</span></span><span>
+</span><span id="line-202"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a.
+HasValue f =&gt;
+FilePath -&gt; Maybe a -&gt; Mod f a
+</span><a href="#local-6989586621682935667"><span class="hs-identifier hs-var">envDefault</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;CARDANO_NODE_CONFIGS&quot;</span></span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621682935670"><span class="hs-identifier hs-var">envConfigsDir</span></a></span><span>
+</span><span id="line-203"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">help</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Directory containing configurations for each network. \
+              \This must contain a subdirectory corresponding to NETWORK, \
+              \which has the files configuration.json and topology.json.&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span>    </span><span class="annot"><span class="annottext">Parser
+  (Maybe FilePath
+   -&gt; Maybe CardanoNodeConn -&gt; Bool -&gt; RestoreBenchArgs)
+-&gt; Parser (Maybe FilePath)
+-&gt; Parser (Maybe CardanoNodeConn -&gt; Bool -&gt; RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Parser FilePath -&gt; Parser (Maybe FilePath)
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f (Maybe a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">optional</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Mod OptionFields FilePath -&gt; Parser FilePath
+forall s. IsString s =&gt; Mod OptionFields s -&gt; Parser s
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">strOption</span></a></span><span>
+</span><span id="line-207"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. HasName f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">long</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;node-db&quot;</span></span><span>
+</span><span id="line-208"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. HasMetavar f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">metavar</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;DB&quot;</span></span><span>
+</span><span id="line-209"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a.
+HasValue f =&gt;
+FilePath -&gt; Maybe a -&gt; Mod f a
+</span><a href="#local-6989586621682935667"><span class="hs-identifier hs-var">envDefault</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NODE_DB&quot;</span></span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621682935669"><span class="hs-identifier hs-var">envNodeDatabaseDir</span></a></span><span>
+</span><span id="line-210"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields FilePath
+-&gt; Mod OptionFields FilePath -&gt; Mod OptionFields FilePath
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
+forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">help</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Directory to put cardano-node state. Defaults to $NODE_DB, \
+              \falls back to temporary directory&quot;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-212"></span><span>    </span><span class="annot"><span class="annottext">Parser (Maybe CardanoNodeConn -&gt; Bool -&gt; RestoreBenchArgs)
+-&gt; Parser (Maybe CardanoNodeConn)
+-&gt; Parser (Bool -&gt; RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Parser CardanoNodeConn -&gt; Parser (Maybe CardanoNodeConn)
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f (Maybe a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">optional</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ReadM CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn -&gt; Parser CardanoNodeConn
+forall a. ReadM a -&gt; Mod OptionFields a -&gt; Parser a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">option</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath -&gt; Either FilePath CardanoNodeConn)
+-&gt; ReadM CardanoNodeConn
+forall a. (FilePath -&gt; Either FilePath a) -&gt; ReadM a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">eitherReader</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath CardanoNodeConn
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">cardanoNodeConn</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-213"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields CardanoNodeConn
+forall (f :: * -&gt; *) a. HasName f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">long</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;running-node&quot;</span></span><span>
+</span><span id="line-214"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields CardanoNodeConn
+forall (f :: * -&gt; *) a. HasMetavar f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">metavar</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;SOCKET&quot;</span></span><span>
+</span><span id="line-215"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+-&gt; Maybe CardanoNodeConn -&gt; Mod OptionFields CardanoNodeConn
+forall (f :: * -&gt; *) a.
+HasValue f =&gt;
+FilePath -&gt; Maybe a -&gt; Mod f a
+</span><a href="#local-6989586621682935667"><span class="hs-identifier hs-var">envDefault</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;CARDANO_NODE_SOCKET_PATH&quot;</span></span><span> </span><span class="annot"><span class="annottext">Maybe CardanoNodeConn
+</span><a href="#local-6989586621682935668"><span class="hs-identifier hs-var">envNodeSocket</span></a></span><span>
+</span><span id="line-216"></span><span>          </span><span class="annot"><span class="annottext">Mod OptionFields CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn
+-&gt; Mod OptionFields CardanoNodeConn
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields CardanoNodeConn
+forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">help</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Path to the socket of an already running cardano-node. \
+              \Also set by $CARDANO_NODE_SOCKET_PATH. If not set, cardano-node \
+              \will automatically be started.&quot;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-219"></span><span>    </span><span class="annot"><span class="annottext">Parser (Bool -&gt; RestoreBenchArgs)
+-&gt; Parser Bool -&gt; Parser RestoreBenchArgs
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Mod FlagFields Bool -&gt; Parser Bool
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">switch</span></a></span><span>
+</span><span id="line-220"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod FlagFields Bool
+forall (f :: * -&gt; *) a. HasName f =&gt; FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">long</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;quiet&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-221"></span><span>          </span><span class="annot"><span class="annottext">Mod FlagFields Bool -&gt; Mod FlagFields Bool -&gt; Mod FlagFields Bool
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Mod FlagFields Bool
+forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">help</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;Reduce unnecessary log output.&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-222"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-223"></span><span>    </span><span id="local-6989586621682935873"><span id="local-6989586621682935875"><span class="annot"><a href="#local-6989586621682935667"><span class="hs-identifier hs-type">envDefault</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-type">HasValue</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935875"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935873"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-type">Mod</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935875"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935873"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-224"></span><span>    </span><span id="local-6989586621682935667"><span class="annot"><span class="annottext">envDefault :: FilePath -&gt; Maybe a -&gt; Mod f a
+</span><a href="#local-6989586621682935667"><span class="hs-identifier hs-var hs-var">envDefault</span></a></span></span><span> </span><span id="local-6989586621682935666"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935666"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621682935665"><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621682935665"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; FilePath) -&gt; Mod f a
+forall a (f :: * -&gt; *). (a -&gt; FilePath) -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">showDefaultWith</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; a -&gt; FilePath
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'$'</span></span><span class="annot"><span class="annottext">Char -&gt; FilePath -&gt; FilePath
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935666"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-225"></span><span>        </span><span class="annot"><span class="annottext">Mod f a -&gt; Mod f a -&gt; Mod f a
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Mod f a -&gt; (a -&gt; Mod f a) -&gt; Maybe a -&gt; Mod f a
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">Mod f a
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Mod f a
+forall (f :: * -&gt; *) a. HasValue f =&gt; a -&gt; Mod f a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">value</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621682935665"><span class="hs-identifier hs-var">env</span></a></span><span>
+</span><span id="line-226"></span><span>
+</span><span id="line-227"></span><span class="hs-comment">-- Add fallback environment variables to parsed args. These are set by</span><span>
+</span><span id="line-228"></span><span class="hs-comment">-- `nix/haskell.nix` or `./buildkite/bench-restore.sh` or manually.</span><span>
+</span><span id="line-229"></span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgsParser"><span class="hs-identifier hs-type">getRestoreBenchArgsParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-type">Parser</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-type">RestoreBenchArgs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-230"></span><span id="getRestoreBenchArgsParser"><span class="annot"><span class="annottext">getRestoreBenchArgsParser :: IO (Parser RestoreBenchArgs)
+</span><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgsParser"><span class="hs-identifier hs-var hs-var">getRestoreBenchArgsParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe FilePath
+-&gt; Maybe CardanoNodeConn
+-&gt; Parser RestoreBenchArgs
+</span><a href="Cardano.Wallet.BenchShared.html#restoreBenchArgsParser"><span class="hs-identifier hs-var">restoreBenchArgsParser</span></a></span><span>
+</span><span id="line-231"></span><span>    </span><span class="annot"><span class="annottext">(Maybe FilePath
+ -&gt; Maybe FilePath
+ -&gt; Maybe FilePath
+ -&gt; Maybe CardanoNodeConn
+ -&gt; Parser RestoreBenchArgs)
+-&gt; IO (Maybe FilePath)
+-&gt; IO
+     (Maybe FilePath
+      -&gt; Maybe FilePath
+      -&gt; Maybe CardanoNodeConn
+      -&gt; Parser RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="#local-6989586621682935661"><span class="hs-identifier hs-var">lookupEnv'</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NETWORK&quot;</span></span><span>
+</span><span id="line-232"></span><span>    </span><span class="annot"><span class="annottext">IO
+  (Maybe FilePath
+   -&gt; Maybe FilePath
+   -&gt; Maybe CardanoNodeConn
+   -&gt; Parser RestoreBenchArgs)
+-&gt; IO (Maybe FilePath)
+-&gt; IO
+     (Maybe FilePath
+      -&gt; Maybe CardanoNodeConn -&gt; Parser RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="#local-6989586621682935661"><span class="hs-identifier hs-var">lookupEnv'</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;CARDANO_NODE_CONFIGS&quot;</span></span><span>
+</span><span id="line-233"></span><span>    </span><span class="annot"><span class="annottext">IO
+  (Maybe FilePath
+   -&gt; Maybe CardanoNodeConn -&gt; Parser RestoreBenchArgs)
+-&gt; IO (Maybe FilePath)
+-&gt; IO (Maybe CardanoNodeConn -&gt; Parser RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="#local-6989586621682935661"><span class="hs-identifier hs-var">lookupEnv'</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NODE_DB&quot;</span></span><span>
+</span><span id="line-234"></span><span>    </span><span class="annot"><span class="annottext">IO (Maybe CardanoNodeConn -&gt; Parser RestoreBenchArgs)
+-&gt; IO (Maybe CardanoNodeConn) -&gt; IO (Parser RestoreBenchArgs)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Either FilePath CardanoNodeConn)
+-&gt; FilePath -&gt; IO (Maybe CardanoNodeConn)
+forall b.
+(FilePath -&gt; Either FilePath b) -&gt; FilePath -&gt; IO (Maybe b)
+</span><a href="#local-6989586621682935660"><span class="hs-identifier hs-var">parseEnv</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath CardanoNodeConn
+</span><a href="../../../../cardano-wallet-launcher/html/src"><span class="hs-identifier hs-var">cardanoNodeConn</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;CARDANO_NODE_SOCKET&quot;</span></span><span>
+</span><span id="line-235"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-236"></span><span>    </span><span id="local-6989586621682935661"><span class="annot"><span class="annottext">lookupEnv' :: FilePath -&gt; IO (Maybe FilePath)
+</span><a href="#local-6989586621682935661"><span class="hs-identifier hs-var hs-var">lookupEnv'</span></a></span></span><span> </span><span id="local-6989586621682935659"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935659"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">lookupEnv</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935659"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe FilePath)
+-&gt; (Maybe FilePath -&gt; Maybe FilePath) -&gt; IO (Maybe FilePath)
+forall (f :: * -&gt; *) a b. Functor f =&gt; f a -&gt; (a -&gt; b) -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&amp;&gt;</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-237"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-238"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682935658"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935658"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935658"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-239"></span><span>        </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-240"></span><span>    </span><span id="local-6989586621682935660"><span class="annot"><span class="annottext">parseEnv :: (FilePath -&gt; Either FilePath b) -&gt; FilePath -&gt; IO (Maybe b)
+</span><a href="#local-6989586621682935660"><span class="hs-identifier hs-var hs-var">parseEnv</span></a></span></span><span> </span><span id="local-6989586621682935657"><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath b
+</span><a href="#local-6989586621682935657"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span id="local-6989586621682935656"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935656"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="#local-6989586621682935661"><span class="hs-identifier hs-var">lookupEnv'</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935656"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe FilePath)
+-&gt; (Maybe FilePath -&gt; IO (Maybe b)) -&gt; IO (Maybe b)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; IO b) -&gt; Maybe FilePath -&gt; IO (Maybe b)
+forall (t :: * -&gt; *) (f :: * -&gt; *) a b.
+(Traversable t, Applicative f) =&gt;
+(a -&gt; f b) -&gt; t a -&gt; f (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">traverse</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath -&gt; IO b) -&gt; (b -&gt; IO b) -&gt; Either FilePath b -&gt; IO b
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">either</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO b
+forall a. FilePath -&gt; IO a
+</span><a href="#local-6989586621682935653"><span class="hs-identifier hs-var">exit</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; IO b
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either FilePath b -&gt; IO b)
+-&gt; (FilePath -&gt; Either FilePath b) -&gt; FilePath -&gt; IO b
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Either FilePath b
+</span><a href="#local-6989586621682935657"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-241"></span><span>        </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621682935653"><span class="annot"><span class="annottext">exit :: FilePath -&gt; IO a
+</span><a href="#local-6989586621682935653"><span class="hs-identifier hs-var hs-var">exit</span></a></span></span><span> </span><span id="local-6989586621682935651"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935651"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO a
+forall a. FilePath -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">die</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935656"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;: &quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621682935651"><span class="hs-identifier hs-var">err</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-242"></span><span>
+</span><span id="line-243"></span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgs"><span class="hs-identifier hs-type">getRestoreBenchArgs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#RestoreBenchArgs"><span class="hs-identifier hs-type">RestoreBenchArgs</span></a></span><span>
+</span><span id="line-244"></span><span id="getRestoreBenchArgs"><span class="annot"><span class="annottext">getRestoreBenchArgs :: IO RestoreBenchArgs
+</span><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgs"><span class="hs-identifier hs-var hs-var">getRestoreBenchArgs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-245"></span><span>    </span><span id="local-6989586621682935650"><span class="annot"><span class="annottext">Parser RestoreBenchArgs
+</span><a href="#local-6989586621682935650"><span class="hs-identifier hs-var">argsParser</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Parser RestoreBenchArgs)
+</span><a href="Cardano.Wallet.BenchShared.html#getRestoreBenchArgsParser"><span class="hs-identifier hs-var">getRestoreBenchArgsParser</span></a></span><span>
+</span><span id="line-246"></span><span>    </span><span class="annot"><span class="annottext">ParserInfo RestoreBenchArgs -&gt; IO RestoreBenchArgs
+forall a. ParserInfo a -&gt; IO a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">execParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser RestoreBenchArgs
+-&gt; InfoMod RestoreBenchArgs -&gt; ParserInfo RestoreBenchArgs
+forall a. Parser a -&gt; InfoMod a -&gt; ParserInfo a
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">info</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser (RestoreBenchArgs -&gt; RestoreBenchArgs)
+forall a. Parser (a -&gt; a)
+</span><a href="../../../../optparse-applicative/html/src"><span class="hs-identifier hs-var">helper</span></a></span><span> </span><span class="annot"><span class="annottext">Parser (RestoreBenchArgs -&gt; RestoreBenchArgs)
+-&gt; Parser RestoreBenchArgs -&gt; Parser RestoreBenchArgs
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Parser RestoreBenchArgs
+</span><a href="#local-6989586621682935650"><span class="hs-identifier hs-var">argsParser</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">InfoMod RestoreBenchArgs
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-247"></span><span>
+</span><span id="line-248"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+                                Benchmark runner
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-251"></span><span>
+</span><span id="line-252"></span><span id="local-6989586621682935648"><span id="local-6989586621682935649"></span></span><span class="hs-keyword">newtype</span><span> </span><span id="Time"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier hs-var">Time</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Time"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier hs-var">Time</span></a></span></span><span>
+</span><span id="line-253"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="unTime"><span class="annot"><span class="annottext">Time -&gt; Double
+</span><a href="Cardano.Wallet.BenchShared.html#unTime"><span class="hs-identifier hs-var hs-var">unTime</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>
+</span><span id="line-254"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682935640"><span id="local-6989586621682935642"><span id="local-6989586621682935644"><span class="annot"><span class="annottext">Int -&gt; Time -&gt; FilePath -&gt; FilePath
+[Time] -&gt; FilePath -&gt; FilePath
+Time -&gt; FilePath
+(Int -&gt; Time -&gt; FilePath -&gt; FilePath)
+-&gt; (Time -&gt; FilePath)
+-&gt; ([Time] -&gt; FilePath -&gt; FilePath)
+-&gt; Show Time
+forall a.
+(Int -&gt; a -&gt; FilePath -&gt; FilePath)
+-&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; FilePath -&gt; FilePath) -&gt; Show a
+showList :: [Time] -&gt; FilePath -&gt; FilePath
+$cshowList :: [Time] -&gt; FilePath -&gt; FilePath
+show :: Time -&gt; FilePath
+$cshow :: Time -&gt; FilePath
+showsPrec :: Int -&gt; Time -&gt; FilePath -&gt; FilePath
+$cshowsPrec :: Int -&gt; Time -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. Time -&gt; Rep Time x)
+-&gt; (forall x. Rep Time x -&gt; Time) -&gt; Generic Time
+forall x. Rep Time x -&gt; Time
+forall x. Time -&gt; Rep Time x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cto :: forall x. Rep Time x -&gt; Time
+$cfrom :: forall x. Time -&gt; Rep Time x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-255"></span><span>
+</span><span id="line-256"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-type">Buildable</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier hs-type">Time</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-257"></span><span>    </span><span id="local-6989586621682935634"><span class="annot"><span class="annottext">build :: Time -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">build</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Builder) -&gt; (Time -&gt; FilePath) -&gt; Time -&gt; Builder
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; FilePath
+</span><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier hs-var">secs</span></a></span><span> </span><span class="annot"><span class="annottext">(Double -&gt; FilePath) -&gt; (Time -&gt; Double) -&gt; Time -&gt; FilePath
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Time -&gt; Double
+</span><a href="Cardano.Wallet.BenchShared.html#unTime"><span class="hs-identifier hs-var hs-var">unTime</span></a></span><span>
+</span><span id="line-258"></span><span>
+</span><span id="line-259"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621682935626"><span id="local-6989586621682935628"><span id="local-6989586621682935630"><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">ToJSON</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier hs-type">Time</span></a></span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-260"></span><span>    </span><span id="local-6989586621682935624"><span class="annot"><span class="annottext">toJSON :: Time -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">toJSON</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Value
+forall a. ToJSON a =&gt; a -&gt; Value
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var">toJSON</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Value) -&gt; (Time -&gt; Text) -&gt; Time -&gt; Value
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Buildable Time, FromBuilder Text) =&gt; Time -&gt; Text
+forall a b. (Buildable a, FromBuilder b) =&gt; a -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">pretty</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-261"></span><span>
+</span><span id="line-262"></span><span id="local-6989586621682935622"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#runBenchmarks"><span class="hs-identifier hs-type">runBenchmarks</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-type">Buildable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935622"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935622"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-263"></span><span id="runBenchmarks"><span class="annot"><span class="annottext">runBenchmarks :: [IO a] -&gt; IO ()
+</span><a href="Cardano.Wallet.BenchShared.html#runBenchmarks"><span class="hs-identifier hs-var hs-var">runBenchmarks</span></a></span></span><span> </span><span id="local-6989586621682935621"><span class="annot"><span class="annottext">[IO a]
+</span><a href="#local-6989586621682935621"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-264"></span><span>    </span><span class="annot"><span class="annottext">IO ()
+</span><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier hs-var">initializeTime</span></a></span><span>
+</span><span id="line-265"></span><span>    </span><span class="hs-comment">-- NOTE: Adding an artificial delay between successive runs to get a better</span><span>
+</span><span id="line-266"></span><span>    </span><span class="hs-comment">-- output for the heap profiling.</span><span>
+</span><span id="line-267"></span><span>    </span><span id="local-6989586621682935620"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621682935620"><span class="hs-identifier hs-var">rs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[IO a] -&gt; (IO a -&gt; IO a) -&gt; IO [a]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM</span></a></span><span> </span><span class="annot"><span class="annottext">[IO a]
+</span><a href="#local-6989586621682935621"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">((IO a -&gt; IO a) -&gt; IO [a]) -&gt; (IO a -&gt; IO a) -&gt; IO [a]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621682935619"><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621682935619"><span class="hs-identifier hs-var">io</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621682935619"><span class="hs-identifier hs-var">io</span></a></span><span> </span><span class="annot"><span class="annottext">IO a -&gt; IO () -&gt; IO a
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*</span></a></span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682935617"><span class="annot"><span class="annottext">_2s :: Int
+</span><a href="#local-6989586621682935617"><span class="hs-identifier hs-var hs-var">_2s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">2000000</span></span><span> </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Int -&gt; m ()
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">threadDelay</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682935617"><span class="hs-identifier hs-var">_2s</span></a></span><span>
+</span><span id="line-268"></span><span>    </span><span class="annot"><span class="annottext">Text -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayErr</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;\n\nAll results:&quot;</span></span><span>
+</span><span id="line-269"></span><span>    </span><span class="annot"><span class="annottext">(a -&gt; IO ()) -&gt; [a] -&gt; IO ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayErr</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; IO ()) -&gt; (a -&gt; Text) -&gt; a -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Text
+forall a b. (Buildable a, FromBuilder b) =&gt; a -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">pretty</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621682935620"><span class="hs-identifier hs-var">rs</span></a></span><span>
+</span><span id="line-270"></span><span>
+</span><span id="line-271"></span><span id="local-6989586621682935615"><span class="annot"><a href="Cardano.Wallet.BenchShared.html#bench"><span class="hs-identifier hs-type">bench</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-type">NFData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935615"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935615"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682935615"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier hs-type">Time</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-272"></span><span id="bench"><span class="annot"><span class="annottext">bench :: Text -&gt; IO a -&gt; IO (a, Time)
+</span><a href="Cardano.Wallet.BenchShared.html#bench"><span class="hs-identifier hs-var hs-var">bench</span></a></span></span><span> </span><span id="local-6989586621682935614"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621682935614"><span class="hs-identifier hs-var">benchName</span></a></span></span><span> </span><span id="local-6989586621682935613"><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621682935613"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-273"></span><span>    </span><span class="annot"><span class="annottext">Text -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayErr</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; IO ()) -&gt; Text -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Running &quot;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Text
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621682935614"><span class="hs-identifier hs-var">benchName</span></a></span><span>
+</span><span id="line-274"></span><span>    </span><span id="local-6989586621682935612"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682935612"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Double
+</span><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier hs-var">getTime</span></a></span><span>
+</span><span id="line-275"></span><span>    </span><span id="local-6989586621682935611"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935611"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621682935613"><span class="hs-identifier hs-var">action</span></a></span><span>
+</span><span id="line-276"></span><span>    </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; a -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">evaluate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935611"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-277"></span><span>    </span><span id="local-6989586621682935610"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682935610"><span class="hs-identifier hs-var">finish</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Double
+</span><a href="../../../../criterion-measurement/html/src"><span class="hs-identifier hs-var">getTime</span></a></span><span>
+</span><span id="line-278"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682935609"><span class="annot"><span class="annottext">t :: Time
+</span><a href="#local-6989586621682935609"><span class="hs-identifier hs-var hs-var">t</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double -&gt; Time
+</span><a href="Cardano.Wallet.BenchShared.html#Time"><span class="hs-identifier hs-var">Time</span></a></span><span> </span><span class="annot"><span class="annottext">(Double -&gt; Time) -&gt; Double -&gt; Time
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682935610"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682935612"><span class="hs-identifier hs-var">start</span></a></span><span>
+</span><span id="line-279"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935611"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Time
+</span><a href="#local-6989586621682935609"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(a, Time) -&gt; IO () -&gt; IO (a, Time)
+forall (f :: * -&gt; *) a b. Functor f =&gt; a -&gt; f b -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayErr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Builder -&gt; Text
+forall a b. (Buildable a, FromBuilder b) =&gt; a -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">pretty</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; Text) -&gt; Builder -&gt; Text
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">nameF</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621682935614"><span class="hs-identifier hs-var">benchName</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Time -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Time
+</span><a href="#local-6989586621682935609"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-280"></span><span>
+</span><span id="line-281"></span><span class="annot"><a href="Cardano.Wallet.BenchShared.html#initBenchmarkLogging"><span class="hs-identifier hs-type">initBenchmarkLogging</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Severity</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">CM.Configuration</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Trace</span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-282"></span><span id="initBenchmarkLogging"><span class="annot"><span class="annottext">initBenchmarkLogging :: Text -&gt; Severity -&gt; IO (Configuration, Trace IO Text)
+</span><a href="Cardano.Wallet.BenchShared.html#initBenchmarkLogging"><span class="hs-identifier hs-var hs-var">initBenchmarkLogging</span></a></span></span><span> </span><span id="local-6989586621682935607"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621682935607"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621682935606"><span class="annot"><span class="annottext">Severity
+</span><a href="#local-6989586621682935606"><span class="hs-identifier hs-var">minSeverity</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-283"></span><span>    </span><span id="local-6989586621682935605"><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935605"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Configuration
+</span><span class="hs-identifier hs-var">defaultConfigStdout</span></span><span>
+</span><span id="line-284"></span><span>    </span><span class="annot"><span class="annottext">Configuration -&gt; Severity -&gt; IO ()
+</span><span class="hs-identifier hs-var">CM.setMinSeverity</span></span><span> </span><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935605"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Severity
+</span><a href="#local-6989586621682935606"><span class="hs-identifier hs-var">minSeverity</span></a></span><span>
+</span><span id="line-285"></span><span>    </span><span class="annot"><span class="annottext">Configuration -&gt; [BackendKind] -&gt; IO ()
+</span><span class="hs-identifier hs-var">CM.setSetupBackends</span></span><span> </span><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935605"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">BackendKind
+</span><span class="hs-identifier hs-var">CM.KatipBK</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">BackendKind
+</span><span class="hs-identifier hs-var">CM.AggregationBK</span></span><span class="hs-special">]</span><span>
+</span><span id="line-286"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621682935600"><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935600"><span class="hs-identifier hs-var">tr</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682935599"><span class="annot"><span class="annottext">Switchboard Text
+</span><a href="#local-6989586621682935599"><span class="hs-identifier hs-var">_sb</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Configuration -&gt; Text -&gt; IO (Trace IO Text, Switchboard Text)
+forall (m :: * -&gt; *) a.
+(MonadIO m, ToJSON a, FromJSON a, ToObject a) =&gt;
+Configuration -&gt; Text -&gt; m (Trace m a, Switchboard a)
+</span><span class="hs-identifier hs-var">setupTrace_</span></span><span> </span><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935605"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621682935607"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-287"></span><span>    </span><span class="annot"><span class="annottext">(Configuration, Trace IO Text) -&gt; IO (Configuration, Trace IO Text)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935605"><span class="hs-identifier hs-var">c</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Trace IO Text
+</span><a href="#local-6989586621682935600"><span class="hs-identifier hs-var">tr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-288"></span></pre></body></html>

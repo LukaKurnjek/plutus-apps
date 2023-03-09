@@ -1,0 +1,318 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE FunctionalDependencies #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- | Allows the creation of custom SQL expressions from arbitrary string-like values.</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">--   Simply write a polymorphic function with an arbitrary number of arguments,</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--   all of the same type, and returns a value of the same type. The type will</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--   have instances of 'Monoid' and 'IsString'.</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">--   For example, to implement a function @MYFUNC@ that takes three arguments</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- myFuncImpl :: (Monoid a, IsString a) =&gt; a -&gt; a -&gt; a -&gt; a</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--</span><span>
+</span><span id="line-17"></span><span class="hs-comment">--   Then, apply 'customExpr_' to your function.  This will result in a function</span><span>
+</span><span id="line-18"></span><span class="hs-comment">--   with the same arity, that takes in and returns 'QGenExpr's instead of</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--   generic @a@s.</span><span>
+</span><span id="line-20"></span><span class="hs-comment">--</span><span>
+</span><span id="line-21"></span><span class="hs-comment">--   The returned function is polymorphic in the types of SQL expressions it</span><span>
+</span><span id="line-22"></span><span class="hs-comment">--   will accept, but you can give it a more specific signature. For example, to</span><span>
+</span><span id="line-23"></span><span class="hs-comment">--   mandate that we receive two 'Int32's and a 'T.Text' and return a 'Bool'.</span><span>
+</span><span id="line-24"></span><span class="hs-comment">--</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- myFunc_ :: QGenExpr e ctxt s Int32 -&gt; QGenExpr e ctxt s Int32 -&gt; QGenExpr e ctxt s T.Text -&gt; QGenExpr e ctxt s Bool</span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- myFunc_ = customExpr_ myFuncImpl</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--</span><span>
+</span><span id="line-30"></span><span class="hs-comment">--   Semantically, the expression builder function (@myFuncImpl@ in this case)</span><span>
+</span><span id="line-31"></span><span class="hs-comment">--   is called with arguments representing SQL expressions, that, when</span><span>
+</span><span id="line-32"></span><span class="hs-comment">--   evaluated, will evaluate to the result of the expressions supplied as</span><span>
+</span><span id="line-33"></span><span class="hs-comment">--   arguments to 'customExpr_'. See the section on</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--   &lt;https://haskell-beam.github.io/beam/user-guide/extensibility/extensibility&gt;</span><span>
+</span><span id="line-35"></span><span class="hs-comment">--   in the user guide for example usage.</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.Beam.Query.CustomSQL</span><span>
+</span><span id="line-37"></span><span>  </span><span class="hs-special">(</span><span>
+</span><span id="line-38"></span><span>  </span><span class="annot"><span class="hs-comment">-- * The 'customExpr_' function</span></span><span>
+</span><span id="line-39"></span><span>  </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomExprFn"><span class="hs-identifier">IsCustomExprFn</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** Type-inference help</span></span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#valueExpr_"><span class="hs-identifier">valueExpr_</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#agg_"><span class="hs-identifier">agg_</span></a></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span>  </span><span class="annot"><span class="hs-comment">-- * For backends</span></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier">IsCustomSqlSyntax</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Query.Internal.html"><span class="hs-identifier">Database.Beam.Query.Internal</span></a></span><span>
+</span><span id="line-48"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Backend.SQL.html"><span class="hs-identifier">Database.Beam.Backend.SQL</span></a></span><span>
+</span><span id="line-49"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Database.Beam.Backend.SQL.Builder.html"><span class="hs-identifier">Database.Beam.Backend.SQL.Builder</span></a></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">byteString</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">toLazyByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Lazy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">toStrict</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Kind</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier">Type</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.String</span></a></span><span>
+</span><span id="line-57"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- | A type-class for expression syntaxes that can embed custom expressions.</span><span>
+</span><span id="line-60"></span><span class="hs-keyword">class</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-type">CustomSqlSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-type">CustomSqlSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IsString</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-type">CustomSqlSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-61"></span><span>  </span><span id="IsCustomSqlSyntax"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier hs-var">IsCustomSqlSyntax</span></a></span></span><span> </span><span id="local-6989586621679470416"><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-keyword">data</span><span> </span><span id="CustomSqlSyntax"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-var">CustomSqlSyntax</span></a></span></span><span> </span><span id="local-6989586621679470416"><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-63"></span><span>
+</span><span id="line-64"></span><span>  </span><span class="hs-comment">-- | Given an arbitrary string-like expression, produce a 'syntax' that represents the</span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-comment">--   'ByteString' as a SQL expression.</span><span>
+</span><span id="line-66"></span><span>  </span><span id="customExprSyntax"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#customExprSyntax"><span class="hs-identifier hs-type">customExprSyntax</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-type">CustomSqlSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span>
+</span><span id="line-67"></span><span>
+</span><span id="line-68"></span><span>  </span><span class="hs-comment">-- | Given an arbitrary 'syntax', produce a string-like value that corresponds to</span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-comment">--   how that syntax would look when rendered in the backend.</span><span>
+</span><span id="line-70"></span><span>  </span><span id="renderSyntax"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#renderSyntax"><span class="hs-identifier hs-type">renderSyntax</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-type">CustomSqlSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470416"><span class="hs-identifier hs-type">syntax</span></a></span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier hs-type">IsCustomSqlSyntax</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.Builder.html#SqlSyntaxBuilder"><span class="hs-identifier hs-type">SqlSyntaxBuilder</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-73"></span><span>  </span><span class="hs-keyword">newtype</span><span> </span><span id="CustomSqlSyntax"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-var">CustomSqlSyntax</span></a></span></span><span> </span><span class="annot"><a href="Database.Beam.Backend.SQL.Builder.html#SqlSyntaxBuilder"><span class="hs-identifier hs-type">SqlSyntaxBuilder</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="SqlSyntaxBuilderCustom"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#SqlSyntaxBuilderCustom"><span class="hs-identifier hs-var">SqlSyntaxBuilderCustom</span></a></span></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-74"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679470346"><span class="annot"><span class="annottext">String -&gt; CustomSqlSyntax SqlSyntaxBuilder
+(String -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; IsString (CustomSqlSyntax SqlSyntaxBuilder)
+forall a. (String -&gt; a) -&gt; IsString a
+fromString :: String -&gt; CustomSqlSyntax SqlSyntaxBuilder
+$cfromString :: String -&gt; CustomSqlSyntax SqlSyntaxBuilder
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">IsString</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679470338"><span id="local-6989586621679470340"><span id="local-6989586621679470342"><span class="annot"><span class="annottext">Semigroup (CustomSqlSyntax SqlSyntaxBuilder)
+CustomSqlSyntax SqlSyntaxBuilder
+Semigroup (CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; (CustomSqlSyntax SqlSyntaxBuilder
+    -&gt; CustomSqlSyntax SqlSyntaxBuilder
+    -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; ([CustomSqlSyntax SqlSyntaxBuilder]
+    -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; Monoid (CustomSqlSyntax SqlSyntaxBuilder)
+[CustomSqlSyntax SqlSyntaxBuilder]
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+forall a.
+Semigroup a -&gt; a -&gt; (a -&gt; a -&gt; a) -&gt; ([a] -&gt; a) -&gt; Monoid a
+mconcat :: [CustomSqlSyntax SqlSyntaxBuilder]
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+$cmconcat :: [CustomSqlSyntax SqlSyntaxBuilder]
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+mappend :: CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+$cmappend :: CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+mempty :: CustomSqlSyntax SqlSyntaxBuilder
+$cmempty :: CustomSqlSyntax SqlSyntaxBuilder
+$cp1Monoid :: Semigroup (CustomSqlSyntax SqlSyntaxBuilder)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Monoid</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679470331"><span id="local-6989586621679470333"><span id="local-6989586621679470335"><span class="annot"><span class="annottext">b
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+NonEmpty (CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+(CustomSqlSyntax SqlSyntaxBuilder
+ -&gt; CustomSqlSyntax SqlSyntaxBuilder
+ -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; (NonEmpty (CustomSqlSyntax SqlSyntaxBuilder)
+    -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; (forall b.
+    Integral b =&gt;
+    b
+    -&gt; CustomSqlSyntax SqlSyntaxBuilder
+    -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; Semigroup (CustomSqlSyntax SqlSyntaxBuilder)
+forall b.
+Integral b =&gt;
+b
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+forall a.
+(a -&gt; a -&gt; a)
+-&gt; (NonEmpty a -&gt; a)
+-&gt; (forall b. Integral b =&gt; b -&gt; a -&gt; a)
+-&gt; Semigroup a
+stimes :: b
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+$cstimes :: forall b.
+Integral b =&gt;
+b
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+sconcat :: NonEmpty (CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+$csconcat :: NonEmpty (CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+&lt;&gt; :: CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+$c&lt;&gt; :: CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Semigroup</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>
+</span><span id="line-76"></span><span>  </span><span id="local-6989586621679470329"><span class="annot"><span class="annottext">customExprSyntax :: CustomSqlSyntax SqlSyntaxBuilder -&gt; SqlSyntaxBuilder
+</span><a href="#local-6989586621679470329"><span class="hs-identifier hs-var hs-var hs-var hs-var">customExprSyntax</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#SqlSyntaxBuilderCustom"><span class="hs-identifier hs-type">SqlSyntaxBuilderCustom</span></a></span><span> </span><span id="local-6989586621679470328"><span class="annot"><a href="#local-6989586621679470328"><span class="hs-identifier hs-var">bs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; SqlSyntaxBuilder
+</span><a href="Database.Beam.Backend.SQL.Builder.html#SqlSyntaxBuilder"><span class="hs-identifier hs-var">SqlSyntaxBuilder</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679470328"><span class="hs-identifier hs-var">bs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-77"></span><span>  </span><span id="local-6989586621679470326"><span class="annot"><span class="annottext">renderSyntax :: SqlSyntaxBuilder -&gt; CustomSqlSyntax SqlSyntaxBuilder
+</span><a href="#local-6989586621679470326"><span class="hs-identifier hs-var hs-var hs-var hs-var">renderSyntax</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; CustomSqlSyntax SqlSyntaxBuilder
+</span><a href="Database.Beam.Query.CustomSQL.html#SqlSyntaxBuilderCustom"><span class="hs-identifier hs-var">SqlSyntaxBuilderCustom</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; CustomSqlSyntax SqlSyntaxBuilder)
+-&gt; (SqlSyntaxBuilder -&gt; ByteString)
+-&gt; SqlSyntaxBuilder
+-&gt; CustomSqlSyntax SqlSyntaxBuilder
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">toStrict</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString)
+-&gt; (SqlSyntaxBuilder -&gt; ByteString)
+-&gt; SqlSyntaxBuilder
+-&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">toLazyByteString</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; ByteString)
+-&gt; (SqlSyntaxBuilder -&gt; Builder) -&gt; SqlSyntaxBuilder -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">SqlSyntaxBuilder -&gt; Builder
+</span><a href="Database.Beam.Backend.SQL.Builder.html#buildSql"><span class="hs-identifier hs-var hs-var">buildSql</span></a></span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span class="hs-keyword">newtype</span><span> </span><span id="CustomSqlSnippet"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-var">CustomSqlSnippet</span></a></span></span><span> </span><span id="local-6989586621679470397"><span class="annot"><a href="#local-6989586621679470397"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="CustomSqlSnippet"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-var">CustomSqlSnippet</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">T.Text</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSyntax"><span class="hs-identifier hs-type">CustomSqlSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendExpressionSyntax"><span class="hs-identifier hs-type">BeamSqlBackendExpressionSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470397"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span id="local-6989586621679470322"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679470317"><span id="local-6989586621679470319"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier hs-type">IsCustomSqlSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendExpressionSyntax"><span class="hs-identifier hs-type">BeamSqlBackendExpressionSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470322"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470322"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-81"></span><span>  </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span id="local-6989586621679470316"><span class="annot"><span class="annottext">Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+</span><a href="#local-6989586621679470316"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679470315"><span class="annot"><span class="annottext">&lt;&gt; :: CustomSqlSnippet be -&gt; CustomSqlSnippet be -&gt; CustomSqlSnippet be
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;&gt;</span></a></span></span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span id="local-6989586621679470314"><span class="annot"><span class="annottext">Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+</span><a href="#local-6989586621679470314"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-82"></span><span>    </span><span class="annot"><span class="annottext">(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+forall be.
+(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+</span><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-var">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><span class="annottext">((Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+ -&gt; CustomSqlSnippet be)
+-&gt; (Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679470313"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679470313"><span class="hs-identifier hs-var">pfx</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+</span><a href="#local-6989586621679470316"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679470313"><span class="hs-identifier hs-var">pfx</span></a></span><span> </span><span class="annot"><span class="annottext">CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+-&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+-&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+</span><a href="#local-6989586621679470314"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679470313"><span class="hs-identifier hs-var">pfx</span></a></span></span><span>
+</span><span id="line-83"></span><span id="local-6989586621679470312"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679470307"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier hs-type">IsCustomSqlSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendExpressionSyntax"><span class="hs-identifier hs-type">BeamSqlBackendExpressionSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470312"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470312"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-84"></span><span>  </span><span id="local-6989586621679470306"><span class="annot"><span class="annottext">mempty :: CustomSqlSnippet be
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+forall be.
+(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+</span><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-var">CustomSqlSnippet</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+-&gt; Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-85"></span><span>  </span><span id="local-6989586621679470305"><span class="annot"><span class="annottext">mappend :: CustomSqlSnippet be -&gt; CustomSqlSnippet be -&gt; CustomSqlSnippet be
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">mappend</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CustomSqlSnippet be -&gt; CustomSqlSnippet be -&gt; CustomSqlSnippet be
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">(&lt;&gt;)</span></a></span></span><span>
+</span><span id="line-86"></span><span>
+</span><span id="line-87"></span><span id="local-6989586621679470304"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier hs-type">IsCustomSqlSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendExpressionSyntax"><span class="hs-identifier hs-type">BeamSqlBackendExpressionSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470304"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IsString</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470304"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-88"></span><span>  </span><span id="local-6989586621679470302"><span class="annot"><span class="annottext">fromString :: String -&gt; CustomSqlSnippet be
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">fromString</span></a></span></span><span> </span><span id="local-6989586621679470301"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679470301"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+forall be.
+(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+</span><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-var">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><span class="annottext">((Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+ -&gt; CustomSqlSnippet be)
+-&gt; (Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+forall a. IsString a =&gt; String -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromString</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679470301"><span class="hs-identifier hs-var">s</span></a></span></span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span class="hs-keyword">class</span><span> </span><span id="IsCustomExprFn"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomExprFn"><span class="hs-identifier hs-var">IsCustomExprFn</span></a></span></span><span> </span><span id="local-6989586621679470383"><span class="annot"><a href="#local-6989586621679470383"><span class="hs-identifier hs-type">fn</span></a></span></span><span> </span><span id="local-6989586621679470382"><span class="annot"><a href="#local-6989586621679470382"><span class="hs-identifier hs-type">res</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><a href="#local-6989586621679470382"><span class="hs-identifier hs-type">res</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679470383"><span class="hs-identifier hs-type">fn</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-91"></span><span>  </span><span id="customExpr_"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#customExpr_"><span class="hs-identifier hs-type">customExpr_</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679470383"><span class="hs-identifier hs-type">fn</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679470382"><span class="hs-identifier hs-type">res</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="hs-keyword">type</span><span> </span><span id="BeamSqlBackendHasCustomSyntax"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#BeamSqlBackendHasCustomSyntax"><span class="hs-identifier hs-var">BeamSqlBackendHasCustomSyntax</span></a></span></span><span> </span><span id="local-6989586621679470299"><span class="annot"><a href="#local-6989586621679470299"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomSqlSyntax"><span class="hs-identifier hs-type">IsCustomSqlSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Backend.SQL.html#BeamSqlBackendExpressionSyntax"><span class="hs-identifier hs-type">BeamSqlBackendExpressionSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470299"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span id="local-6989586621679470295"><span id="local-6989586621679470296"><span id="local-6989586621679470297"><span id="local-6989586621679470298"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#BeamSqlBackendHasCustomSyntax"><span class="hs-identifier hs-type">BeamSqlBackendHasCustomSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470298"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomExprFn"><span class="hs-identifier hs-type">IsCustomExprFn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470298"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QGenExpr"><span class="hs-identifier hs-type">QGenExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470297"><span class="hs-identifier hs-type">ctxt</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470298"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470296"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470295"><span class="hs-identifier hs-type">res</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-96"></span><span>  </span><span id="local-6989586621679470292"><span class="annot"><span class="annottext">customExpr_ :: CustomSqlSnippet be -&gt; QGenExpr ctxt be s res
+</span><a href="#local-6989586621679470292"><span class="hs-identifier hs-var hs-var hs-var hs-var">customExpr_</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span id="local-6989586621679470291"><span class="annot"><span class="annottext">Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+</span><a href="#local-6989586621679470291"><span class="hs-identifier hs-var">mkSyntax</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; BeamSqlBackendExpressionSyntax be)
+-&gt; QGenExpr ctxt be s res
+forall context be s t.
+(Text -&gt; BeamSqlBackendExpressionSyntax be)
+-&gt; QGenExpr context be s t
+</span><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-var">QExpr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+-&gt; BeamSqlBackendExpressionSyntax be
+forall syntax.
+IsCustomSqlSyntax syntax =&gt;
+CustomSqlSyntax syntax -&gt; syntax
+</span><a href="Database.Beam.Query.CustomSQL.html#customExprSyntax"><span class="hs-identifier hs-var">customExprSyntax</span></a></span><span> </span><span class="annot"><span class="annottext">(CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+ -&gt; BeamSqlBackendExpressionSyntax be)
+-&gt; (Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; Text
+-&gt; BeamSqlBackendExpressionSyntax be
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+</span><a href="#local-6989586621679470291"><span class="hs-identifier hs-var">mkSyntax</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span id="local-6989586621679470284"><span id="local-6989586621679470285"><span id="local-6989586621679470286"><span id="local-6989586621679470287"><span id="local-6989586621679470288"><span id="local-6989586621679470289"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomExprFn"><span class="hs-identifier hs-type">IsCustomExprFn</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470289"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470288"><span class="hs-identifier hs-type">res</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#BeamSqlBackendHasCustomSyntax"><span class="hs-identifier hs-type">BeamSqlBackendHasCustomSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470287"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-99"></span><span>  </span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#IsCustomExprFn"><span class="hs-identifier hs-type">IsCustomExprFn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-type">CustomSqlSnippet</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470287"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679470289"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QGenExpr"><span class="hs-identifier hs-type">QGenExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470286"><span class="hs-identifier hs-type">ctxt</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470287"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470285"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470284"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679470288"><span class="hs-identifier hs-type">res</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-100"></span><span>  </span><span id="local-6989586621679470282"><span class="annot"><span class="annottext">customExpr_ :: (CustomSqlSnippet be -&gt; a) -&gt; QGenExpr ctxt be s r -&gt; res
+</span><a href="#local-6989586621679470282"><span class="hs-identifier hs-var hs-var hs-var hs-var">customExpr_</span></a></span></span><span> </span><span id="local-6989586621679470281"><span class="annot"><span class="annottext">CustomSqlSnippet be -&gt; a
+</span><a href="#local-6989586621679470281"><span class="hs-identifier hs-var">fn</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span id="local-6989586621679470280"><span class="annot"><span class="annottext">Text -&gt; BeamSqlBackendExpressionSyntax be
+</span><a href="#local-6989586621679470280"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; res
+forall fn res. IsCustomExprFn fn res =&gt; fn -&gt; res
+</span><a href="Database.Beam.Query.CustomSQL.html#customExpr_"><span class="hs-identifier hs-var">customExpr_</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; res) -&gt; a -&gt; res
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">CustomSqlSnippet be -&gt; a
+</span><a href="#local-6989586621679470281"><span class="hs-identifier hs-var">fn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+forall be.
+(Text -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; CustomSqlSnippet be
+</span><a href="Database.Beam.Query.CustomSQL.html#CustomSqlSnippet"><span class="hs-identifier hs-var">CustomSqlSnippet</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamSqlBackendExpressionSyntax be
+-&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+forall syntax.
+IsCustomSqlSyntax syntax =&gt;
+syntax -&gt; CustomSqlSyntax syntax
+</span><a href="Database.Beam.Query.CustomSQL.html#renderSyntax"><span class="hs-identifier hs-var">renderSyntax</span></a></span><span> </span><span class="annot"><span class="annottext">(BeamSqlBackendExpressionSyntax be
+ -&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be))
+-&gt; (Text -&gt; BeamSqlBackendExpressionSyntax be)
+-&gt; Text
+-&gt; CustomSqlSyntax (BeamSqlBackendExpressionSyntax be)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; BeamSqlBackendExpressionSyntax be
+</span><a href="#local-6989586621679470280"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span></span></span></span></span></span></span><span>
+</span><span id="line-101"></span><span>
+</span><span id="line-102"></span><span class="hs-comment">-- | Force a 'QGenExpr' to be typed as a value expression (a 'QExpr'). Useful</span><span>
+</span><span id="line-103"></span><span class="hs-comment">--   for getting around type-inference errors with supplying the entire type.</span><span>
+</span><span id="line-104"></span><span id="local-6989586621679470277"><span id="local-6989586621679470278"><span id="local-6989586621679470279"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#valueExpr_"><span class="hs-identifier hs-type">valueExpr_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470279"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470278"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470277"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QExpr"><span class="hs-identifier hs-type">QExpr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470279"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470278"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470277"><span class="hs-identifier hs-type">a</span></a></span></span></span></span><span>
+</span><span id="line-105"></span><span id="valueExpr_"><span class="annot"><span class="annottext">valueExpr_ :: QExpr be s a -&gt; QExpr be s a
+</span><a href="Database.Beam.Query.CustomSQL.html#valueExpr_"><span class="hs-identifier hs-var hs-var">valueExpr_</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">QExpr be s a -&gt; QExpr be s a
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span class="hs-comment">-- | Force a 'QGenExpr' to be typed as an aggregate. Useful for defining custom</span><span>
+</span><span id="line-108"></span><span class="hs-comment">--   aggregates for use in 'aggregate_'.</span><span>
+</span><span id="line-109"></span><span id="local-6989586621679470273"><span id="local-6989586621679470274"><span id="local-6989586621679470275"><span class="annot"><a href="Database.Beam.Query.CustomSQL.html#agg_"><span class="hs-identifier hs-type">agg_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QAgg"><span class="hs-identifier hs-type">QAgg</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470275"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470274"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470273"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Query.Internal.html#QAgg"><span class="hs-identifier hs-type">QAgg</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470275"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470274"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679470273"><span class="hs-identifier hs-type">a</span></a></span></span></span></span><span>
+</span><span id="line-110"></span><span id="agg_"><span class="annot"><span class="annottext">agg_ :: QAgg be s a -&gt; QAgg be s a
+</span><a href="Database.Beam.Query.CustomSQL.html#agg_"><span class="hs-identifier hs-var hs-var">agg_</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">QAgg be s a -&gt; QAgg be s a
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-111"></span></pre></body></html>

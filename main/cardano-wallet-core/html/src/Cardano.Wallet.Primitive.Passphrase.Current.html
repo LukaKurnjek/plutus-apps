@@ -1,0 +1,232 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Copyright: &#169; 2018-2021 IOHK</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-7"></span><span class="hs-comment">--</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Generating and verifying hashes of wallet passwords.</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span>
+</span><span id="line-11"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Wallet.Primitive.Passphrase.Current</span><span>
+</span><span id="line-12"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#encryptPassphrase"><span class="hs-identifier">encryptPassphrase</span></a></span><span>
+</span><span id="line-13"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#checkPassphrase"><span class="hs-identifier">checkPassphrase</span></a></span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#preparePassphrase"><span class="hs-identifier">preparePassphrase</span></a></span><span>
+</span><span id="line-15"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#genSalt"><span class="hs-identifier">genSalt</span></a></span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html"><span class="hs-identifier">Cardano.Wallet.Primitive.Passphrase.Types</span></a></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#ErrWrongPassphrase"><span class="hs-identifier">ErrWrongPassphrase</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier">Passphrase</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#PassphraseHash"><span class="hs-identifier">PassphraseHash</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">unless</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Crypto.KDF.PBKDF2</span></a></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Parameters</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">fastPBKDF2_SHA512</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Crypto.Random.Types</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">MonadRandom</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../memory/html/src"><span class="hs-identifier">Data.ByteArray</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../memory/html/src"><span class="hs-identifier">ScrubbedBytes</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Coerce</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier">coerce</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Function</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">on</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../memory/html/src"><span class="hs-identifier">Data.ByteArray</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BA</span></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- | Encrypt a 'Passphrase' into a format that is suitable for storing on disk</span><span>
+</span><span id="line-41"></span><span id="local-6989586621682423529"><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#encryptPassphrase"><span class="hs-identifier hs-type">encryptPassphrase</span></a></span><span>
+</span><span id="line-42"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-type">MonadRandom</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682423529"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;encryption&quot;</span></span><span>
+</span><span id="line-44"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682423529"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#PassphraseHash"><span class="hs-identifier hs-type">PassphraseHash</span></a></span></span><span>
+</span><span id="line-45"></span><span id="encryptPassphrase"><span class="annot"><span class="annottext">encryptPassphrase :: Passphrase &quot;encryption&quot; -&gt; m PassphraseHash
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#encryptPassphrase"><span class="hs-identifier hs-var hs-var">encryptPassphrase</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span id="local-6989586621682423514"><span class="annot"><span class="annottext">ScrubbedBytes
+</span><a href="#local-6989586621682423514"><span class="hs-identifier hs-var">bytes</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Passphrase &quot;salt&quot; -&gt; PassphraseHash
+forall (purpose :: Symbol). Passphrase purpose -&gt; PassphraseHash
+</span><a href="#local-6989586621682423513"><span class="hs-identifier hs-var">mkPassphraseHash</span></a></span><span> </span><span class="annot"><span class="annottext">(Passphrase &quot;salt&quot; -&gt; PassphraseHash)
+-&gt; m (Passphrase &quot;salt&quot;) -&gt; m PassphraseHash
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m (Passphrase &quot;salt&quot;)
+forall (m :: * -&gt; *). MonadRandom m =&gt; m (Passphrase &quot;salt&quot;)
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#genSalt"><span class="hs-identifier hs-var">genSalt</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-47"></span><span>    </span><span id="local-6989586621682423513"><span class="annot"><span class="annottext">mkPassphraseHash :: Passphrase purpose -&gt; PassphraseHash
+</span><a href="#local-6989586621682423513"><span class="hs-identifier hs-var hs-var">mkPassphraseHash</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span id="local-6989586621682423511"><span class="annot"><span class="annottext">ScrubbedBytes
+</span><a href="#local-6989586621682423511"><span class="hs-identifier hs-var">salt</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes -&gt; PassphraseHash
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#PassphraseHash"><span class="hs-identifier hs-var">PassphraseHash</span></a></span><span> </span><span class="annot"><span class="annottext">(ScrubbedBytes -&gt; PassphraseHash)
+-&gt; ScrubbedBytes -&gt; PassphraseHash
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ScrubbedBytes
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.convert</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ScrubbedBytes) -&gt; ByteString -&gt; ScrubbedBytes
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-48"></span><span>        </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.singleton</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Word8
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ScrubbedBytes -&gt; Int
+forall ba. ByteArrayAccess ba =&gt; ba -&gt; Int
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.length</span></a></span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes
+</span><a href="#local-6989586621682423511"><span class="hs-identifier hs-var">salt</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span>        </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes -&gt; ByteString
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.convert</span></a></span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes
+</span><a href="#local-6989586621682423511"><span class="hs-identifier hs-var">salt</span></a></span><span>
+</span><span id="line-50"></span><span>        </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Parameters -&gt; ScrubbedBytes -&gt; ScrubbedBytes -&gt; ByteString
+forall password salt out.
+(ByteArrayAccess password, ByteArrayAccess salt, ByteArray out) =&gt;
+Parameters -&gt; password -&gt; salt -&gt; out
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-var">fastPBKDF2_SHA512</span></a></span><span> </span><span class="annot"><span class="annottext">Parameters
+</span><a href="#local-6989586621682423506"><span class="hs-identifier hs-var">params</span></a></span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes
+</span><a href="#local-6989586621682423514"><span class="hs-identifier hs-var">bytes</span></a></span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes
+</span><a href="#local-6989586621682423511"><span class="hs-identifier hs-var">salt</span></a></span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span>    </span><span id="local-6989586621682423506"><span class="annot"><span class="annottext">params :: Parameters
+</span><a href="#local-6989586621682423506"><span class="hs-identifier hs-var hs-var">params</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Parameters :: Int -&gt; Int -&gt; Parameters
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-type">Parameters</span></a></span><span>
+</span><span id="line-53"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">iterCounts :: Int
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-var">iterCounts</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">20000</span></span><span>
+</span><span id="line-54"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">outputLength :: Int
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-var">outputLength</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">64</span></span><span>
+</span><span id="line-55"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span id="local-6989586621682423557"><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#genSalt"><span class="hs-identifier hs-type">genSalt</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-type">MonadRandom</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682423557"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682423557"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;salt&quot;</span></span><span class="hs-special">)</span></span><span>
+</span><span id="line-58"></span><span id="genSalt"><span class="annot"><span class="annottext">genSalt :: m (Passphrase &quot;salt&quot;)
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#genSalt"><span class="hs-identifier hs-var hs-var">genSalt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes -&gt; Passphrase &quot;salt&quot;
+forall (purpose :: Symbol). ScrubbedBytes -&gt; Passphrase purpose
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-var">Passphrase</span></a></span><span> </span><span class="annot"><span class="annottext">(ScrubbedBytes -&gt; Passphrase &quot;salt&quot;)
+-&gt; m ScrubbedBytes -&gt; m (Passphrase &quot;salt&quot;)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; m ScrubbedBytes
+forall (m :: * -&gt; *) byteArray.
+(MonadRandom m, ByteArray byteArray) =&gt;
+Int -&gt; m byteArray
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-var">getRandomBytes</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">16</span></span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#preparePassphrase"><span class="hs-identifier hs-type">preparePassphrase</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;user&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;encryption&quot;</span></span><span>
+</span><span id="line-61"></span><span id="preparePassphrase"><span class="annot"><span class="annottext">preparePassphrase :: Passphrase &quot;user&quot; -&gt; Passphrase &quot;encryption&quot;
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#preparePassphrase"><span class="hs-identifier hs-var hs-var">preparePassphrase</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Passphrase &quot;user&quot; -&gt; Passphrase &quot;encryption&quot;
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">coerce</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#checkPassphrase"><span class="hs-identifier hs-type">checkPassphrase</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;encryption&quot;</span></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#PassphraseHash"><span class="hs-identifier hs-type">PassphraseHash</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#ErrWrongPassphrase"><span class="hs-identifier hs-type">ErrWrongPassphrase</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span id="checkPassphrase"><span class="annot"><span class="annottext">checkPassphrase :: Passphrase &quot;encryption&quot;
+-&gt; PassphraseHash -&gt; Either ErrWrongPassphrase ()
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#checkPassphrase"><span class="hs-identifier hs-var hs-var">checkPassphrase</span></a></span></span><span> </span><span id="local-6989586621682423501"><span class="annot"><span class="annottext">Passphrase &quot;encryption&quot;
+</span><a href="#local-6989586621682423501"><span class="hs-identifier hs-var">prepared</span></a></span></span><span> </span><span id="local-6989586621682423500"><span class="annot"><span class="annottext">PassphraseHash
+</span><a href="#local-6989586621682423500"><span class="hs-identifier hs-var">stored</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-68"></span><span>    </span><span id="local-6989586621682423499"><span class="annot"><span class="annottext">Passphrase &quot;salt&quot;
+</span><a href="#local-6989586621682423499"><span class="hs-identifier hs-var">salt</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Either ErrWrongPassphrase (Passphrase &quot;salt&quot;)
+</span><a href="#local-6989586621682423498"><span class="hs-identifier hs-var">getSalt</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PassphraseHash -&gt; ByteString
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.convert</span></a></span><span> </span><span class="annot"><span class="annottext">PassphraseHash
+</span><a href="#local-6989586621682423500"><span class="hs-identifier hs-var">stored</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>    </span><span class="annot"><span class="annottext">Bool
+-&gt; Either ErrWrongPassphrase () -&gt; Either ErrWrongPassphrase ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unless</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PassphraseHash -&gt; PassphraseHash -&gt; Bool
+</span><a href="#local-6989586621682423497"><span class="hs-identifier hs-var">constantTimeEq</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Passphrase &quot;encryption&quot; -&gt; Passphrase &quot;salt&quot; -&gt; PassphraseHash
+forall (m :: * -&gt; *).
+MonadRandom m =&gt;
+Passphrase &quot;encryption&quot; -&gt; m PassphraseHash
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Current.html#encryptPassphrase"><span class="hs-identifier hs-var">encryptPassphrase</span></a></span><span> </span><span class="annot"><span class="annottext">Passphrase &quot;encryption&quot;
+</span><a href="#local-6989586621682423501"><span class="hs-identifier hs-var">prepared</span></a></span><span> </span><span class="annot"><span class="annottext">Passphrase &quot;salt&quot;
+</span><a href="#local-6989586621682423499"><span class="hs-identifier hs-var">salt</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">PassphraseHash
+</span><a href="#local-6989586621682423500"><span class="hs-identifier hs-var">stored</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Either ErrWrongPassphrase () -&gt; Either ErrWrongPassphrase ())
+-&gt; Either ErrWrongPassphrase () -&gt; Either ErrWrongPassphrase ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-70"></span><span>        </span><span class="annot"><span class="annottext">ErrWrongPassphrase -&gt; Either ErrWrongPassphrase ()
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">ErrWrongPassphrase
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#ErrWrongPassphrase"><span class="hs-identifier hs-var">ErrWrongPassphrase</span></a></span><span>
+</span><span id="line-71"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><a href="#local-6989586621682423498"><span class="hs-identifier hs-type">getSalt</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#ErrWrongPassphrase"><span class="hs-identifier hs-type">ErrWrongPassphrase</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-type">Passphrase</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;salt&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621682423498"><span class="annot"><span class="annottext">getSalt :: ByteString -&gt; Either ErrWrongPassphrase (Passphrase &quot;salt&quot;)
+</span><a href="#local-6989586621682423498"><span class="hs-identifier hs-var hs-var">getSalt</span></a></span></span><span> </span><span id="local-6989586621682423495"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621682423495"><span class="hs-identifier hs-var">bytes</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-74"></span><span>        </span><span id="local-6989586621682423494"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682423494"><span class="hs-identifier hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; [Word8]
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.unpack</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.take</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621682423495"><span class="hs-identifier hs-var">bytes</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-75"></span><span>            </span><span class="hs-special">[</span><span id="local-6989586621682423491"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621682423491"><span class="hs-identifier hs-var">len</span></a></span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Either ErrWrongPassphrase Int
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Either ErrWrongPassphrase Int)
+-&gt; Int -&gt; Either ErrWrongPassphrase Int
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Int
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621682423491"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-76"></span><span>            </span><span class="annot"><span class="annottext">[Word8]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ErrWrongPassphrase -&gt; Either ErrWrongPassphrase Int
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">ErrWrongPassphrase
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#ErrWrongPassphrase"><span class="hs-identifier hs-var">ErrWrongPassphrase</span></a></span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><span class="annottext">Passphrase &quot;salt&quot; -&gt; Either ErrWrongPassphrase (Passphrase &quot;salt&quot;)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(Passphrase &quot;salt&quot;
+ -&gt; Either ErrWrongPassphrase (Passphrase &quot;salt&quot;))
+-&gt; Passphrase &quot;salt&quot;
+-&gt; Either ErrWrongPassphrase (Passphrase &quot;salt&quot;)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes -&gt; Passphrase &quot;salt&quot;
+forall (purpose :: Symbol). ScrubbedBytes -&gt; Passphrase purpose
+</span><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#Passphrase"><span class="hs-identifier hs-var">Passphrase</span></a></span><span> </span><span class="annot"><span class="annottext">(ScrubbedBytes -&gt; Passphrase &quot;salt&quot;)
+-&gt; ScrubbedBytes -&gt; Passphrase &quot;salt&quot;
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ScrubbedBytes
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.convert</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ScrubbedBytes) -&gt; ByteString -&gt; ScrubbedBytes
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.take</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682423494"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.drop</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621682423495"><span class="hs-identifier hs-var">bytes</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span>    </span><span class="annot"><a href="#local-6989586621682423497"><span class="hs-identifier hs-type">constantTimeEq</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#PassphraseHash"><span class="hs-identifier hs-type">PassphraseHash</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Passphrase.Types.html#PassphraseHash"><span class="hs-identifier hs-type">PassphraseHash</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621682423497"><span class="annot"><span class="annottext">constantTimeEq :: PassphraseHash -&gt; PassphraseHash -&gt; Bool
+</span><a href="#local-6989586621682423497"><span class="hs-identifier hs-var hs-var">constantTimeEq</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ScrubbedBytes -&gt; ScrubbedBytes -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">(==)</span></a></span><span> </span><span class="annot"><span class="annottext">(ScrubbedBytes -&gt; ScrubbedBytes -&gt; Bool)
+-&gt; (PassphraseHash -&gt; ScrubbedBytes)
+-&gt; PassphraseHash
+-&gt; PassphraseHash
+-&gt; Bool
+forall b c a. (b -&gt; b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`on`</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteArrayAccess PassphraseHash, ByteArray ScrubbedBytes) =&gt;
+PassphraseHash -&gt; ScrubbedBytes
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">BA.convert</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="../../../../memory/html/src"><span class="hs-identifier hs-type">ScrubbedBytes</span></a></span><span>
+</span><span id="line-81"></span></pre></body></html>

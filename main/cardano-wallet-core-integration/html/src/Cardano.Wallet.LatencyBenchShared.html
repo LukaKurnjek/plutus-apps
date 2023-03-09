@@ -1,0 +1,443 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Wallet.LatencyBenchShared</span><span>
+</span><span id="line-8"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Measuring traces</span></span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#withLatencyLogging"><span class="hs-identifier">withLatencyLogging</span></a></span><span>
+</span><span id="line-10"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#measureApiLogs"><span class="hs-identifier">measureApiLogs</span></a></span><span>
+</span><span id="line-11"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#LogCaptureFunc"><span class="hs-identifier">LogCaptureFunc</span></a></span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Formatting results</span></span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#fmtResult"><span class="hs-identifier">fmtResult</span></a></span><span>
+</span><span id="line-15"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#fmtTitle"><span class="hs-identifier">fmtTitle</span></a></span><span>
+</span><span id="line-16"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Backend.Switchboard</span></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">effectuate</span></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Configuration.Static</span></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">defaultConfigStdout</span></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Data.LogItem</span></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">LOContent</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">LOMeta</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">LogObject</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Data.Severity</span></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">Severity</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Setup</span></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier">setupTrace_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">shutdown</span></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">replicateM_</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Maybe</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">mapMaybe</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">Data.Time</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">NominalDiffTime</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">Data.Time.Clock</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">diffUTCTime</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">Fmt</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Builder</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier">build</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">fixedF</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">fmt</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">fmtLn</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">indentF</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">padLeftF</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-operator">(+|)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-operator">(|+)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">Network.Wai.Middleware.Logging</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">ApiLog</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier">HandlerLog</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.Exception</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">bracket</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">onException</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">UnliftIO.STM</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">TVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">atomically</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">newTVarIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unliftio/html/src"><span class="hs-identifier">readTVarIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">writeTVar</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Cardano.BM.Configuration.Model</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CM</span></span><span>
+</span><span id="line-48"></span><span>
+</span><span id="line-49"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#meanAvg"><span class="hs-identifier hs-type">meanAvg</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">NominalDiffTime</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>
+</span><span id="line-50"></span><span id="meanAvg"><span class="annot"><span class="annottext">meanAvg :: [NominalDiffTime] -&gt; Double
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#meanAvg"><span class="hs-identifier hs-var hs-var">meanAvg</span></a></span></span><span> </span><span id="local-6989586621682936002"><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682936002"><span class="hs-identifier hs-var">ts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Double] -&gt; Double
+forall (t :: * -&gt; *) a. (Foldable t, Num a) =&gt; t a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sum</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(NominalDiffTime -&gt; Double) -&gt; [NominalDiffTime] -&gt; [Double]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">NominalDiffTime -&gt; Double
+forall a b. (Real a, Fractional b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">realToFrac</span></a></span><span> </span><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682936002"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1000</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Double
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[NominalDiffTime] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682936002"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#buildResult"><span class="hs-identifier hs-type">buildResult</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">NominalDiffTime</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-53"></span><span id="buildResult"><span class="annot"><span class="annottext">buildResult :: [NominalDiffTime] -&gt; Builder
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#buildResult"><span class="hs-identifier hs-var hs-var">buildResult</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;ERR&quot;</span></span><span>
+</span><span id="line-54"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#buildResult"><span class="hs-identifier hs-var">buildResult</span></a></span><span> </span><span id="local-6989586621682935996"><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682935996"><span class="hs-identifier hs-var">ts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; Builder) -&gt; Builder -&gt; Builder
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Double -&gt; Builder
+forall a. Real a =&gt; Int -&gt; a -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">fixedF</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">(Double -&gt; Builder) -&gt; Double -&gt; Builder
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[NominalDiffTime] -&gt; Double
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#meanAvg"><span class="hs-identifier hs-var">meanAvg</span></a></span><span> </span><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682935996"><span class="hs-identifier hs-var">ts</span></a></span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#fmtTitle"><span class="hs-identifier hs-type">fmtTitle</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Builder</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span id="fmtTitle"><span class="annot"><span class="annottext">fmtTitle :: Builder -&gt; IO ()
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#fmtTitle"><span class="hs-identifier hs-var hs-var">fmtTitle</span></a></span></span><span> </span><span id="local-6989586621682935995"><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621682935995"><span class="hs-identifier hs-var">title</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; IO ()
+forall b. FromBuilder b =&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">fmt</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Builder -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">indentF</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">4</span></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621682935995"><span class="hs-identifier hs-var">title</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#fmtResult"><span class="hs-identifier hs-type">fmtResult</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">NominalDiffTime</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span id="fmtResult"><span class="annot"><span class="annottext">fmtResult :: String -&gt; [NominalDiffTime] -&gt; IO ()
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#fmtResult"><span class="hs-identifier hs-var hs-var">fmtResult</span></a></span></span><span> </span><span id="local-6989586621682935994"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621682935994"><span class="hs-identifier hs-var">title</span></a></span></span><span> </span><span id="local-6989586621682935993"><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682935993"><span class="hs-identifier hs-var">ts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682935992"><span class="annot"><span class="annottext">titleExt :: String
+</span><a href="#local-6989586621682935992"><span class="hs-identifier hs-var hs-var">titleExt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621682935994"><span class="hs-identifier hs-var">title</span></a></span><span class="annot"><span class="annottext">String -&gt; Builder -&gt; String
+forall a b. (Buildable a, FromBuilder b) =&gt; a -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">|+</span></a></span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot; - &quot;</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-62"></span><span>        </span><span id="local-6989586621682935991"><span class="annot"><span class="annottext">titleF :: Builder
+</span><a href="#local-6989586621682935991"><span class="hs-identifier hs-var hs-var">titleF</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Char -&gt; String -&gt; Builder
+forall a. Buildable a =&gt; Int -&gt; Char -&gt; a -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">padLeftF</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">30</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">' '</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621682935992"><span class="hs-identifier hs-var">titleExt</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Builder -&gt; IO ()
+forall b. FromBuilder b =&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">fmtLn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Builder
+</span><a href="#local-6989586621682935991"><span class="hs-identifier hs-var">titleF</span></a></span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall b. FromBuilder b =&gt; Builder -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">+|</span></a></span><span class="annot"><span class="annottext">[NominalDiffTime] -&gt; Builder
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#buildResult"><span class="hs-identifier hs-var">buildResult</span></a></span><span> </span><span class="annot"><span class="annottext">[NominalDiffTime]
+</span><a href="#local-6989586621682935993"><span class="hs-identifier hs-var">ts</span></a></span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a b. (Buildable a, FromBuilder b) =&gt; a -&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-operator hs-var">|+</span></a></span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot; ms&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#isLogRequestStart"><span class="hs-identifier hs-type">isLogRequestStart</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-66"></span><span id="isLogRequestStart"><span class="annot"><span class="annottext">isLogRequestStart :: ApiLog -&gt; Bool
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#isLogRequestStart"><span class="hs-identifier hs-var hs-var">isLogRequestStart</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="annot"><span class="annottext">RequestId
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">HandlerLog
+</span><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-var">LogRequestStart</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-68"></span><span>    </span><span class="annot"><span class="annottext">ApiLog
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#isLogRequestFinish"><span class="hs-identifier hs-type">isLogRequestFinish</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-71"></span><span id="isLogRequestFinish"><span class="annot"><span class="annottext">isLogRequestFinish :: ApiLog -&gt; Bool
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#isLogRequestFinish"><span class="hs-identifier hs-var hs-var">isLogRequestFinish</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="annot"><span class="annottext">RequestId
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">HandlerLog
+</span><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-var">LogRequestFinish</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="annot"><span class="annottext">ApiLog
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-74"></span><span>
+</span><span id="line-75"></span><span id="local-6989586621682935985"><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#measureApiLogs"><span class="hs-identifier hs-type">measureApiLogs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#LogCaptureFunc"><span class="hs-identifier hs-type">LogCaptureFunc</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935985"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">NominalDiffTime</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-76"></span><span id="measureApiLogs"><span class="annot"><span class="annottext">measureApiLogs :: LogCaptureFunc ApiLog () -&gt; IO a -&gt; IO [NominalDiffTime]
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#measureApiLogs"><span class="hs-identifier hs-var hs-var">measureApiLogs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ApiLog -&gt; Bool)
+-&gt; (ApiLog -&gt; Bool)
+-&gt; LogCaptureFunc ApiLog ()
+-&gt; IO a
+-&gt; IO [NominalDiffTime]
+forall msg a.
+(msg -&gt; Bool)
+-&gt; (msg -&gt; Bool)
+-&gt; LogCaptureFunc msg ()
+-&gt; IO a
+-&gt; IO [NominalDiffTime]
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#measureLatency"><span class="hs-identifier hs-var">measureLatency</span></a></span><span> </span><span class="annot"><span class="annottext">ApiLog -&gt; Bool
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#isLogRequestStart"><span class="hs-identifier hs-var">isLogRequestStart</span></a></span><span> </span><span class="annot"><span class="annottext">ApiLog -&gt; Bool
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#isLogRequestFinish"><span class="hs-identifier hs-var">isLogRequestFinish</span></a></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- | Run tests for at least this long to get accurate timings.</span><span>
+</span><span id="line-79"></span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#sampleNTimes"><span class="hs-identifier hs-type">sampleNTimes</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-80"></span><span id="sampleNTimes"><span class="annot"><span class="annottext">sampleNTimes :: Int
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#sampleNTimes"><span class="hs-identifier hs-var hs-var">sampleNTimes</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">10</span></span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- | Measure how long an action takes based on trace points and taking an</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- average of results over a short time period.</span><span>
+</span><span id="line-84"></span><span id="local-6989586621682936102"><span id="local-6989586621682936103"><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#measureLatency"><span class="hs-identifier hs-type">measureLatency</span></a></span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682936103"><span class="hs-identifier hs-type">msg</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ Predicate for start message</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682936103"><span class="hs-identifier hs-type">msg</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ Predicate for end message</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#LogCaptureFunc"><span class="hs-identifier hs-type">LogCaptureFunc</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682936103"><span class="hs-identifier hs-type">msg</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ Log capture function.</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682936102"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-comment">-- ^ Action to run</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">NominalDiffTime</span></a></span><span class="hs-special">]</span></span></span><span>
+</span><span id="line-90"></span><span id="measureLatency"><span class="annot"><span class="annottext">measureLatency :: (msg -&gt; Bool)
+-&gt; (msg -&gt; Bool)
+-&gt; LogCaptureFunc msg ()
+-&gt; IO a
+-&gt; IO [NominalDiffTime]
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#measureLatency"><span class="hs-identifier hs-var hs-var">measureLatency</span></a></span></span><span> </span><span id="local-6989586621682935982"><span class="annot"><span class="annottext">msg -&gt; Bool
+</span><a href="#local-6989586621682935982"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span id="local-6989586621682935981"><span class="annot"><span class="annottext">msg -&gt; Bool
+</span><a href="#local-6989586621682935981"><span class="hs-identifier hs-var">finish</span></a></span></span><span> </span><span id="local-6989586621682935980"><span class="annot"><span class="annottext">LogCaptureFunc msg ()
+</span><a href="#local-6989586621682935980"><span class="hs-identifier hs-var">capture</span></a></span></span><span> </span><span id="local-6989586621682935979"><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621682935979"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621682935978"><span class="annot"><span class="annottext">[LogObject msg]
+</span><a href="#local-6989586621682935978"><span class="hs-identifier hs-var">logs</span></a></span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LogCaptureFunc msg ()
+</span><a href="#local-6989586621682935980"><span class="hs-identifier hs-var">capture</span></a></span><span> </span><span class="annot"><span class="annottext">LogCaptureFunc msg () -&gt; LogCaptureFunc msg ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO a -&gt; IO ()
+forall (m :: * -&gt; *) a. Applicative m =&gt; Int -&gt; m a -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">replicateM_</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#sampleNTimes"><span class="hs-identifier hs-var">sampleNTimes</span></a></span><span> </span><span class="annot"><span class="annottext">IO a
+</span><a href="#local-6989586621682935979"><span class="hs-identifier hs-var">action</span></a></span><span>
+</span><span id="line-92"></span><span>    </span><span class="annot"><span class="annottext">[NominalDiffTime] -&gt; IO [NominalDiffTime]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">([NominalDiffTime] -&gt; IO [NominalDiffTime])
+-&gt; [NominalDiffTime] -&gt; IO [NominalDiffTime]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(msg -&gt; Bool)
+-&gt; (msg -&gt; Bool) -&gt; [LogObject msg] -&gt; [NominalDiffTime]
+forall a.
+(a -&gt; Bool) -&gt; (a -&gt; Bool) -&gt; [LogObject a] -&gt; [NominalDiffTime]
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#extractTimings"><span class="hs-identifier hs-var">extractTimings</span></a></span><span> </span><span class="annot"><span class="annottext">msg -&gt; Bool
+</span><a href="#local-6989586621682935982"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">msg -&gt; Bool
+</span><a href="#local-6989586621682935981"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">[LogObject msg]
+</span><a href="#local-6989586621682935978"><span class="hs-identifier hs-var">logs</span></a></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- | Scan through iohk-monitoring logs and extract time differences between</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- start and end messages.</span><span>
+</span><span id="line-96"></span><span id="local-6989586621682936094"><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#extractTimings"><span class="hs-identifier hs-type">extractTimings</span></a></span><span>
+</span><span id="line-97"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682936094"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ Predicate for start message</span><span>
+</span><span id="line-98"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682936094"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ Predicate for end message</span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">LogObject</span></span><span> </span><span class="annot"><a href="#local-6989586621682936094"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-comment">-- ^ Log messages</span><span>
+</span><span id="line-100"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">NominalDiffTime</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-101"></span><span id="extractTimings"><span class="annot"><span class="annottext">extractTimings :: (a -&gt; Bool) -&gt; (a -&gt; Bool) -&gt; [LogObject a] -&gt; [NominalDiffTime]
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#extractTimings"><span class="hs-identifier hs-var hs-var">extractTimings</span></a></span></span><span> </span><span id="local-6989586621682935976"><span class="annot"><span class="annottext">a -&gt; Bool
+</span><a href="#local-6989586621682935976"><span class="hs-identifier hs-var">isStart</span></a></span></span><span> </span><span id="local-6989586621682935975"><span class="annot"><span class="annottext">a -&gt; Bool
+</span><a href="#local-6989586621682935975"><span class="hs-identifier hs-var">isFinish</span></a></span></span><span> </span><span id="local-6989586621682935974"><span class="annot"><span class="annottext">[LogObject a]
+</span><a href="#local-6989586621682935974"><span class="hs-identifier hs-var">msgs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Bool, UTCTime) -&gt; (Bool, UTCTime) -&gt; NominalDiffTime)
+-&gt; [(Bool, UTCTime)] -&gt; [NominalDiffTime]
+forall t a. (t -&gt; t -&gt; a) -&gt; [t] -&gt; [a]
+</span><a href="#local-6989586621682935973"><span class="hs-identifier hs-var">map2</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool, UTCTime) -&gt; (Bool, UTCTime) -&gt; NominalDiffTime
+</span><a href="#local-6989586621682935972"><span class="hs-identifier hs-var">mkDiff</span></a></span><span> </span><span class="annot"><span class="annottext">[(Bool, UTCTime)]
+</span><a href="#local-6989586621682935971"><span class="hs-identifier hs-var">filtered</span></a></span><span>
+</span><span id="line-102"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621682935973"><span class="annot"><span class="annottext">map2 :: (t -&gt; t -&gt; a) -&gt; [t] -&gt; [a]
+</span><a href="#local-6989586621682935973"><span class="hs-identifier hs-var hs-var">map2</span></a></span></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-104"></span><span>    </span><span class="annot"><a href="#local-6989586621682935973"><span class="hs-identifier hs-var">map2</span></a></span><span> </span><span id="local-6989586621682935970"><span class="annot"><span class="annottext">t -&gt; t -&gt; a
+</span><a href="#local-6989586621682935970"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621682935969"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682935969"><span class="hs-identifier hs-var">a</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621682935968"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682935968"><span class="hs-identifier hs-var">b</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621682935967"><span class="annot"><span class="annottext">[t]
+</span><a href="#local-6989586621682935967"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t -&gt; t -&gt; a
+</span><a href="#local-6989586621682935970"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682935969"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621682935968"><span class="hs-identifier hs-var">b</span></a></span><span class="annot"><span class="annottext">a -&gt; [a] -&gt; [a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="annot"><span class="annottext">(t -&gt; t -&gt; a) -&gt; [t] -&gt; [a]
+</span><a href="#local-6989586621682935973"><span class="hs-identifier hs-var">map2</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; a
+</span><a href="#local-6989586621682935970"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">[t]
+</span><a href="#local-6989586621682935967"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-105"></span><span>    </span><span class="annot"><a href="#local-6989586621682935973"><span class="hs-identifier hs-var">map2</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">[t]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; [a]
+forall a. HasCallStack =&gt; String -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">error</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;start trace without matching finish trace&quot;</span></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span>    </span><span id="local-6989586621682935972"><span class="annot"><span class="annottext">mkDiff :: (Bool, UTCTime) -&gt; (Bool, UTCTime) -&gt; NominalDiffTime
+</span><a href="#local-6989586621682935972"><span class="hs-identifier hs-var hs-var">mkDiff</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682935965"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621682935965"><span class="hs-identifier hs-var">start</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682935964"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621682935964"><span class="hs-identifier hs-var">finish</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">UTCTime -&gt; UTCTime -&gt; NominalDiffTime
+</span><a href="../../../../time/html/src"><span class="hs-identifier hs-var">diffUTCTime</span></a></span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621682935964"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621682935965"><span class="hs-identifier hs-var">start</span></a></span><span>
+</span><span id="line-108"></span><span>    </span><span class="annot"><a href="#local-6989586621682935972"><span class="hs-identifier hs-var">mkDiff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Bool, UTCTime)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; NominalDiffTime
+forall a. HasCallStack =&gt; String -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">error</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;missing finish trace&quot;</span></span><span>
+</span><span id="line-109"></span><span>    </span><span class="annot"><a href="#local-6989586621682935972"><span class="hs-identifier hs-var">mkDiff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Bool, UTCTime)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; NominalDiffTime
+forall a. HasCallStack =&gt; String -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">error</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;missing start trace&quot;</span></span><span>
+</span><span id="line-110"></span><span>
+</span><span id="line-111"></span><span>    </span><span id="local-6989586621682935971"><span class="annot"><span class="annottext">filtered :: [(Bool, UTCTime)]
+</span><a href="#local-6989586621682935971"><span class="hs-identifier hs-var hs-var">filtered</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(LogObject a -&gt; Maybe (Bool, UTCTime))
+-&gt; [LogObject a] -&gt; [(Bool, UTCTime)]
+forall a b. (a -&gt; Maybe b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">LogObject a -&gt; Maybe (Bool, UTCTime)
+</span><a href="#local-6989586621682935963"><span class="hs-identifier hs-var">filterMsg</span></a></span><span> </span><span class="annot"><span class="annottext">[LogObject a]
+</span><a href="#local-6989586621682935974"><span class="hs-identifier hs-var">msgs</span></a></span><span>
+</span><span id="line-112"></span><span>    </span><span id="local-6989586621682935963"><span class="annot"><span class="annottext">filterMsg :: LogObject a -&gt; Maybe (Bool, UTCTime)
+</span><a href="#local-6989586621682935963"><span class="hs-identifier hs-var hs-var">filterMsg</span></a></span></span><span> </span><span id="local-6989586621682935962"><span class="annot"><span class="annottext">LogObject a
+</span><a href="#local-6989586621682935962"><span class="hs-identifier hs-var">logObj</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">LogObject a -&gt; LOContent a
+forall a. LogObject a -&gt; LOContent a
+</span><span class="hs-identifier hs-var hs-var">loContent</span></span><span> </span><span class="annot"><span class="annottext">LogObject a
+</span><a href="#local-6989586621682935962"><span class="hs-identifier hs-var">logObj</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-113"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">LogMessage</span></span><span> </span><span id="local-6989586621682935959"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935959"><span class="hs-identifier hs-var">msg</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">a -&gt; Bool
+</span><a href="#local-6989586621682935976"><span class="hs-identifier hs-var">isStart</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935959"><span class="hs-identifier hs-var">msg</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Bool, UTCTime) -&gt; Maybe (Bool, UTCTime)
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">LogObject a -&gt; UTCTime
+forall a. LogObject a -&gt; UTCTime
+</span><a href="#local-6989586621682935958"><span class="hs-identifier hs-var">getTimestamp</span></a></span><span> </span><span class="annot"><span class="annottext">LogObject a
+</span><a href="#local-6989586621682935962"><span class="hs-identifier hs-var">logObj</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">LogMessage</span></span><span> </span><span id="local-6989586621682935957"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935957"><span class="hs-identifier hs-var">msg</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">a -&gt; Bool
+</span><a href="#local-6989586621682935975"><span class="hs-identifier hs-var">isFinish</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682935957"><span class="hs-identifier hs-var">msg</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Bool, UTCTime) -&gt; Maybe (Bool, UTCTime)
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">LogObject a -&gt; UTCTime
+forall a. LogObject a -&gt; UTCTime
+</span><a href="#local-6989586621682935958"><span class="hs-identifier hs-var">getTimestamp</span></a></span><span> </span><span class="annot"><span class="annottext">LogObject a
+</span><a href="#local-6989586621682935962"><span class="hs-identifier hs-var">logObj</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span>        </span><span class="annot"><span class="annottext">LOContent a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe (Bool, UTCTime)
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-116"></span><span>    </span><span id="local-6989586621682935958"><span class="annot"><span class="annottext">getTimestamp :: LogObject a -&gt; UTCTime
+</span><a href="#local-6989586621682935958"><span class="hs-identifier hs-var hs-var">getTimestamp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LOMeta -&gt; UTCTime
+</span><span class="hs-identifier hs-var hs-var">tstamp</span></span><span> </span><span class="annot"><span class="annottext">(LOMeta -&gt; UTCTime)
+-&gt; (LogObject a -&gt; LOMeta) -&gt; LogObject a -&gt; UTCTime
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">LogObject a -&gt; LOMeta
+forall a. LogObject a -&gt; LOMeta
+</span><span class="hs-identifier hs-var hs-var">loMeta</span></span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span>
+</span><span id="line-119"></span><span class="hs-keyword">type</span><span> </span><span id="LogCaptureFunc"><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#LogCaptureFunc"><span class="hs-identifier hs-var">LogCaptureFunc</span></a></span></span><span> </span><span id="local-6989586621682935953"><span class="annot"><a href="#local-6989586621682935953"><span class="hs-identifier hs-type">msg</span></a></span></span><span> </span><span id="local-6989586621682935952"><span class="annot"><a href="#local-6989586621682935952"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935952"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">LogObject</span></span><span> </span><span class="annot"><a href="#local-6989586621682935953"><span class="hs-identifier hs-type">msg</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621682935952"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-120"></span><span>
+</span><span id="line-121"></span><span id="local-6989586621682935949"><span id="local-6989586621682935950"><span id="local-6989586621682935951"><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#withLatencyLogging"><span class="hs-identifier hs-type">withLatencyLogging</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">TVar</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">LogObject</span></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682935951"><span class="hs-identifier hs-type">tracers</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682935951"><span class="hs-identifier hs-type">tracers</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#LogCaptureFunc"><span class="hs-identifier hs-type">LogCaptureFunc</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935950"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935949"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682935949"><span class="hs-identifier hs-type">a</span></a></span></span></span></span><span>
+</span><span id="line-125"></span><span id="withLatencyLogging"><span class="annot"><span class="annottext">withLatencyLogging :: (TVar [LogObject ApiLog] -&gt; tracers)
+-&gt; (tracers -&gt; LogCaptureFunc ApiLog b -&gt; IO a) -&gt; IO a
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#withLatencyLogging"><span class="hs-identifier hs-var hs-var">withLatencyLogging</span></a></span></span><span> </span><span id="local-6989586621682935948"><span class="annot"><span class="annottext">TVar [LogObject ApiLog] -&gt; tracers
+</span><a href="#local-6989586621682935948"><span class="hs-identifier hs-var">setupTracers</span></a></span></span><span> </span><span id="local-6989586621682935947"><span class="annot"><span class="annottext">tracers -&gt; LogCaptureFunc ApiLog b -&gt; IO a
+</span><a href="#local-6989586621682935947"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-126"></span><span>    </span><span id="local-6989586621682935946"><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935946"><span class="hs-identifier hs-var">tvar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[LogObject ApiLog] -&gt; IO (TVar [LogObject ApiLog])
+forall (m :: * -&gt; *) a. MonadIO m =&gt; a -&gt; m (TVar a)
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">newTVarIO</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-127"></span><span>    </span><span id="local-6989586621682935945"><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935945"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Configuration
+</span><span class="hs-identifier hs-var">defaultConfigStdout</span></span><span>
+</span><span id="line-128"></span><span>    </span><span class="annot"><span class="annottext">Configuration -&gt; Severity -&gt; IO ()
+</span><span class="hs-identifier hs-var">CM.setMinSeverity</span></span><span> </span><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935945"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">Severity
+</span><span class="hs-identifier hs-var">Debug</span></span><span>
+</span><span id="line-129"></span><span>    </span><span class="annot"><span class="annottext">IO (Trace IO ApiLog, Switchboard ApiLog)
+-&gt; ((Trace IO ApiLog, Switchboard ApiLog) -&gt; IO ())
+-&gt; ((Trace IO ApiLog, Switchboard ApiLog) -&gt; IO a)
+-&gt; IO a
+forall (m :: * -&gt; *) a b c.
+MonadUnliftIO m =&gt;
+m a -&gt; (a -&gt; m b) -&gt; (a -&gt; m c) -&gt; m c
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">bracket</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Configuration -&gt; Text -&gt; IO (Trace IO ApiLog, Switchboard ApiLog)
+forall (m :: * -&gt; *) a.
+(MonadIO m, ToJSON a, FromJSON a, ToObject a) =&gt;
+Configuration -&gt; Text -&gt; m (Trace m a, Switchboard a)
+</span><span class="hs-identifier hs-var">setupTrace_</span></span><span> </span><span class="annot"><span class="annottext">Configuration
+</span><a href="#local-6989586621682935945"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;bench-latency&quot;</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Switchboard ApiLog -&gt; IO ()
+forall a.
+(ToJSON a, FromJSON a, ToObject a) =&gt;
+Switchboard a -&gt; IO ()
+</span><span class="hs-identifier hs-var">shutdown</span></span><span> </span><span class="annot"><span class="annottext">(Switchboard ApiLog -&gt; IO ())
+-&gt; ((Trace IO ApiLog, Switchboard ApiLog) -&gt; Switchboard ApiLog)
+-&gt; (Trace IO ApiLog, Switchboard ApiLog)
+-&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Trace IO ApiLog, Switchboard ApiLog) -&gt; Switchboard ApiLog
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(((Trace IO ApiLog, Switchboard ApiLog) -&gt; IO a) -&gt; IO a)
+-&gt; ((Trace IO ApiLog, Switchboard ApiLog) -&gt; IO a) -&gt; IO a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="annottext">Trace IO ApiLog
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682935942"><span class="annot"><span class="annottext">Switchboard ApiLog
+</span><a href="#local-6989586621682935942"><span class="hs-identifier hs-var">sb</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-130"></span><span>        </span><span class="annot"><span class="annottext">tracers -&gt; LogCaptureFunc ApiLog b -&gt; IO a
+</span><a href="#local-6989586621682935947"><span class="hs-identifier hs-var">action</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TVar [LogObject ApiLog] -&gt; tracers
+</span><a href="#local-6989586621682935948"><span class="hs-identifier hs-var">setupTracers</span></a></span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935946"><span class="hs-identifier hs-var">tvar</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TVar [LogObject ApiLog] -&gt; LogCaptureFunc ApiLog b
+forall b. TVar [LogObject ApiLog] -&gt; LogCaptureFunc ApiLog b
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#logCaptureFunc"><span class="hs-identifier hs-var">logCaptureFunc</span></a></span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935946"><span class="hs-identifier hs-var">tvar</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO a -&gt; IO () -&gt; IO a
+forall (m :: * -&gt; *) a b. MonadUnliftIO m =&gt; m a -&gt; m b -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-operator hs-var">`onException`</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-131"></span><span>            </span><span class="annot"><span class="annottext">Builder -&gt; IO ()
+forall b. FromBuilder b =&gt; Builder -&gt; b
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">fmtLn</span></a></span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Action failed. Here are the captured logs:&quot;</span></span><span>
+</span><span id="line-132"></span><span>            </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog] -&gt; IO [LogObject ApiLog]
+forall (m :: * -&gt; *) a. MonadIO m =&gt; TVar a -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">readTVarIO</span></a></span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935946"><span class="hs-identifier hs-var">tvar</span></a></span><span> </span><span class="annot"><span class="annottext">IO [LogObject ApiLog] -&gt; ([LogObject ApiLog] -&gt; IO ()) -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(LogObject ApiLog -&gt; IO ()) -&gt; [LogObject ApiLog] -&gt; IO ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Switchboard ApiLog -&gt; LogObject ApiLog -&gt; IO ()
+forall (t :: * -&gt; *) a.
+IsEffectuator t a =&gt;
+t a -&gt; LogObject a -&gt; IO ()
+</span><span class="hs-identifier hs-var">effectuate</span></span><span> </span><span class="annot"><span class="annottext">Switchboard ApiLog
+</span><a href="#local-6989586621682935942"><span class="hs-identifier hs-var">sb</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([LogObject ApiLog] -&gt; IO ())
+-&gt; ([LogObject ApiLog] -&gt; [LogObject ApiLog])
+-&gt; [LogObject ApiLog]
+-&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[LogObject ApiLog] -&gt; [LogObject ApiLog]
+forall a. [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">reverse</span></a></span><span>
+</span><span id="line-133"></span><span>
+</span><span id="line-134"></span><span id="local-6989586621682936050"><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#logCaptureFunc"><span class="hs-identifier hs-type">logCaptureFunc</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">TVar</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">LogObject</span></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.LatencyBenchShared.html#LogCaptureFunc"><span class="hs-identifier hs-type">LogCaptureFunc</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-wallet-core/html/src"><span class="hs-identifier hs-type">ApiLog</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682936050"><span class="hs-identifier hs-type">b</span></a></span></span><span>
+</span><span id="line-135"></span><span id="logCaptureFunc"><span class="annot"><span class="annottext">logCaptureFunc :: TVar [LogObject ApiLog] -&gt; LogCaptureFunc ApiLog b
+</span><a href="Cardano.Wallet.LatencyBenchShared.html#logCaptureFunc"><span class="hs-identifier hs-var hs-var">logCaptureFunc</span></a></span></span><span> </span><span id="local-6989586621682935938"><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935938"><span class="hs-identifier hs-var">tvar</span></a></span></span><span> </span><span id="local-6989586621682935937"><span class="annot"><span class="annottext">IO b
+</span><a href="#local-6989586621682935937"><span class="hs-identifier hs-var">action</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-136"></span><span>  </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; STM a -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">atomically</span></a></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; IO ()) -&gt; STM () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog] -&gt; [LogObject ApiLog] -&gt; STM ()
+forall a. TVar a -&gt; a -&gt; STM ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeTVar</span></a></span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935938"><span class="hs-identifier hs-var">tvar</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-137"></span><span>  </span><span id="local-6989586621682935936"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621682935936"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO b
+</span><a href="#local-6989586621682935937"><span class="hs-identifier hs-var">action</span></a></span><span>
+</span><span id="line-138"></span><span>  </span><span id="local-6989586621682935935"><span class="annot"><span class="annottext">[LogObject ApiLog]
+</span><a href="#local-6989586621682935935"><span class="hs-identifier hs-var">logs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog] -&gt; IO [LogObject ApiLog]
+forall (m :: * -&gt; *) a. MonadIO m =&gt; TVar a -&gt; m a
+</span><a href="../../../../unliftio/html/src"><span class="hs-identifier hs-var">readTVarIO</span></a></span><span> </span><span class="annot"><span class="annottext">TVar [LogObject ApiLog]
+</span><a href="#local-6989586621682935938"><span class="hs-identifier hs-var">tvar</span></a></span><span>
+</span><span id="line-139"></span><span>  </span><span class="annot"><span class="annottext">([LogObject ApiLog], b) -&gt; IO ([LogObject ApiLog], b)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LogObject ApiLog] -&gt; [LogObject ApiLog]
+forall a. [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">reverse</span></a></span><span> </span><span class="annot"><span class="annottext">[LogObject ApiLog]
+</span><a href="#local-6989586621682935935"><span class="hs-identifier hs-var">logs</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621682935936"><span class="hs-identifier hs-var">res</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span></pre></body></html>

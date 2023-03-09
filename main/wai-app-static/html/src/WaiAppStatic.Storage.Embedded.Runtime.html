@@ -1,0 +1,457 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- | Lookup files stored in memory instead of from the filesystem.</span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">WaiAppStatic.Storage.Embedded.Runtime</span><span>
+</span><span id="line-4"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Settings</span></span><span>
+</span><span id="line-5"></span><span>      </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#embeddedSettings"><span class="hs-identifier">embeddedSettings</span></a></span><span>
+</span><span id="line-6"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html"><span class="hs-identifier">WaiAppStatic.Types</span></a></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">ByteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Arrow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(&amp;&amp;&amp;)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">second</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Builder</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">byteString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../wai/html/src"><span class="hs-identifier">Network.Wai</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">W</span></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Function</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">on</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Ord</span></a></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span class="hs-cpp">
+#ifdef MIN_VERSION_cryptonite
+</span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Crypto.Hash</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">hash</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">MD5</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier">Digest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../memory/html/src"><span class="hs-identifier">Data.ByteArray.Encoding</span></a></span><span class="hs-cpp">
+#else
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Crypto.Hash.MD5</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">hash</span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Data.ByteString.Base64</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">encode</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Filesystem.html"><span class="hs-identifier">WaiAppStatic.Storage.Filesystem</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Storage.Filesystem.html#defaultFileServerSettings"><span class="hs-identifier">defaultFileServerSettings</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-identifier">System.FilePath</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-identifier">isPathSeparator</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- | Serve the list of path/content pairs directly from memory.</span><span>
+</span><span id="line-30"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#embeddedSettings"><span class="hs-identifier hs-type">embeddedSettings</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Prelude.FilePath</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#StaticSettings"><span class="hs-identifier hs-type">StaticSettings</span></a></span><span>
+</span><span id="line-31"></span><span id="embeddedSettings"><span class="annot"><span class="annottext">embeddedSettings :: [(FilePath, ByteString)] -&gt; StaticSettings
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#embeddedSettings"><span class="hs-identifier hs-var hs-var">embeddedSettings</span></a></span></span><span> </span><span id="local-6989586621679136731"><span class="annot"><span class="annottext">[(FilePath, ByteString)]
+</span><a href="#local-6989586621679136731"><span class="hs-identifier hs-var">files</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; StaticSettings
+</span><a href="WaiAppStatic.Storage.Filesystem.html#defaultFileServerSettings"><span class="hs-identifier hs-var">defaultFileServerSettings</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; StaticSettings) -&gt; FilePath -&gt; StaticSettings
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+forall a. HasCallStack =&gt; FilePath -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">error</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;unused&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">ssLookupFile :: Pieces -&gt; IO LookupResult
+</span><a href="WaiAppStatic.Types.html#ssLookupFile"><span class="hs-identifier hs-var">ssLookupFile</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Embedded -&gt; Pieces -&gt; IO LookupResult
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#embeddedLookup"><span class="hs-identifier hs-var">embeddedLookup</span></a></span><span> </span><span class="annot"><span class="annottext">(Embedded -&gt; Pieces -&gt; IO LookupResult)
+-&gt; Embedded -&gt; Pieces -&gt; IO LookupResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[(FilePath, ByteString)] -&gt; Embedded
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEmbedded"><span class="hs-identifier hs-var">toEmbedded</span></a></span><span> </span><span class="annot"><span class="annottext">[(FilePath, ByteString)]
+</span><a href="#local-6989586621679136731"><span class="hs-identifier hs-var">files</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-34"></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">type</span><span> </span><span id="Embedded"><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#Embedded"><span class="hs-identifier hs-var">Embedded</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map.Map</span></a></span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EmbeddedEntry"><span class="hs-identifier hs-type">EmbeddedEntry</span></a></span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">data</span><span> </span><span id="EmbeddedEntry"><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EmbeddedEntry"><span class="hs-identifier hs-var">EmbeddedEntry</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="EEFile"><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFile"><span class="hs-identifier hs-var">EEFile</span></a></span></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="EEFolder"><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFolder"><span class="hs-identifier hs-var">EEFolder</span></a></span></span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#Embedded"><span class="hs-identifier hs-type">Embedded</span></a></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#embeddedLookup"><span class="hs-identifier hs-type">embeddedLookup</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#Embedded"><span class="hs-identifier hs-type">Embedded</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#Pieces"><span class="hs-identifier hs-type">Pieces</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#LookupResult"><span class="hs-identifier hs-type">LookupResult</span></a></span><span>
+</span><span id="line-40"></span><span id="embeddedLookup"><span class="annot"><span class="annottext">embeddedLookup :: Embedded -&gt; Pieces -&gt; IO LookupResult
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#embeddedLookup"><span class="hs-identifier hs-var hs-var">embeddedLookup</span></a></span></span><span> </span><span id="local-6989586621679136723"><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136723"><span class="hs-identifier hs-var">root</span></a></span></span><span> </span><span id="local-6989586621679136722"><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136722"><span class="hs-identifier hs-var">pieces</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-41"></span><span>    </span><span class="annot"><span class="annottext">LookupResult -&gt; IO LookupResult
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(LookupResult -&gt; IO LookupResult)
+-&gt; LookupResult -&gt; IO LookupResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Pieces -&gt; Embedded -&gt; LookupResult
+</span><a href="#local-6989586621679136721"><span class="hs-identifier hs-var">elookup</span></a></span><span> </span><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136722"><span class="hs-identifier hs-var">pieces</span></a></span><span> </span><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136723"><span class="hs-identifier hs-var">root</span></a></span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-43"></span><span>    </span><span class="annot"><a href="#local-6989586621679136721"><span class="hs-identifier hs-type">elookup</span></a></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#Pieces"><span class="hs-identifier hs-type">Pieces</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#Embedded"><span class="hs-identifier hs-type">Embedded</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#LookupResult"><span class="hs-identifier hs-type">LookupResult</span></a></span><span>
+</span><span id="line-44"></span><span>    </span><span id="local-6989586621679136721"><span class="annot"><span class="annottext">elookup :: Pieces -&gt; Embedded -&gt; LookupResult
+</span><a href="#local-6989586621679136721"><span class="hs-identifier hs-var hs-var">elookup</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span id="local-6989586621679136720"><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136720"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Folder -&gt; LookupResult
+</span><a href="WaiAppStatic.Types.html#LRFolder"><span class="hs-identifier hs-var">LRFolder</span></a></span><span> </span><span class="annot"><span class="annottext">(Folder -&gt; LookupResult) -&gt; Folder -&gt; LookupResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Either FolderName File] -&gt; Folder
+</span><a href="WaiAppStatic.Types.html#Folder"><span class="hs-identifier hs-var">Folder</span></a></span><span> </span><span class="annot"><span class="annottext">([Either FolderName File] -&gt; Folder)
+-&gt; [Either FolderName File] -&gt; Folder
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((FolderName, EmbeddedEntry) -&gt; Either FolderName File)
+-&gt; [(FolderName, EmbeddedEntry)] -&gt; [Either FolderName File]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(FolderName, EmbeddedEntry) -&gt; Either FolderName File
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEntry"><span class="hs-identifier hs-var">toEntry</span></a></span><span> </span><span class="annot"><span class="annottext">([(FolderName, EmbeddedEntry)] -&gt; [Either FolderName File])
+-&gt; [(FolderName, EmbeddedEntry)] -&gt; [Either FolderName File]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Embedded -&gt; [(FolderName, EmbeddedEntry)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.toList</span></a></span><span> </span><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136720"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="annot"><a href="#local-6989586621679136721"><span class="hs-identifier hs-var">elookup</span></a></span><span> </span><span class="hs-special">[</span><span id="local-6989586621679136715"><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136715"><span class="hs-identifier hs-var">p</span></a></span></span><span class="hs-special">]</span><span> </span><span id="local-6989586621679136714"><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136714"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.null</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FolderName -&gt; Text
+</span><a href="WaiAppStatic.Types.html#fromPiece"><span class="hs-identifier hs-var hs-var">fromPiece</span></a></span><span> </span><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136715"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Pieces -&gt; Embedded -&gt; LookupResult
+</span><a href="#local-6989586621679136721"><span class="hs-identifier hs-var">elookup</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136714"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span class="annot"><a href="#local-6989586621679136721"><span class="hs-identifier hs-var">elookup</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679136711"><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136711"><span class="hs-identifier hs-var">p</span></a></span></span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679136710"><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136710"><span class="hs-identifier hs-var">ps</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679136709"><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136709"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-47"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FolderName -&gt; Embedded -&gt; Maybe EmbeddedEntry
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.lookup</span></a></span><span> </span><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136711"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136709"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-48"></span><span>            </span><span class="annot"><span class="annottext">Maybe EmbeddedEntry
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LookupResult
+</span><a href="WaiAppStatic.Types.html#LRNotFound"><span class="hs-identifier hs-var">LRNotFound</span></a></span><span>
+</span><span id="line-49"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFile"><span class="hs-identifier hs-type">EEFile</span></a></span><span> </span><span id="local-6989586621679136706"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136706"><span class="hs-identifier hs-var">f</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-50"></span><span>                </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136710"><span class="hs-identifier hs-var">ps</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-51"></span><span>                    </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">File -&gt; LookupResult
+</span><a href="WaiAppStatic.Types.html#LRFile"><span class="hs-identifier hs-var">LRFile</span></a></span><span> </span><span class="annot"><span class="annottext">(File -&gt; LookupResult) -&gt; File -&gt; LookupResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FolderName -&gt; ByteString -&gt; File
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#bsToFile"><span class="hs-identifier hs-var">bsToFile</span></a></span><span> </span><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136711"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136706"><span class="hs-identifier hs-var">f</span></a></span><span>
+</span><span id="line-52"></span><span>                    </span><span class="annot"><span class="annottext">Pieces
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">LookupResult
+</span><a href="WaiAppStatic.Types.html#LRNotFound"><span class="hs-identifier hs-var">LRNotFound</span></a></span><span>
+</span><span id="line-53"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFolder"><span class="hs-identifier hs-type">EEFolder</span></a></span><span> </span><span id="local-6989586621679136703"><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136703"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pieces -&gt; Embedded -&gt; LookupResult
+</span><a href="#local-6989586621679136721"><span class="hs-identifier hs-var">elookup</span></a></span><span> </span><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136710"><span class="hs-identifier hs-var">ps</span></a></span><span> </span><span class="annot"><span class="annottext">Embedded
+</span><a href="#local-6989586621679136703"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEntry"><span class="hs-identifier hs-type">toEntry</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EmbeddedEntry"><span class="hs-identifier hs-type">EmbeddedEntry</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#FolderName"><span class="hs-identifier hs-type">FolderName</span></a></span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#File"><span class="hs-identifier hs-type">File</span></a></span><span>
+</span><span id="line-56"></span><span id="toEntry"><span class="annot"><span class="annottext">toEntry :: (FolderName, EmbeddedEntry) -&gt; Either FolderName File
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEntry"><span class="hs-identifier hs-var hs-var">toEntry</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679136702"><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136702"><span class="hs-identifier hs-var">name</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFolder"><span class="hs-identifier hs-type">EEFolder</span></a></span><span class="hs-special">{</span><span class="hs-special">}</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FolderName -&gt; Either FolderName File
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136702"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-57"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEntry"><span class="hs-identifier hs-var">toEntry</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679136701"><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136701"><span class="hs-identifier hs-var">name</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFile"><span class="hs-identifier hs-type">EEFile</span></a></span><span> </span><span id="local-6989586621679136700"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136700"><span class="hs-identifier hs-var">bs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">File -&gt; Either FolderName File
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">File :: Integer
+-&gt; (Status -&gt; ResponseHeaders -&gt; Response)
+-&gt; FolderName
+-&gt; IO (Maybe ByteString)
+-&gt; Maybe EpochTime
+-&gt; File
+</span><a href="WaiAppStatic.Types.html#File"><span class="hs-identifier hs-type">File</span></a></span><span>
+</span><span id="line-58"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">fileGetSize :: Integer
+</span><a href="WaiAppStatic.Types.html#fileGetSize"><span class="hs-identifier hs-var">fileGetSize</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Integer
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Integer) -&gt; Int -&gt; Integer
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.length</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136700"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileToResponse :: Status -&gt; ResponseHeaders -&gt; Response
+</span><a href="WaiAppStatic.Types.html#fileToResponse"><span class="hs-identifier hs-var">fileToResponse</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679136695"><span class="annot"><span class="annottext">Status
+</span><a href="#local-6989586621679136695"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span id="local-6989586621679136694"><span class="annot"><span class="annottext">ResponseHeaders
+</span><a href="#local-6989586621679136694"><span class="hs-identifier hs-var">h</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Status -&gt; ResponseHeaders -&gt; Builder -&gt; Response
+</span><a href="../../../../wai/html/src"><span class="hs-identifier hs-var">W.responseBuilder</span></a></span><span> </span><span class="annot"><span class="annottext">Status
+</span><a href="#local-6989586621679136695"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">ResponseHeaders
+</span><a href="#local-6989586621679136694"><span class="hs-identifier hs-var">h</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; Response) -&gt; Builder -&gt; Response
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136700"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileName :: FolderName
+</span><a href="WaiAppStatic.Types.html#fileName"><span class="hs-identifier hs-var">fileName</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136701"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileGetHash :: IO (Maybe ByteString)
+</span><a href="WaiAppStatic.Types.html#fileGetHash"><span class="hs-identifier hs-var">fileGetHash</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString -&gt; IO (Maybe ByteString)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Maybe ByteString) -&gt; ByteString -&gt; Maybe ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#runHash"><span class="hs-identifier hs-var">runHash</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136700"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileGetModified :: Maybe EpochTime
+</span><a href="WaiAppStatic.Types.html#fileGetModified"><span class="hs-identifier hs-var">fileGetModified</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe EpochTime
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEmbedded"><span class="hs-identifier hs-type">toEmbedded</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Prelude.FilePath</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#Embedded"><span class="hs-identifier hs-type">Embedded</span></a></span><span>
+</span><span id="line-66"></span><span id="toEmbedded"><span class="annot"><span class="annottext">toEmbedded :: [(FilePath, ByteString)] -&gt; Embedded
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#toEmbedded"><span class="hs-identifier hs-var hs-var">toEmbedded</span></a></span></span><span> </span><span id="local-6989586621679136688"><span class="annot"><span class="annottext">[(FilePath, ByteString)]
+</span><a href="#local-6989586621679136688"><span class="hs-identifier hs-var">fps</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><span class="annottext">[(Pieces, ByteString)] -&gt; Embedded
+</span><a href="#local-6989586621679136687"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[(Pieces, ByteString)]
+</span><a href="#local-6989586621679136686"><span class="hs-identifier hs-var">texts</span></a></span><span>
+</span><span id="line-68"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-69"></span><span>    </span><span id="local-6989586621679136686"><span class="annot"><span class="annottext">texts :: [(Pieces, ByteString)]
+</span><a href="#local-6989586621679136686"><span class="hs-identifier hs-var hs-var">texts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((FilePath, ByteString) -&gt; (Pieces, ByteString))
+-&gt; [(FilePath, ByteString)] -&gt; [(Pieces, ByteString)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679136685"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136685"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679136684"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136684"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FolderName -&gt; Bool) -&gt; Pieces -&gt; Pieces
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">filter</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; (FolderName -&gt; Bool) -&gt; FolderName -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.null</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Bool) -&gt; (FolderName -&gt; Text) -&gt; FolderName -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FolderName -&gt; Text
+</span><a href="WaiAppStatic.Types.html#fromPiece"><span class="hs-identifier hs-var hs-var">fromPiece</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Pieces -&gt; Pieces) -&gt; Pieces -&gt; Pieces
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Pieces
+</span><a href="#local-6989586621679136681"><span class="hs-identifier hs-var">toPieces'</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136685"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136684"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(FilePath, ByteString)]
+</span><a href="#local-6989586621679136688"><span class="hs-identifier hs-var">fps</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span id="local-6989586621679136681"><span class="annot"><span class="annottext">toPieces' :: FilePath -&gt; Pieces
+</span><a href="#local-6989586621679136681"><span class="hs-identifier hs-var hs-var">toPieces'</span></a></span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;&quot;</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-71"></span><span>    </span><span class="annot"><a href="#local-6989586621679136681"><span class="hs-identifier hs-var">toPieces'</span></a></span><span> </span><span id="local-6989586621679136680"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136680"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-72"></span><span>        </span><span class="hs-comment">-- See https://github.com/yesodweb/yesod/issues/626</span><span>
+</span><span id="line-73"></span><span>        </span><span class="hs-comment">--</span><span>
+</span><span id="line-74"></span><span>        </span><span class="hs-comment">-- We want to separate on the forward slash on *all* OSes, and on</span><span>
+</span><span id="line-75"></span><span>        </span><span class="hs-comment">-- Windows, also separate on a backslash.</span><span>
+</span><span id="line-76"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679136679"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136679"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679136678"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136678"><span class="hs-identifier hs-var">z</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; FilePath -&gt; (FilePath, FilePath)
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; ([a], [a])
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">break</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="../../../../filepath/html/src"><span class="hs-identifier hs-var">isPathSeparator</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136680"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-77"></span><span>         </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Text -&gt; FolderName
+</span><a href="WaiAppStatic.Types.html#unsafeToPiece"><span class="hs-identifier hs-var">unsafeToPiece</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; Text
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">T.pack</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136679"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">FolderName -&gt; Pieces -&gt; Pieces
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Pieces
+</span><a href="#local-6989586621679136681"><span class="hs-identifier hs-var">toPieces'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; FilePath -&gt; FilePath
+forall a. Int -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">drop</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679136678"><span class="hs-identifier hs-var">z</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span>    </span><span class="annot"><a href="#local-6989586621679136687"><span class="hs-identifier hs-type">go</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Types.html#Pieces"><span class="hs-identifier hs-type">Pieces</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#Embedded"><span class="hs-identifier hs-type">Embedded</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621679136687"><span class="annot"><span class="annottext">go :: [(Pieces, ByteString)] -&gt; Embedded
+</span><a href="#local-6989586621679136687"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679136673"><span class="annot"><span class="annottext">[(Pieces, ByteString)]
+</span><a href="#local-6989586621679136673"><span class="hs-identifier hs-var">orig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-81"></span><span>        </span><span class="annot"><span class="annottext">[(FolderName, EmbeddedEntry)] -&gt; Embedded
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.fromList</span></a></span><span> </span><span class="annot"><span class="annottext">([(FolderName, EmbeddedEntry)] -&gt; Embedded)
+-&gt; [(FolderName, EmbeddedEntry)] -&gt; Embedded
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((FolderName, [(Pieces, ByteString)])
+ -&gt; (FolderName, EmbeddedEntry))
+-&gt; [(FolderName, [(Pieces, ByteString)])]
+-&gt; [(FolderName, EmbeddedEntry)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">([(Pieces, ByteString)] -&gt; EmbeddedEntry)
+-&gt; (FolderName, [(Pieces, ByteString)])
+-&gt; (FolderName, EmbeddedEntry)
+forall (a :: * -&gt; * -&gt; *) b c d.
+Arrow a =&gt;
+a b c -&gt; a (d, b) (d, c)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">second</span></a></span><span> </span><span class="annot"><span class="annottext">[(Pieces, ByteString)] -&gt; EmbeddedEntry
+</span><a href="#local-6989586621679136671"><span class="hs-identifier hs-var">go'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(FolderName, [(Pieces, ByteString)])]
+</span><a href="#local-6989586621679136670"><span class="hs-identifier hs-var">hoisted</span></a></span><span>
+</span><span id="line-82"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-83"></span><span>        </span><span id="local-6989586621679136669"><span class="annot"><span class="annottext">next :: [(FolderName, (Pieces, ByteString))]
+</span><a href="#local-6989586621679136669"><span class="hs-identifier hs-var hs-var">next</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Pieces, ByteString) -&gt; (FolderName, (Pieces, ByteString)))
+-&gt; [(Pieces, ByteString)] -&gt; [(FolderName, (Pieces, ByteString))]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679136668"><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136668"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679136667"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136667"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Pieces -&gt; FolderName
+forall a. [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">head</span></a></span><span> </span><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136668"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Pieces -&gt; Pieces
+forall a. [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">tail</span></a></span><span> </span><span class="annot"><span class="annottext">Pieces
+</span><a href="#local-6989586621679136668"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136667"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(Pieces, ByteString)]
+</span><a href="#local-6989586621679136673"><span class="hs-identifier hs-var">orig</span></a></span><span>
+</span><span id="line-84"></span><span>        </span><span class="annot"><a href="#local-6989586621679136664"><span class="hs-identifier hs-type">grouped</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">]</span><span>
+</span><span id="line-85"></span><span>        </span><span id="local-6989586621679136664"><span class="annot"><span class="annottext">grouped :: [[(FolderName, (Pieces, ByteString))]]
+</span><a href="#local-6989586621679136664"><span class="hs-identifier hs-var hs-var">grouped</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((FolderName, (Pieces, ByteString))
+ -&gt; (FolderName, (Pieces, ByteString)) -&gt; Bool)
+-&gt; [(FolderName, (Pieces, ByteString))]
+-&gt; [[(FolderName, (Pieces, ByteString))]]
+forall a. (a -&gt; a -&gt; Bool) -&gt; [a] -&gt; [[a]]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">groupBy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FolderName -&gt; FolderName -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">(==)</span></a></span><span> </span><span class="annot"><span class="annottext">(FolderName -&gt; FolderName -&gt; Bool)
+-&gt; ((FolderName, (Pieces, ByteString)) -&gt; FolderName)
+-&gt; (FolderName, (Pieces, ByteString))
+-&gt; (FolderName, (Pieces, ByteString))
+-&gt; Bool
+forall b c a. (b -&gt; b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`on`</span></a></span><span> </span><span class="annot"><span class="annottext">(FolderName, (Pieces, ByteString)) -&gt; FolderName
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([(FolderName, (Pieces, ByteString))]
+ -&gt; [[(FolderName, (Pieces, ByteString))]])
+-&gt; [(FolderName, (Pieces, ByteString))]
+-&gt; [[(FolderName, (Pieces, ByteString))]]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((FolderName, (Pieces, ByteString))
+ -&gt; (FolderName, (Pieces, ByteString)) -&gt; Ordering)
+-&gt; [(FolderName, (Pieces, ByteString))]
+-&gt; [(FolderName, (Pieces, ByteString))]
+forall a. (a -&gt; a -&gt; Ordering) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortBy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">((FolderName, (Pieces, ByteString)) -&gt; FolderName)
+-&gt; (FolderName, (Pieces, ByteString))
+-&gt; (FolderName, (Pieces, ByteString))
+-&gt; Ordering
+forall a b. Ord a =&gt; (b -&gt; a) -&gt; b -&gt; b -&gt; Ordering
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">comparing</span></a></span><span> </span><span class="annot"><span class="annottext">(FolderName, (Pieces, ByteString)) -&gt; FolderName
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(FolderName, (Pieces, ByteString))]
+</span><a href="#local-6989586621679136669"><span class="hs-identifier hs-var">next</span></a></span><span>
+</span><span id="line-86"></span><span>        </span><span class="annot"><a href="#local-6989586621679136670"><span class="hs-identifier hs-type">hoisted</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><span id="line-87"></span><span>        </span><span id="local-6989586621679136670"><span class="annot"><span class="annottext">hoisted :: [(FolderName, [(Pieces, ByteString)])]
+</span><a href="#local-6989586621679136670"><span class="hs-identifier hs-var hs-var">hoisted</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([(FolderName, (Pieces, ByteString))]
+ -&gt; (FolderName, [(Pieces, ByteString)]))
+-&gt; [[(FolderName, (Pieces, ByteString))]]
+-&gt; [(FolderName, [(Pieces, ByteString)])]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FolderName, (Pieces, ByteString)) -&gt; FolderName
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">((FolderName, (Pieces, ByteString)) -&gt; FolderName)
+-&gt; ([(FolderName, (Pieces, ByteString))]
+    -&gt; (FolderName, (Pieces, ByteString)))
+-&gt; [(FolderName, (Pieces, ByteString))]
+-&gt; FolderName
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[(FolderName, (Pieces, ByteString))]
+-&gt; (FolderName, (Pieces, ByteString))
+forall a. [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">head</span></a></span><span> </span><span class="annot"><span class="annottext">([(FolderName, (Pieces, ByteString))] -&gt; FolderName)
+-&gt; ([(FolderName, (Pieces, ByteString))] -&gt; [(Pieces, ByteString)])
+-&gt; [(FolderName, (Pieces, ByteString))]
+-&gt; (FolderName, [(Pieces, ByteString)])
+forall (a :: * -&gt; * -&gt; *) b c c'.
+Arrow a =&gt;
+a b c -&gt; a b c' -&gt; a b (c, c')
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&amp;&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">((FolderName, (Pieces, ByteString)) -&gt; (Pieces, ByteString))
+-&gt; [(FolderName, (Pieces, ByteString))] -&gt; [(Pieces, ByteString)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(FolderName, (Pieces, ByteString)) -&gt; (Pieces, ByteString)
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[[(FolderName, (Pieces, ByteString))]]
+</span><a href="#local-6989586621679136664"><span class="hs-identifier hs-var">grouped</span></a></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span>    </span><span class="annot"><a href="#local-6989586621679136671"><span class="hs-identifier hs-type">go'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="WaiAppStatic.Types.html#Pieces"><span class="hs-identifier hs-type">Pieces</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EmbeddedEntry"><span class="hs-identifier hs-type">EmbeddedEntry</span></a></span><span>
+</span><span id="line-90"></span><span>    </span><span id="local-6989586621679136671"><span class="annot"><span class="annottext">go' :: [(Pieces, ByteString)] -&gt; EmbeddedEntry
+</span><a href="#local-6989586621679136671"><span class="hs-identifier hs-var hs-var">go'</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span id="local-6989586621679136660"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136660"><span class="hs-identifier hs-var">content</span></a></span></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; EmbeddedEntry
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFile"><span class="hs-identifier hs-var">EEFile</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136660"><span class="hs-identifier hs-var">content</span></a></span><span>
+</span><span id="line-91"></span><span>    </span><span class="annot"><a href="#local-6989586621679136671"><span class="hs-identifier hs-var">go'</span></a></span><span> </span><span id="local-6989586621679136659"><span class="annot"><span class="annottext">[(Pieces, ByteString)]
+</span><a href="#local-6989586621679136659"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Embedded -&gt; EmbeddedEntry
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#EEFolder"><span class="hs-identifier hs-var">EEFolder</span></a></span><span> </span><span class="annot"><span class="annottext">(Embedded -&gt; EmbeddedEntry) -&gt; Embedded -&gt; EmbeddedEntry
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[(Pieces, ByteString)] -&gt; Embedded
+</span><a href="#local-6989586621679136687"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">([(Pieces, ByteString)] -&gt; Embedded)
+-&gt; [(Pieces, ByteString)] -&gt; Embedded
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((Pieces, ByteString) -&gt; Bool)
+-&gt; [(Pieces, ByteString)] -&gt; [(Pieces, ByteString)]
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">filter</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679136658"><span class="annot"><span class="annottext">(Pieces, ByteString)
+</span><a href="#local-6989586621679136658"><span class="hs-identifier hs-var">y</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; Bool -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Pieces -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">(Pieces -&gt; Bool) -&gt; Pieces -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(Pieces, ByteString) -&gt; Pieces
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">(Pieces, ByteString)
+</span><a href="#local-6989586621679136658"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(Pieces, ByteString)]
+</span><a href="#local-6989586621679136659"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#bsToFile"><span class="hs-identifier hs-type">bsToFile</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#Piece"><span class="hs-identifier hs-type">Piece</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="WaiAppStatic.Types.html#File"><span class="hs-identifier hs-type">File</span></a></span><span>
+</span><span id="line-94"></span><span id="bsToFile"><span class="annot"><span class="annottext">bsToFile :: FolderName -&gt; ByteString -&gt; File
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#bsToFile"><span class="hs-identifier hs-var hs-var">bsToFile</span></a></span></span><span> </span><span id="local-6989586621679136656"><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136656"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679136655"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136655"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">File :: Integer
+-&gt; (Status -&gt; ResponseHeaders -&gt; Response)
+-&gt; FolderName
+-&gt; IO (Maybe ByteString)
+-&gt; Maybe EpochTime
+-&gt; File
+</span><a href="WaiAppStatic.Types.html#File"><span class="hs-identifier hs-type">File</span></a></span><span>
+</span><span id="line-95"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">fileGetSize :: Integer
+</span><a href="WaiAppStatic.Types.html#fileGetSize"><span class="hs-identifier hs-var">fileGetSize</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Integer
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Integer) -&gt; Int -&gt; Integer
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">S.length</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136655"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-96"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileToResponse :: Status -&gt; ResponseHeaders -&gt; Response
+</span><a href="WaiAppStatic.Types.html#fileToResponse"><span class="hs-identifier hs-var">fileToResponse</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679136654"><span class="annot"><span class="annottext">Status
+</span><a href="#local-6989586621679136654"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span id="local-6989586621679136653"><span class="annot"><span class="annottext">ResponseHeaders
+</span><a href="#local-6989586621679136653"><span class="hs-identifier hs-var">h</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Status -&gt; ResponseHeaders -&gt; Builder -&gt; Response
+</span><a href="../../../../wai/html/src"><span class="hs-identifier hs-var">W.responseBuilder</span></a></span><span> </span><span class="annot"><span class="annottext">Status
+</span><a href="#local-6989586621679136654"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">ResponseHeaders
+</span><a href="#local-6989586621679136653"><span class="hs-identifier hs-var">h</span></a></span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; Response) -&gt; Builder -&gt; Response
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Builder
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">byteString</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136655"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-97"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileName :: FolderName
+</span><a href="WaiAppStatic.Types.html#fileName"><span class="hs-identifier hs-var">fileName</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FolderName
+</span><a href="#local-6989586621679136656"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-98"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileGetHash :: IO (Maybe ByteString)
+</span><a href="WaiAppStatic.Types.html#fileGetHash"><span class="hs-identifier hs-var">fileGetHash</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe ByteString -&gt; IO (Maybe ByteString)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe ByteString -&gt; IO (Maybe ByteString))
+-&gt; Maybe ByteString -&gt; IO (Maybe ByteString)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Maybe ByteString
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Maybe ByteString) -&gt; ByteString -&gt; Maybe ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#runHash"><span class="hs-identifier hs-var">runHash</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679136655"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fileGetModified :: Maybe EpochTime
+</span><a href="WaiAppStatic.Types.html#fileGetModified"><span class="hs-identifier hs-var">fileGetModified</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe EpochTime
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-100"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-101"></span><span>
+</span><span id="line-102"></span><span class="annot"><a href="WaiAppStatic.Storage.Embedded.Runtime.html#runHash"><span class="hs-identifier hs-type">runHash</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-cpp">
+#ifdef MIN_VERSION_cryptonite
+</span><span id="runHash"><span class="annot"><span class="annottext">runHash :: ByteString -&gt; ByteString
+</span><a href="WaiAppStatic.Storage.Embedded.Runtime.html#runHash"><span class="hs-identifier hs-var hs-var">runHash</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Base -&gt; Digest MD5 -&gt; ByteString
+forall bin bout.
+(ByteArrayAccess bin, ByteArray bout) =&gt;
+Base -&gt; bin -&gt; bout
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">convertToBase</span></a></span><span> </span><span class="annot"><span class="annottext">Base
+</span><a href="../../../../memory/html/src"><span class="hs-identifier hs-var">Base64</span></a></span><span> </span><span class="annot"><span class="annottext">(Digest MD5 -&gt; ByteString)
+-&gt; (ByteString -&gt; Digest MD5) -&gt; ByteString -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Digest MD5
+forall ba a.
+(ByteArrayAccess ba, HashAlgorithm a) =&gt;
+ba -&gt; Digest a
+</span><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-var">hash</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">S.ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-type">Digest</span></a></span><span> </span><span class="annot"><a href="../../../../cryptonite/html/src"><span class="hs-identifier hs-type">MD5</span></a></span><span class="hs-special">)</span><span class="hs-cpp">
+#else
+</span><span class="hs-identifier">runHash</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">encode</span><span> </span><span class="hs-operator">.</span><span> </span><span class="hs-identifier">hash</span><span class="hs-cpp">
+#endif
+</span></pre></body></html>

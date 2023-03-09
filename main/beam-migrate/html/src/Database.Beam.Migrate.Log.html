@@ -1,0 +1,1138 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE AllowAmbiguousTypes #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- | Contains a schema for beam migration tools. Used by the CLI and</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- the managed migrations support here.</span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.Beam.Migrate.Log</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier">Database.Beam</span></a></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier">Database.Beam.Backend.SQL</span></a></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.html"><span class="hs-identifier">Database.Beam.Migrate</span></a></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Backend.html"><span class="hs-identifier">Database.Beam.Migrate.Backend</span></a></span><span>
+</span><span id="line-10"></span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">when</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Int</span></a></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.String</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">fromString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">Data.Time</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">LocalTime</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../uuid-types/html/src"><span class="hs-identifier">Data.UUID.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../uuid-types/html/src"><span class="hs-identifier">UUID</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">fromMaybe</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad.Fail</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Fail</span></span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span id="local-6989586621679298533"><span id="local-6989586621679298534"></span></span><span class="hs-keyword">data</span><span> </span><span id="LogEntryT"><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-var">LogEntryT</span></a></span></span><span> </span><span id="local-6989586621679298785"><span class="annot"><a href="#local-6989586621679298785"><span class="hs-identifier hs-type">f</span></a></span></span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="LogEntry"><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntry"><span class="hs-identifier hs-var">LogEntry</span></a></span></span><span>
+</span><span id="line-24"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="_logEntryId"><span class="annot"><span class="annottext">LogEntryT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_logEntryId"><span class="hs-identifier hs-var hs-var">_logEntryId</span></a></span></span><span>       </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">C</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298785"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span>
+</span><span id="line-25"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="_logEntryCommitId"><span class="annot"><span class="annottext">LogEntryT f -&gt; C f Text
+</span><a href="Database.Beam.Migrate.Log.html#_logEntryCommitId"><span class="hs-identifier hs-var hs-var">_logEntryCommitId</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">C</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298785"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-26"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="_logEntryDate"><span class="annot"><span class="annottext">LogEntryT f -&gt; C f LocalTime
+</span><a href="Database.Beam.Migrate.Log.html#_logEntryDate"><span class="hs-identifier hs-var hs-var">_logEntryDate</span></a></span></span><span>     </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">C</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298785"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">LocalTime</span></a></span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="annottext">(forall x. LogEntryT f -&gt; Rep (LogEntryT f) x)
+-&gt; (forall x. Rep (LogEntryT f) x -&gt; LogEntryT f)
+-&gt; Generic (LogEntryT f)
+forall x. Rep (LogEntryT f) x -&gt; LogEntryT f
+forall x. LogEntryT f -&gt; Rep (LogEntryT f) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall (f :: * -&gt; *) x. Rep (LogEntryT f) x -&gt; LogEntryT f
+forall (f :: * -&gt; *) x. LogEntryT f -&gt; Rep (LogEntryT f) x
+$cto :: forall (f :: * -&gt; *) x. Rep (LogEntryT f) x -&gt; LogEntryT f
+$cfrom :: forall (f :: * -&gt; *) x. LogEntryT f -&gt; Rep (LogEntryT f) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679298522"><span id="local-6989586621679298524"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span></span></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">type</span><span> </span><span id="LogEntry"><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntry"><span class="hs-identifier hs-var">LogEntry</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span>
+</span><span id="line-31"></span><span id="local-6989586621679298515"><span id="local-6989586621679298517"><span id="local-6989586621679298519"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntry"><span class="hs-identifier hs-type">LogEntry</span></a></span></span></span></span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Table</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-keyword">data</span><span> </span><span id="PrimaryKey"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">PrimaryKey</span></a></span></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span><span> </span><span id="local-6989586621679298789"><span class="annot"><a href="#local-6989586621679298789"><span class="hs-identifier hs-type hs-type">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LogEntryKey"><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryKey"><span class="hs-identifier hs-var">LogEntryKey</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">C</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298789"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="annottext">(forall x.
+ PrimaryKey LogEntryT f -&gt; Rep (PrimaryKey LogEntryT f) x)
+-&gt; (forall x.
+    Rep (PrimaryKey LogEntryT f) x -&gt; PrimaryKey LogEntryT f)
+-&gt; Generic (PrimaryKey LogEntryT f)
+forall x. Rep (PrimaryKey LogEntryT f) x -&gt; PrimaryKey LogEntryT f
+forall x. PrimaryKey LogEntryT f -&gt; Rep (PrimaryKey LogEntryT f) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall (f :: * -&gt; *) x.
+Rep (PrimaryKey LogEntryT f) x -&gt; PrimaryKey LogEntryT f
+forall (f :: * -&gt; *) x.
+PrimaryKey LogEntryT f -&gt; Rep (PrimaryKey LogEntryT f) x
+$cto :: forall (f :: * -&gt; *) x.
+Rep (PrimaryKey LogEntryT f) x -&gt; PrimaryKey LogEntryT f
+$cfrom :: forall (f :: * -&gt; *) x.
+PrimaryKey LogEntryT f -&gt; Rep (PrimaryKey LogEntryT f) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span>
+</span><span id="line-36"></span><span>  </span><span id="local-6989586621679298503"><span class="annot"><span class="annottext">primaryKey :: LogEntryT column -&gt; PrimaryKey LogEntryT column
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">primaryKey</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">C column Int32 -&gt; PrimaryKey LogEntryT column
+forall (f :: * -&gt; *). C f Int32 -&gt; PrimaryKey LogEntryT f
+</span><a href="Database.Beam.Migrate.Log.html#LogEntryKey"><span class="hs-identifier hs-var">LogEntryKey</span></a></span><span> </span><span class="annot"><span class="annottext">(C column Int32 -&gt; PrimaryKey LogEntryT column)
+-&gt; (LogEntryT column -&gt; C column Int32)
+-&gt; LogEntryT column
+-&gt; PrimaryKey LogEntryT column
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">LogEntryT column -&gt; C column Int32
+forall (f :: * -&gt; *). LogEntryT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_logEntryId"><span class="hs-identifier hs-var hs-var">_logEntryId</span></a></span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679298497"><span id="local-6989586621679298499"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">PrimaryKey</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">type</span><span> </span><span id="LogEntryKey"><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryKey"><span class="hs-identifier hs-var">LogEntryKey</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">PrimaryKey</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span>
+</span><span id="line-41"></span><span id="local-6989586621679298491"><span id="local-6989586621679298493"><span id="local-6989586621679298495"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryKey"><span class="hs-identifier hs-type">LogEntryKey</span></a></span></span></span></span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span id="local-6989586621679298489"><span id="local-6989586621679298490"></span></span><span class="hs-keyword">newtype</span><span> </span><span id="BeamMigrateVersionT"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-var">BeamMigrateVersionT</span></a></span></span><span> </span><span id="local-6989586621679298764"><span class="annot"><a href="#local-6989586621679298764"><span class="hs-identifier hs-type">f</span></a></span></span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="BeamMigrateVersion"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersion"><span class="hs-identifier hs-var">BeamMigrateVersion</span></a></span></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="_beamMigrateVersion"><span class="annot"><span class="annottext">BeamMigrateVersionT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateVersion"><span class="hs-identifier hs-var hs-var">_beamMigrateVersion</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">C</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298764"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="annottext">(forall x. BeamMigrateVersionT f -&gt; Rep (BeamMigrateVersionT f) x)
+-&gt; (forall x.
+    Rep (BeamMigrateVersionT f) x -&gt; BeamMigrateVersionT f)
+-&gt; Generic (BeamMigrateVersionT f)
+forall x. Rep (BeamMigrateVersionT f) x -&gt; BeamMigrateVersionT f
+forall x. BeamMigrateVersionT f -&gt; Rep (BeamMigrateVersionT f) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall (f :: * -&gt; *) x.
+Rep (BeamMigrateVersionT f) x -&gt; BeamMigrateVersionT f
+forall (f :: * -&gt; *) x.
+BeamMigrateVersionT f -&gt; Rep (BeamMigrateVersionT f) x
+$cto :: forall (f :: * -&gt; *) x.
+Rep (BeamMigrateVersionT f) x -&gt; BeamMigrateVersionT f
+$cfrom :: forall (f :: * -&gt; *) x.
+BeamMigrateVersionT f -&gt; Rep (BeamMigrateVersionT f) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679298481"><span id="local-6989586621679298483"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span></span></span><span>
+</span><span id="line-49"></span><span class="hs-keyword">type</span><span> </span><span id="BeamMigrateVersion"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersion"><span class="hs-identifier hs-var">BeamMigrateVersion</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span>
+</span><span id="line-50"></span><span id="local-6989586621679298475"><span id="local-6989586621679298477"><span id="local-6989586621679298479"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersion"><span class="hs-identifier hs-type">BeamMigrateVersion</span></a></span></span></span></span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Table</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-keyword">data</span><span> </span><span id="PrimaryKey"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">PrimaryKey</span></a></span></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span><span> </span><span id="local-6989586621679298765"><span class="annot"><a href="#local-6989586621679298765"><span class="hs-identifier hs-type hs-type">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="BeamMigrateVersionKey"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionKey"><span class="hs-identifier hs-var">BeamMigrateVersionKey</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">C</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298765"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="annottext">(forall x.
+ PrimaryKey BeamMigrateVersionT f
+ -&gt; Rep (PrimaryKey BeamMigrateVersionT f) x)
+-&gt; (forall x.
+    Rep (PrimaryKey BeamMigrateVersionT f) x
+    -&gt; PrimaryKey BeamMigrateVersionT f)
+-&gt; Generic (PrimaryKey BeamMigrateVersionT f)
+forall x.
+Rep (PrimaryKey BeamMigrateVersionT f) x
+-&gt; PrimaryKey BeamMigrateVersionT f
+forall x.
+PrimaryKey BeamMigrateVersionT f
+-&gt; Rep (PrimaryKey BeamMigrateVersionT f) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall (f :: * -&gt; *) x.
+Rep (PrimaryKey BeamMigrateVersionT f) x
+-&gt; PrimaryKey BeamMigrateVersionT f
+forall (f :: * -&gt; *) x.
+PrimaryKey BeamMigrateVersionT f
+-&gt; Rep (PrimaryKey BeamMigrateVersionT f) x
+$cto :: forall (f :: * -&gt; *) x.
+Rep (PrimaryKey BeamMigrateVersionT f) x
+-&gt; PrimaryKey BeamMigrateVersionT f
+$cfrom :: forall (f :: * -&gt; *) x.
+PrimaryKey BeamMigrateVersionT f
+-&gt; Rep (PrimaryKey BeamMigrateVersionT f) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span>
+</span><span id="line-55"></span><span>  </span><span id="local-6989586621679298465"><span class="annot"><span class="annottext">primaryKey :: BeamMigrateVersionT column -&gt; PrimaryKey BeamMigrateVersionT column
+</span><a href="#local-6989586621679298465"><span class="hs-identifier hs-var hs-var hs-var hs-var">primaryKey</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">C column Int32 -&gt; PrimaryKey BeamMigrateVersionT column
+forall (f :: * -&gt; *). C f Int32 -&gt; PrimaryKey BeamMigrateVersionT f
+</span><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionKey"><span class="hs-identifier hs-var">BeamMigrateVersionKey</span></a></span><span> </span><span class="annot"><span class="annottext">(C column Int32 -&gt; PrimaryKey BeamMigrateVersionT column)
+-&gt; (BeamMigrateVersionT column -&gt; C column Int32)
+-&gt; BeamMigrateVersionT column
+-&gt; PrimaryKey BeamMigrateVersionT column
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">BeamMigrateVersionT column -&gt; C column Int32
+forall (f :: * -&gt; *). BeamMigrateVersionT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateVersion"><span class="hs-identifier hs-var hs-var">_beamMigrateVersion</span></a></span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679298461"><span id="local-6989586621679298463"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Beamable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">PrimaryKey</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-keyword">type</span><span> </span><span id="BeamMigrateVersionKey"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionKey"><span class="hs-identifier hs-var">BeamMigrateVersionKey</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">PrimaryKey</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Identity</span></a></span><span>
+</span><span id="line-60"></span><span id="local-6989586621679298455"><span id="local-6989586621679298457"><span id="local-6989586621679298459"><span class="hs-keyword">deriving</span><span> </span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionKey"><span class="hs-identifier hs-type">BeamMigrateVersionKey</span></a></span></span></span></span><span>
+</span><span id="line-61"></span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- Database</span><span>
+</span><span id="line-63"></span><span id="local-6989586621679298453"><span id="local-6989586621679298454"></span></span><span class="hs-keyword">data</span><span> </span><span id="BeamMigrateDb"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-var">BeamMigrateDb</span></a></span></span><span> </span><span id="local-6989586621679298711"><span class="annot"><a href="#local-6989586621679298711"><span class="hs-identifier hs-type">entity</span></a></span></span><span>
+</span><span id="line-64"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="BeamMigrateDb"><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-var">BeamMigrateDb</span></a></span></span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="_beamMigrateVersionTbl"><span class="annot"><span class="annottext">BeamMigrateDb entity -&gt; entity (TableEntity BeamMigrateVersionT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateVersionTbl"><span class="hs-identifier hs-var hs-var">_beamMigrateVersionTbl</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679298711"><span class="hs-identifier hs-type">entity</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">TableEntity</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersionT"><span class="hs-identifier hs-type">BeamMigrateVersionT</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="_beamMigrateLogEntries"><span class="annot"><span class="annottext">BeamMigrateDb entity -&gt; entity (TableEntity LogEntryT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateLogEntries"><span class="hs-identifier hs-var hs-var">_beamMigrateLogEntries</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679298711"><span class="hs-identifier hs-type">entity</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">TableEntity</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntryT"><span class="hs-identifier hs-type">LogEntryT</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="annottext">(forall x. BeamMigrateDb entity -&gt; Rep (BeamMigrateDb entity) x)
+-&gt; (forall x. Rep (BeamMigrateDb entity) x -&gt; BeamMigrateDb entity)
+-&gt; Generic (BeamMigrateDb entity)
+forall x. Rep (BeamMigrateDb entity) x -&gt; BeamMigrateDb entity
+forall x. BeamMigrateDb entity -&gt; Rep (BeamMigrateDb entity) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall (entity :: * -&gt; *) x.
+Rep (BeamMigrateDb entity) x -&gt; BeamMigrateDb entity
+forall (entity :: * -&gt; *) x.
+BeamMigrateDb entity -&gt; Rep (BeamMigrateDb entity) x
+$cto :: forall (entity :: * -&gt; *) x.
+Rep (BeamMigrateDb entity) x -&gt; BeamMigrateDb entity
+$cfrom :: forall (entity :: * -&gt; *) x.
+BeamMigrateDb entity -&gt; Rep (BeamMigrateDb entity) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span id="local-6989586621679298447"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679298445"><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">Database</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298447"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-type">BeamMigrateDb</span></a></span></span></span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#beamMigratableDb"><span class="hs-identifier hs-type">beamMigratableDb</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298715"><span class="annot"><a href="#local-6989586621679298715"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298714"><span class="annot"><a href="#local-6989586621679298714"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-72"></span><span>                  </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackend"><span class="hs-identifier hs-type">BeamMigrateSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298715"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-73"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Checks.html#HasDataTypeCreatedCheck"><span class="hs-identifier hs-type">HasDataTypeCreatedCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackendDataTypeSyntax"><span class="hs-identifier hs-type">BeamMigrateSqlBackendDataTypeSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298715"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298715"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298714"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>                 </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Types.CheckedEntities.html#CheckedDatabaseSettings"><span class="hs-identifier hs-type">CheckedDatabaseSettings</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298715"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-type">BeamMigrateDb</span></a></span><span>
+</span><span id="line-76"></span><span id="beamMigratableDb"><span class="annot"><span class="annottext">beamMigratableDb :: CheckedDatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigratableDb"><span class="hs-identifier hs-var hs-var">beamMigratableDb</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+-&gt; CheckedDatabaseSettings be BeamMigrateDb
+forall be a. Migration be a -&gt; a
+</span><a href="Database.Beam.Migrate.Types.html#runMigrationSilenced"><span class="hs-identifier hs-var">runMigrationSilenced</span></a></span><span> </span><span class="annot"><span class="annottext">(Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+ -&gt; CheckedDatabaseSettings be BeamMigrateDb)
+-&gt; Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+-&gt; CheckedDatabaseSettings be BeamMigrateDb
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDbMigration"><span class="hs-identifier hs-var">beamMigrateDbMigration</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298715"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298714"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-type">beamMigrateDb</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298644"><span class="annot"><a href="#local-6989586621679298644"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298643"><span class="annot"><a href="#local-6989586621679298643"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-79"></span><span>               </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackend"><span class="hs-identifier hs-type">BeamMigrateSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298644"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-80"></span><span>                 </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Checks.html#HasDataTypeCreatedCheck"><span class="hs-identifier hs-type">HasDataTypeCreatedCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackendDataTypeSyntax"><span class="hs-identifier hs-type">BeamMigrateSqlBackendDataTypeSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298644"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-81"></span><span>                 </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298644"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298643"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>               </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">DatabaseSettings</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298644"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-type">BeamMigrateDb</span></a></span><span>
+</span><span id="line-83"></span><span id="beamMigrateDb"><span class="annot"><span class="annottext">beamMigrateDb :: DatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-var hs-var">beamMigrateDb</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CheckedDatabaseSettings be BeamMigrateDb
+-&gt; DatabaseSettings be BeamMigrateDb
+forall be (db :: (* -&gt; *) -&gt; *).
+Database be db =&gt;
+CheckedDatabaseSettings be db -&gt; DatabaseSettings be db
+</span><a href="Database.Beam.Migrate.Types.CheckedEntities.html#unCheckDatabase"><span class="hs-identifier hs-var">unCheckDatabase</span></a></span><span> </span><span class="annot"><span class="annottext">(CheckedDatabaseSettings be BeamMigrateDb
+ -&gt; DatabaseSettings be BeamMigrateDb)
+-&gt; CheckedDatabaseSettings be BeamMigrateDb
+-&gt; DatabaseSettings be BeamMigrateDb
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+CheckedDatabaseSettings be BeamMigrateDb
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+CheckedDatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigratableDb"><span class="hs-identifier hs-var">beamMigratableDb</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298644"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298643"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#beamMigrateDbMigration"><span class="hs-identifier hs-type">beamMigrateDbMigration</span></a></span><span> </span><span class="hs-glyph">::</span><span>  </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298722"><span class="annot"><a href="#local-6989586621679298722"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298721"><span class="annot"><a href="#local-6989586621679298721"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-86"></span><span>                        </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackend"><span class="hs-identifier hs-type">BeamMigrateSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298722"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-87"></span><span>                          </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Checks.html#HasDataTypeCreatedCheck"><span class="hs-identifier hs-type">HasDataTypeCreatedCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackendDataTypeSyntax"><span class="hs-identifier hs-type">BeamMigrateSqlBackendDataTypeSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298722"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>                          </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298722"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298721"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>                       </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Types.html#Migration"><span class="hs-identifier hs-type">Migration</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298722"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.Types.CheckedEntities.html#CheckedDatabaseSettings"><span class="hs-identifier hs-type">CheckedDatabaseSettings</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298722"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-type">BeamMigrateDb</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span id="beamMigrateDbMigration"><span class="annot"><span class="annottext">beamMigrateDbMigration :: Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDbMigration"><span class="hs-identifier hs-var hs-var">beamMigrateDbMigration</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-91"></span><span>  </span><span class="annot"><span class="annottext">CheckedDatabaseEntity
+  be BeamMigrateDb (TableEntity BeamMigrateVersionT)
+-&gt; CheckedDatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+-&gt; CheckedDatabaseSettings be BeamMigrateDb
+forall (entity :: * -&gt; *).
+entity (TableEntity BeamMigrateVersionT)
+-&gt; entity (TableEntity LogEntryT) -&gt; BeamMigrateDb entity
+</span><a href="Database.Beam.Migrate.Log.html#BeamMigrateDb"><span class="hs-identifier hs-var">BeamMigrateDb</span></a></span><span> </span><span class="annot"><span class="annottext">(CheckedDatabaseEntity
+   be BeamMigrateDb (TableEntity BeamMigrateVersionT)
+ -&gt; CheckedDatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+ -&gt; CheckedDatabaseSettings be BeamMigrateDb)
+-&gt; F (MigrationF be)
+     (CheckedDatabaseEntity
+        be BeamMigrateDb (TableEntity BeamMigrateVersionT))
+-&gt; F (MigrationF be)
+     (CheckedDatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+      -&gt; CheckedDatabaseSettings be BeamMigrateDb)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+-&gt; TableSchema be BeamMigrateVersionT
+-&gt; F (MigrationF be)
+     (CheckedDatabaseEntity
+        be BeamMigrateDb (TableEntity BeamMigrateVersionT))
+forall (table :: (* -&gt; *) -&gt; *) be (db :: (* -&gt; *) -&gt; *).
+(Beamable table, Table table, BeamMigrateSqlBackend be) =&gt;
+Text
+-&gt; TableSchema be table
+-&gt; Migration be (CheckedDatabaseEntity be db (TableEntity table))
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#createTable"><span class="hs-identifier hs-var">createTable</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;beam_version&quot;</span></span><span>
+</span><span id="line-92"></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">C (TableFieldSchema be) Int32 -&gt; TableSchema be BeamMigrateVersionT
+forall (f :: * -&gt; *). C f Int32 -&gt; BeamMigrateVersionT f
+</span><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersion"><span class="hs-identifier hs-var">BeamMigrateVersion</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+-&gt; DataType be Int32
+-&gt; NotNullConstraint be
+-&gt; TableFieldSchema be Int32
+forall be resTy a.
+(BeamMigrateSqlBackend be,
+ FieldReturnType 'False 'False be resTy a) =&gt;
+Text -&gt; DataType be resTy -&gt; a
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#field"><span class="hs-identifier hs-var">field</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;version&quot;</span></span><span> </span><span class="annot"><span class="annottext">DataType be Int32
+forall be a. (BeamSqlBackend be, Integral a) =&gt; DataType be a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">int</span></a></span><span> </span><span class="annot"><span class="annottext">NotNullConstraint be
+forall be. BeamMigrateSqlBackend be =&gt; NotNullConstraint be
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#notNull"><span class="hs-identifier hs-var">notNull</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-93"></span><span>                </span><span class="annot"><span class="annottext">F (MigrationF be)
+  (CheckedDatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+   -&gt; CheckedDatabaseSettings be BeamMigrateDb)
+-&gt; F (MigrationF be)
+     (CheckedDatabaseEntity be BeamMigrateDb (TableEntity LogEntryT))
+-&gt; Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+-&gt; TableSchema be LogEntryT
+-&gt; F (MigrationF be)
+     (CheckedDatabaseEntity be BeamMigrateDb (TableEntity LogEntryT))
+forall (table :: (* -&gt; *) -&gt; *) be (db :: (* -&gt; *) -&gt; *).
+(Beamable table, Table table, BeamMigrateSqlBackend be) =&gt;
+Text
+-&gt; TableSchema be table
+-&gt; Migration be (CheckedDatabaseEntity be db (TableEntity table))
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#createTable"><span class="hs-identifier hs-var">createTable</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;beam_migration&quot;</span></span><span>
+</span><span id="line-94"></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">C (TableFieldSchema be) Int32
+-&gt; C (TableFieldSchema be) Text
+-&gt; C (TableFieldSchema be) LocalTime
+-&gt; TableSchema be LogEntryT
+forall (f :: * -&gt; *).
+C f Int32 -&gt; C f Text -&gt; C f LocalTime -&gt; LogEntryT f
+</span><a href="Database.Beam.Migrate.Log.html#LogEntry"><span class="hs-identifier hs-var">LogEntry</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+-&gt; DataType be Int32
+-&gt; NotNullConstraint be
+-&gt; TableFieldSchema be Int32
+forall be resTy a.
+(BeamMigrateSqlBackend be,
+ FieldReturnType 'False 'False be resTy a) =&gt;
+Text -&gt; DataType be resTy -&gt; a
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#field"><span class="hs-identifier hs-var">field</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;id&quot;</span></span><span> </span><span class="annot"><span class="annottext">DataType be Int32
+forall be a. (BeamSqlBackend be, Integral a) =&gt; DataType be a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">int</span></a></span><span> </span><span class="annot"><span class="annottext">NotNullConstraint be
+forall be. BeamMigrateSqlBackend be =&gt; NotNullConstraint be
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#notNull"><span class="hs-identifier hs-var">notNull</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+-&gt; DataType be Text
+-&gt; NotNullConstraint be
+-&gt; TableFieldSchema be Text
+forall be resTy a.
+(BeamMigrateSqlBackend be,
+ FieldReturnType 'False 'False be resTy a) =&gt;
+Text -&gt; DataType be resTy -&gt; a
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#field"><span class="hs-identifier hs-var">field</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;commitId&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Word -&gt; DataType be Text
+forall be. BeamSqlBackend be =&gt; Maybe Word -&gt; DataType be Text
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">varchar</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Word
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">NotNullConstraint be
+forall be. BeamMigrateSqlBackend be =&gt; NotNullConstraint be
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#notNull"><span class="hs-identifier hs-var">notNull</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span>                                </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+-&gt; DataType be LocalTime
+-&gt; NotNullConstraint be
+-&gt; TableFieldSchema be LocalTime
+forall be resTy a.
+(BeamMigrateSqlBackend be,
+ FieldReturnType 'False 'False be resTy a) =&gt;
+Text -&gt; DataType be resTy -&gt; a
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#field"><span class="hs-identifier hs-var">field</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;date&quot;</span></span><span> </span><span class="annot"><span class="annottext">DataType be LocalTime
+forall be. BeamSqlBackend be =&gt; DataType be LocalTime
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">timestamp</span></a></span><span> </span><span class="annot"><span class="annottext">NotNullConstraint be
+forall be. BeamMigrateSqlBackend be =&gt; NotNullConstraint be
+</span><a href="Database.Beam.Migrate.SQL.Tables.html#notNull"><span class="hs-identifier hs-var">notNull</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#beamMigrateSchemaVersion"><span class="hs-identifier hs-type">beamMigrateSchemaVersion</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span>
+</span><span id="line-98"></span><span id="beamMigrateSchemaVersion"><span class="annot"><span class="annottext">beamMigrateSchemaVersion :: Int32
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateSchemaVersion"><span class="hs-identifier hs-var hs-var">beamMigrateSchemaVersion</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int32
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#getLatestLogEntry"><span class="hs-identifier hs-type">getLatestLogEntry</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298619"><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298616"><span class="annot"><a href="#local-6989586621679298616"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-101"></span><span>                   </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackend"><span class="hs-identifier hs-type">BeamMigrateSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-102"></span><span>                     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Checks.html#HasDataTypeCreatedCheck"><span class="hs-identifier hs-type">HasDataTypeCreatedCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackendDataTypeSyntax"><span class="hs-identifier hs-type">BeamMigrateSqlBackendDataTypeSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span>                     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendCanDeserialize</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span>
+</span><span id="line-104"></span><span>                     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendCanDeserialize</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">LocalTime</span></a></span><span>
+</span><span id="line-105"></span><span>                     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendSupportsDataType</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-106"></span><span>                     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">HasQBuilder</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-107"></span><span>                     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298616"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span>                  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679298616"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Log.html#LogEntry"><span class="hs-identifier hs-type">LogEntry</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span id="getLatestLogEntry"><span class="annot"><span class="annottext">getLatestLogEntry :: m (Maybe LogEntry)
+</span><a href="Database.Beam.Migrate.Log.html#getLatestLogEntry"><span class="hs-identifier hs-var hs-var">getLatestLogEntry</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-110"></span><span>  </span><span class="annot"><span class="annottext">SqlSelect be LogEntry -&gt; m (Maybe LogEntry)
+forall be (m :: * -&gt; *) a.
+(MonadBeam be m, BeamSqlBackend be, FromBackendRow be a) =&gt;
+SqlSelect be a -&gt; m (Maybe a)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runSelectReturningOne</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Q be
+  BeamMigrateDb
+  QBaseScope
+  (LogEntryT (QGenExpr QValueContext be QBaseScope))
+-&gt; SqlSelect
+     be
+     (QExprToIdentity
+        (LogEntryT (QGenExpr QValueContext be QBaseScope)))
+forall be (db :: (* -&gt; *) -&gt; *) res.
+(BeamSqlBackend be, HasQBuilder be, Projectible be res) =&gt;
+Q be db QBaseScope res -&gt; SqlSelect be (QExprToIdentity res)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">select</span></a></span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   QBaseScope
+   (LogEntryT (QGenExpr QValueContext be QBaseScope))
+ -&gt; SqlSelect
+      be
+      (QExprToIdentity
+         (LogEntryT (QGenExpr QValueContext be QBaseScope))))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (LogEntryT (QGenExpr QValueContext be QBaseScope))
+-&gt; SqlSelect
+     be
+     (QExprToIdentity
+        (LogEntryT (QGenExpr QValueContext be QBaseScope)))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-111"></span><span>                         </span><span class="annot"><span class="annottext">Integer
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (LogEntryT (QGenExpr QValueContext be (QNested QBaseScope)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (WithRewrittenThread
+        (QNested QBaseScope)
+        QBaseScope
+        (LogEntryT (QGenExpr QValueContext be (QNested QBaseScope))))
+forall s a be (db :: (* -&gt; *) -&gt; *).
+(Projectible be a, ThreadRewritable (QNested s) a) =&gt;
+Integer
+-&gt; Q be db (QNested s) a
+-&gt; Q be db s (WithRewrittenThread (QNested s) s a)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">limit_</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   (QNested QBaseScope)
+   (LogEntryT (QGenExpr QValueContext be (QNested QBaseScope)))
+ -&gt; Q be
+      BeamMigrateDb
+      QBaseScope
+      (WithRewrittenThread
+         (QNested QBaseScope)
+         QBaseScope
+         (LogEntryT (QGenExpr QValueContext be (QNested QBaseScope)))))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (LogEntryT (QGenExpr QValueContext be (QNested QBaseScope)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (WithRewrittenThread
+        (QNested QBaseScope)
+        QBaseScope
+        (LogEntryT (QGenExpr QValueContext be (QNested QBaseScope))))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-112"></span><span>                         </span><span class="annot"><span class="annottext">(LogEntryT (QExpr be (QNested (QNested QBaseScope)))
+ -&gt; QOrd be (QNested (QNested QBaseScope)) Int32)
+-&gt; Q be
+     BeamMigrateDb
+     (QNested (QNested QBaseScope))
+     (LogEntryT (QExpr be (QNested (QNested QBaseScope))))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (WithRewrittenThread
+        (QNested (QNested QBaseScope))
+        (QNested QBaseScope)
+        (LogEntryT (QExpr be (QNested (QNested QBaseScope)))))
+forall s a ordering be (db :: (* -&gt; *) -&gt; *).
+(Projectible be a, SqlOrderable be ordering,
+ ThreadRewritable (QNested s) a) =&gt;
+(a -&gt; ordering)
+-&gt; Q be db (QNested s) a
+-&gt; Q be db s (WithRewrittenThread (QNested s) s a)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">orderBy_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">QExpr be (QNested (QNested QBaseScope)) Int32
+-&gt; QOrd be (QNested (QNested QBaseScope)) Int32
+forall be s a. BeamSqlBackend be =&gt; QExpr be s a -&gt; QOrd be s a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">desc_</span></a></span><span> </span><span class="annot"><span class="annottext">(QExpr be (QNested (QNested QBaseScope)) Int32
+ -&gt; QOrd be (QNested (QNested QBaseScope)) Int32)
+-&gt; (LogEntryT (QExpr be (QNested (QNested QBaseScope)))
+    -&gt; QExpr be (QNested (QNested QBaseScope)) Int32)
+-&gt; LogEntryT (QExpr be (QNested (QNested QBaseScope)))
+-&gt; QOrd be (QNested (QNested QBaseScope)) Int32
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">LogEntryT (QExpr be (QNested (QNested QBaseScope)))
+-&gt; QExpr be (QNested (QNested QBaseScope)) Int32
+forall (f :: * -&gt; *). LogEntryT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_logEntryId"><span class="hs-identifier hs-var hs-var">_logEntryId</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   (QNested (QNested QBaseScope))
+   (LogEntryT (QExpr be (QNested (QNested QBaseScope))))
+ -&gt; Q be
+      BeamMigrateDb
+      (QNested QBaseScope)
+      (WithRewrittenThread
+         (QNested (QNested QBaseScope))
+         (QNested QBaseScope)
+         (LogEntryT (QExpr be (QNested (QNested QBaseScope))))))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested (QNested QBaseScope))
+     (LogEntryT (QExpr be (QNested (QNested QBaseScope))))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (WithRewrittenThread
+        (QNested (QNested QBaseScope))
+        (QNested QBaseScope)
+        (LogEntryT (QExpr be (QNested (QNested QBaseScope)))))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-113"></span><span>                         </span><span class="annot"><span class="annottext">DatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+-&gt; Q be
+     BeamMigrateDb
+     (QNested (QNested QBaseScope))
+     (LogEntryT (QExpr be (QNested (QNested QBaseScope))))
+forall be (db :: (* -&gt; *) -&gt; *) (table :: (* -&gt; *) -&gt; *) s.
+(Database be db, BeamSqlBackend be) =&gt;
+DatabaseEntity be db (TableEntity table)
+-&gt; Q be db s (table (QExpr be s))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">all_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+-&gt; DatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+forall (entity :: * -&gt; *).
+BeamMigrateDb entity -&gt; entity (TableEntity LogEntryT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateLogEntries"><span class="hs-identifier hs-var hs-var">_beamMigrateLogEntries</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+DatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-var">beamMigrateDb</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298619"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298616"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>
+</span><span id="line-115"></span><span>
+</span><span id="line-116"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#updateSchemaToCurrent"><span class="hs-identifier hs-type">updateSchemaToCurrent</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298540"><span class="annot"><a href="#local-6989586621679298540"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298539"><span class="annot"><a href="#local-6989586621679298539"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-117"></span><span>                       </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackend"><span class="hs-identifier hs-type">BeamMigrateSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298540"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-118"></span><span>                         </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Checks.html#HasDataTypeCreatedCheck"><span class="hs-identifier hs-type">HasDataTypeCreatedCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackendDataTypeSyntax"><span class="hs-identifier hs-type">BeamMigrateSqlBackendDataTypeSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298540"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-119"></span><span>                         </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendCanSerialize</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298540"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-120"></span><span>                         </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298540"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298539"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>                      </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679298539"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span id="updateSchemaToCurrent"><span class="annot"><span class="annottext">updateSchemaToCurrent :: m ()
+</span><a href="Database.Beam.Migrate.Log.html#updateSchemaToCurrent"><span class="hs-identifier hs-var hs-var">updateSchemaToCurrent</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-123"></span><span>  </span><span class="annot"><span class="annottext">SqlInsert be BeamMigrateVersionT -&gt; m ()
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(BeamSqlBackend be, MonadBeam be m) =&gt;
+SqlInsert be table -&gt; m ()
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runInsert</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">DatabaseEntity be BeamMigrateDb (TableEntity BeamMigrateVersionT)
+-&gt; SqlInsertValues be (BeamMigrateVersionT (QExpr be Any))
+-&gt; SqlInsert be BeamMigrateVersionT
+forall be (table :: (* -&gt; *) -&gt; *) s (db :: (* -&gt; *) -&gt; *).
+(BeamSqlBackend be,
+ ProjectibleWithPredicate AnyType () Text (table (QField s))) =&gt;
+DatabaseEntity be db (TableEntity table)
+-&gt; SqlInsertValues be (table (QExpr be s)) -&gt; SqlInsert be table
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">insert</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+-&gt; DatabaseEntity
+     be BeamMigrateDb (TableEntity BeamMigrateVersionT)
+forall (entity :: * -&gt; *).
+BeamMigrateDb entity -&gt; entity (TableEntity BeamMigrateVersionT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateVersionTbl"><span class="hs-identifier hs-var hs-var">_beamMigrateVersionTbl</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+DatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-var">beamMigrateDb</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298540"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298539"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[BeamMigrateVersion]
+-&gt; SqlInsertValues be (BeamMigrateVersionT (QExpr be Any))
+forall be (table :: (* -&gt; *) -&gt; *) s.
+(BeamSqlBackend be, Beamable table,
+ FieldsFulfillConstraint (BeamSqlBackendCanSerialize be) table) =&gt;
+[table Identity] -&gt; SqlInsertValues be (table (QExpr be s))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">insertValues</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">C Identity Int32 -&gt; BeamMigrateVersion
+forall (f :: * -&gt; *). C f Int32 -&gt; BeamMigrateVersionT f
+</span><a href="Database.Beam.Migrate.Log.html#BeamMigrateVersion"><span class="hs-identifier hs-var">BeamMigrateVersion</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+C Identity Int32
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateSchemaVersion"><span class="hs-identifier hs-var">beamMigrateSchemaVersion</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>
+</span><span id="line-125"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#recordCommit"><span class="hs-identifier hs-type">recordCommit</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298418"><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298417"><span class="annot"><a href="#local-6989586621679298417"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-126"></span><span>             </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackend"><span class="hs-identifier hs-type">BeamMigrateSqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-127"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Checks.html#HasDataTypeCreatedCheck"><span class="hs-identifier hs-type">HasDataTypeCreatedCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Beam.Migrate.SQL.Types.html#BeamMigrateSqlBackendDataTypeSyntax"><span class="hs-identifier hs-type">BeamMigrateSqlBackendDataTypeSyntax</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-128"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendSupportsDataType</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-129"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendCanDeserialize</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span>
+</span><span id="line-130"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendCanDeserialize</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier hs-type">LocalTime</span></a></span><span>
+</span><span id="line-131"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">HasQBuilder</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span>
+</span><span id="line-132"></span><span>               </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">MonadBeam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298417"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span>             </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../uuid-types/html/src"><span class="hs-identifier hs-type">UUID</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679298417"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-134"></span><span id="recordCommit"><span class="annot"><span class="annottext">recordCommit :: UUID -&gt; m ()
+</span><a href="Database.Beam.Migrate.Log.html#recordCommit"><span class="hs-identifier hs-var hs-var">recordCommit</span></a></span></span><span> </span><span id="local-6989586621679298416"><span class="annot"><span class="annottext">UUID
+</span><a href="#local-6989586621679298416"><span class="hs-identifier hs-var">commitId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-135"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679298415"><span class="annot"><span class="annottext">commitIdTxt :: Text
+</span><a href="#local-6989586621679298415"><span class="hs-identifier hs-var hs-var">commitIdTxt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Text
+forall a. IsString a =&gt; String -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromString</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UUID -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">UUID
+</span><a href="#local-6989586621679298416"><span class="hs-identifier hs-var">commitId</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span>  </span><span id="local-6989586621679298413"><span class="annot"><span class="annottext">Maybe LogEntry
+</span><a href="#local-6989586621679298413"><span class="hs-identifier hs-var">logEntry</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m (Maybe LogEntry)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ BeamSqlBackendCanDeserialize be Int32,
+ BeamSqlBackendCanDeserialize be LocalTime,
+ BeamSqlBackendSupportsDataType be Text, HasQBuilder be,
+ MonadBeam be m) =&gt;
+m (Maybe LogEntry)
+</span><a href="Database.Beam.Migrate.Log.html#getLatestLogEntry"><span class="hs-identifier hs-var">getLatestLogEntry</span></a></span><span>
+</span><span id="line-138"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679298412"><span class="annot"><span class="annottext">nextLogEntryId :: Int32
+</span><a href="#local-6989586621679298412"><span class="hs-identifier hs-var hs-var">nextLogEntryId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int32 -&gt; (LogEntry -&gt; Int32) -&gt; Maybe LogEntry -&gt; Int32
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int32 -&gt; Int32
+forall a. Enum a =&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">succ</span></a></span><span> </span><span class="annot"><span class="annottext">(Int32 -&gt; Int32) -&gt; (LogEntry -&gt; Int32) -&gt; LogEntry -&gt; Int32
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">LogEntry -&gt; Int32
+forall (f :: * -&gt; *). LogEntryT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_logEntryId"><span class="hs-identifier hs-var hs-var">_logEntryId</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe LogEntry
+</span><a href="#local-6989586621679298413"><span class="hs-identifier hs-var">logEntry</span></a></span><span>
+</span><span id="line-139"></span><span>
+</span><span id="line-140"></span><span>  </span><span class="annot"><span class="annottext">SqlInsert be LogEntryT -&gt; m ()
+forall be (m :: * -&gt; *) (table :: (* -&gt; *) -&gt; *).
+(BeamSqlBackend be, MonadBeam be m) =&gt;
+SqlInsert be table -&gt; m ()
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runInsert</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">DatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+-&gt; SqlInsertValues be (LogEntryT (QExpr be Any))
+-&gt; SqlInsert be LogEntryT
+forall be (table :: (* -&gt; *) -&gt; *) s (db :: (* -&gt; *) -&gt; *).
+(BeamSqlBackend be,
+ ProjectibleWithPredicate AnyType () Text (table (QField s))) =&gt;
+DatabaseEntity be db (TableEntity table)
+-&gt; SqlInsertValues be (table (QExpr be s)) -&gt; SqlInsert be table
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">insert</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+-&gt; DatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+forall (entity :: * -&gt; *).
+BeamMigrateDb entity -&gt; entity (TableEntity LogEntryT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateLogEntries"><span class="hs-identifier hs-var hs-var">_beamMigrateLogEntries</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+DatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-var">beamMigrateDb</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298418"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298417"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(forall s'. [LogEntryT (QExpr be s')])
+-&gt; SqlInsertValues be (LogEntryT (QExpr be Any))
+forall be (table :: (* -&gt; *) -&gt; *) s.
+(BeamSqlBackend be, Beamable table) =&gt;
+(forall s'. [table (QExpr be s')])
+-&gt; SqlInsertValues be (table (QExpr be s))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">insertExpressions</span></a></span><span>
+</span><span id="line-142"></span><span>                     </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">C (QExpr be s') Int32
+-&gt; C (QExpr be s') Text
+-&gt; C (QExpr be s') LocalTime
+-&gt; LogEntryT (QExpr be s')
+forall (f :: * -&gt; *).
+C f Int32 -&gt; C f Text -&gt; C f LocalTime -&gt; LogEntryT f
+</span><a href="Database.Beam.Migrate.Log.html#LogEntry"><span class="hs-identifier hs-var">LogEntry</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HaskellLiteralForQExpr (QGenExpr QValueContext be s' Int32)
+-&gt; QGenExpr QValueContext be s' Int32
+forall a. SqlValable a =&gt; HaskellLiteralForQExpr a -&gt; a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">val_</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+HaskellLiteralForQExpr (QGenExpr QValueContext be s' Int32)
+</span><a href="#local-6989586621679298412"><span class="hs-identifier hs-var">nextLogEntryId</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-143"></span><span>                                </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HaskellLiteralForQExpr (QGenExpr QValueContext be s' Text)
+-&gt; QGenExpr QValueContext be s' Text
+forall a. SqlValable a =&gt; HaskellLiteralForQExpr a -&gt; a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">val_</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+HaskellLiteralForQExpr (QGenExpr QValueContext be s' Text)
+</span><a href="#local-6989586621679298415"><span class="hs-identifier hs-var">commitIdTxt</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-144"></span><span>                                </span><span class="annot"><span class="annottext">C (QExpr be s') LocalTime
+forall be ctxt s. BeamSqlBackend be =&gt; QGenExpr ctxt be s LocalTime
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">currentTimestamp_</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-145"></span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- Ensure the backend tables exist</span><span>
+</span><span id="line-147"></span><span class="annot"><a href="Database.Beam.Migrate.Log.html#ensureBackendTables"><span class="hs-identifier hs-type">ensureBackendTables</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679298405"><span class="annot"><a href="#local-6989586621679298405"><span class="hs-identifier hs-type">be</span></a></span></span><span> </span><span id="local-6989586621679298404"><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span></span><span>
+</span><span id="line-148"></span><span>                     </span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-type">BeamSqlBackendCanSerialize</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298405"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Fail.MonadFail</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-149"></span><span>                    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Backend.html#BeamMigrationBackend"><span class="hs-identifier hs-type">BeamMigrationBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298405"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-150"></span><span>                    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-151"></span><span id="ensureBackendTables"><span class="annot"><span class="annottext">ensureBackendTables :: BeamMigrationBackend be m -&gt; m ()
+</span><a href="Database.Beam.Migrate.Log.html#ensureBackendTables"><span class="hs-identifier hs-var hs-var">ensureBackendTables</span></a></span></span><span> </span><span id="local-6989586621679298403"><span class="annot"><span class="annottext">be :: BeamMigrationBackend be m
+</span><a href="#local-6989586621679298403"><span class="hs-identifier hs-var">be</span></a></span></span><span class="hs-glyph">@</span><span class="annot"><a href="Database.Beam.Migrate.Backend.html#BeamMigrationBackend"><span class="hs-identifier hs-type">BeamMigrationBackend</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">backendGetDbConstraints :: forall be (m :: * -&gt; *).
+BeamMigrationBackend be m -&gt; m [SomeDatabasePredicate]
+</span><a href="Database.Beam.Migrate.Backend.html#backendGetDbConstraints"><span class="hs-identifier hs-var">backendGetDbConstraints</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621679298400"><span class="annot"><span class="annottext">m [SomeDatabasePredicate]
+</span><a href="#local-6989586621679298400"><span class="hs-identifier hs-var">getCs</span></a></span></span><span> </span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-152"></span><span>  </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679298399"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679298399"><span class="hs-identifier hs-var">backendSchemaBuilt</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">BeamMigrationBackend be m -&gt; m Bool
+forall be (m :: * -&gt; *). BeamMigrationBackend be m -&gt; m Bool
+</span><a href="Database.Beam.Migrate.Log.html#checkForBackendTables"><span class="hs-identifier hs-var">checkForBackendTables</span></a></span><span> </span><span class="annot"><span class="annottext">BeamMigrationBackend be m
+</span><a href="#local-6989586621679298403"><span class="hs-identifier hs-var">be</span></a></span><span>
+</span><span id="line-153"></span><span>     </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679298399"><span class="hs-identifier hs-var">backendSchemaBuilt</span></a></span><span>
+</span><span id="line-154"></span><span>       </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">m ()
+</span><a href="#local-6989586621679298397"><span class="hs-identifier hs-var">continueMigrate</span></a></span><span>
+</span><span id="line-155"></span><span>       </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">m ()
+</span><a href="#local-6989586621679298396"><span class="hs-identifier hs-var">createSchema</span></a></span><span>
+</span><span id="line-156"></span><span>
+</span><span id="line-157"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-158"></span><span>    </span><span id="local-6989586621679298395"><span class="annot"><span class="annottext">doStep :: BeamSqlBackendSyntax be -&gt; m ()
+</span><a href="#local-6989586621679298395"><span class="hs-identifier hs-var hs-var">doStep</span></a></span></span><span> </span><span id="local-6989586621679298394"><span class="annot"><span class="annottext">BeamSqlBackendSyntax be
+</span><a href="#local-6989586621679298394"><span class="hs-identifier hs-var">cmd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">BeamSqlBackendSyntax be -&gt; m ()
+forall be (m :: * -&gt; *).
+MonadBeam be m =&gt;
+BeamSqlBackendSyntax be -&gt; m ()
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runNoReturn</span></a></span><span> </span><span class="annot"><span class="annottext">BeamSqlBackendSyntax be
+</span><a href="#local-6989586621679298394"><span class="hs-identifier hs-var">cmd</span></a></span><span>
+</span><span id="line-159"></span><span>
+</span><span id="line-160"></span><span>    </span><span id="local-6989586621679298397"><span class="annot"><span class="annottext">continueMigrate :: m ()
+</span><a href="#local-6989586621679298397"><span class="hs-identifier hs-var hs-var">continueMigrate</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-161"></span><span>      </span><span id="local-6989586621679298392"><span class="annot"><span class="annottext">Maybe (Maybe Int32)
+</span><a href="#local-6989586621679298392"><span class="hs-identifier hs-var">maxVersion</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-162"></span><span>        </span><span class="annot"><span class="annottext">SqlSelect be (Maybe Int32) -&gt; m (Maybe (Maybe Int32))
+forall be (m :: * -&gt; *) a.
+(MonadBeam be m, BeamSqlBackend be, FromBackendRow be a) =&gt;
+SqlSelect be a -&gt; m (Maybe a)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runSelectReturningOne</span></a></span><span> </span><span class="annot"><span class="annottext">(SqlSelect be (Maybe Int32) -&gt; m (Maybe (Maybe Int32)))
+-&gt; SqlSelect be (Maybe Int32) -&gt; m (Maybe (Maybe Int32))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Q be
+  BeamMigrateDb
+  QBaseScope
+  (QGenExpr QValueContext be QBaseScope (Maybe Int32))
+-&gt; SqlSelect
+     be
+     (QExprToIdentity
+        (QGenExpr QValueContext be QBaseScope (Maybe Int32)))
+forall be (db :: (* -&gt; *) -&gt; *) res.
+(BeamSqlBackend be, HasQBuilder be, Projectible be res) =&gt;
+Q be db QBaseScope res -&gt; SqlSelect be (QExprToIdentity res)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">select</span></a></span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   QBaseScope
+   (QGenExpr QValueContext be QBaseScope (Maybe Int32))
+ -&gt; SqlSelect
+      be
+      (QExprToIdentity
+         (QGenExpr QValueContext be QBaseScope (Maybe Int32))))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (QGenExpr QValueContext be QBaseScope (Maybe Int32))
+-&gt; SqlSelect
+     be
+     (QExprToIdentity
+        (QGenExpr QValueContext be QBaseScope (Maybe Int32)))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-163"></span><span>        </span><span class="annot"><span class="annottext">(BeamMigrateVersionT (QExpr be (QNested QBaseScope))
+ -&gt; QAgg be (QNested QBaseScope) (Maybe Int32))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (BeamMigrateVersionT (QExpr be (QNested QBaseScope)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (WithRewrittenThread
+        (QNested QBaseScope)
+        QBaseScope
+        (WithRewrittenContext
+           (QAgg be (QNested QBaseScope) (Maybe Int32)) QValueContext))
+forall be a r (db :: (* -&gt; *) -&gt; *) s.
+(BeamSqlBackend be, Aggregable be a, Projectible be r,
+ Projectible be a, ContextRewritable a,
+ ThreadRewritable
+   (QNested s) (WithRewrittenContext a QValueContext)) =&gt;
+(r -&gt; a)
+-&gt; Q be db (QNested s) r
+-&gt; Q be
+     db
+     s
+     (WithRewrittenThread
+        (QNested s) s (WithRewrittenContext a QValueContext))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">aggregate_</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679298390"><span class="annot"><span class="annottext">BeamMigrateVersionT (QExpr be (QNested QBaseScope))
+</span><a href="#local-6989586621679298390"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">QExpr be (QNested QBaseScope) Int32
+-&gt; QAgg be (QNested QBaseScope) (Maybe Int32)
+forall be s a.
+BeamSqlBackend be =&gt;
+QExpr be s a -&gt; QAgg be s (Maybe a)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">max_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamMigrateVersionT (QExpr be (QNested QBaseScope))
+-&gt; C (QExpr be (QNested QBaseScope)) Int32
+forall (f :: * -&gt; *). BeamMigrateVersionT f -&gt; C f Int32
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateVersion"><span class="hs-identifier hs-var hs-var">_beamMigrateVersion</span></a></span><span> </span><span class="annot"><span class="annottext">BeamMigrateVersionT (QExpr be (QNested QBaseScope))
+</span><a href="#local-6989586621679298390"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   (QNested QBaseScope)
+   (BeamMigrateVersionT (QExpr be (QNested QBaseScope)))
+ -&gt; Q be
+      BeamMigrateDb
+      QBaseScope
+      (WithRewrittenThread
+         (QNested QBaseScope)
+         QBaseScope
+         (WithRewrittenContext
+            (QAgg be (QNested QBaseScope) (Maybe Int32)) QValueContext)))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (BeamMigrateVersionT (QExpr be (QNested QBaseScope)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (WithRewrittenThread
+        (QNested QBaseScope)
+        QBaseScope
+        (WithRewrittenContext
+           (QAgg be (QNested QBaseScope) (Maybe Int32)) QValueContext))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-164"></span><span>        </span><span class="annot"><span class="annottext">DatabaseEntity be BeamMigrateDb (TableEntity BeamMigrateVersionT)
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (BeamMigrateVersionT (QExpr be (QNested QBaseScope)))
+forall be (db :: (* -&gt; *) -&gt; *) (table :: (* -&gt; *) -&gt; *) s.
+(Database be db, BeamSqlBackend be) =&gt;
+DatabaseEntity be db (TableEntity table)
+-&gt; Q be db s (table (QExpr be s))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">all_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+-&gt; DatabaseEntity
+     be BeamMigrateDb (TableEntity BeamMigrateVersionT)
+forall (entity :: * -&gt; *).
+BeamMigrateDb entity -&gt; entity (TableEntity BeamMigrateVersionT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateVersionTbl"><span class="hs-identifier hs-var hs-var">_beamMigrateVersionTbl</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+DatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-var">beamMigrateDb</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298405"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-165"></span><span>
+</span><span id="line-166"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe (Maybe Int32)
+</span><a href="#local-6989586621679298392"><span class="hs-identifier hs-var">maxVersion</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-167"></span><span>        </span><span class="annot"><span class="annottext">Maybe (Maybe Int32)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">m ()
+</span><a href="#local-6989586621679298388"><span class="hs-identifier hs-var">cleanAndCreateSchema</span></a></span><span>
+</span><span id="line-168"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Int32
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">m ()
+</span><a href="#local-6989586621679298388"><span class="hs-identifier hs-var">cleanAndCreateSchema</span></a></span><span>
+</span><span id="line-169"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679298387"><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679298387"><span class="hs-identifier hs-var">maxVersion'</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-170"></span><span>          </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679298387"><span class="hs-identifier hs-var">maxVersion'</span></a></span><span> </span><span class="annot"><span class="annottext">Int32 -&gt; Int32 -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateSchemaVersion"><span class="hs-identifier hs-var">beamMigrateSchemaVersion</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-171"></span><span>              </span><span class="annot"><span class="annottext">String -&gt; m ()
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;This database is being managed by a newer version of beam-migrate&quot;</span></span><span>
+</span><span id="line-172"></span><span>          </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679298387"><span class="hs-identifier hs-var">maxVersion'</span></a></span><span> </span><span class="annot"><span class="annottext">Int32 -&gt; Int32 -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateSchemaVersion"><span class="hs-identifier hs-var">beamMigrateSchemaVersion</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-173"></span><span>              </span><span class="annot"><span class="annottext">String -&gt; m ()
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;This database is being managed by an older version of beam-migrate, but there are no older versions&quot;</span></span><span>
+</span><span id="line-174"></span><span>          </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; m ()
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-175"></span><span>
+</span><span id="line-176"></span><span>    </span><span id="local-6989586621679298388"><span class="annot"><span class="annottext">cleanAndCreateSchema :: m ()
+</span><a href="#local-6989586621679298388"><span class="hs-identifier hs-var hs-var">cleanAndCreateSchema</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-177"></span><span>      </span><span id="local-6989586621679298384"><span class="annot"><span class="annottext">[SomeDatabasePredicate]
+</span><a href="#local-6989586621679298384"><span class="hs-identifier hs-var">cs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m [SomeDatabasePredicate]
+</span><a href="#local-6989586621679298400"><span class="hs-identifier hs-var">getCs</span></a></span><span>
+</span><span id="line-178"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679298383"><span class="annot"><span class="annottext">migrationLogExists :: Bool
+</span><a href="#local-6989586621679298383"><span class="hs-identifier hs-var hs-var">migrationLogExists</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SomeDatabasePredicate -&gt; Bool) -&gt; [SomeDatabasePredicate] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">any</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SomeDatabasePredicate -&gt; SomeDatabasePredicate -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">TableExistsPredicate -&gt; SomeDatabasePredicate
+forall p. DatabasePredicate p =&gt; p -&gt; SomeDatabasePredicate
+</span><a href="Database.Beam.Migrate.Types.Predicates.html#p"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">QualifiedName -&gt; TableExistsPredicate
+</span><a href="Database.Beam.Migrate.Checks.html#TableExistsPredicate"><span class="hs-identifier hs-var">TableExistsPredicate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Text -&gt; Text -&gt; QualifiedName
+</span><a href="Database.Beam.Migrate.Types.Predicates.html#QualifiedName"><span class="hs-identifier hs-var">QualifiedName</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;beam_migration&quot;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[SomeDatabasePredicate]
+</span><a href="#local-6989586621679298384"><span class="hs-identifier hs-var">cs</span></a></span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span>      </span><span class="annot"><span class="annottext">Bool -&gt; m () -&gt; m ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">when</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679298383"><span class="hs-identifier hs-var">migrationLogExists</span></a></span><span> </span><span class="annot"><span class="annottext">(m () -&gt; m ()) -&gt; m () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-181"></span><span>        </span><span id="local-6989586621679298378"><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679298378"><span class="hs-identifier hs-var">totalCnt</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-182"></span><span>          </span><span class="annot"><span class="annottext">(Maybe Int32 -&gt; Int32) -&gt; m (Maybe Int32) -&gt; m Int32
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int32 -&gt; Maybe Int32 -&gt; Int32
+forall a. a -&gt; Maybe a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(m (Maybe Int32) -&gt; m Int32) -&gt; m (Maybe Int32) -&gt; m Int32
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-comment">-- Should never return 'Nothing', but this prevents an irrefutable pattern match</span><span>
+</span><span id="line-183"></span><span>          </span><span class="annot"><span class="annottext">SqlSelect be Int32 -&gt; m (Maybe Int32)
+forall be (m :: * -&gt; *) a.
+(MonadBeam be m, BeamSqlBackend be, FromBackendRow be a) =&gt;
+SqlSelect be a -&gt; m (Maybe a)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runSelectReturningOne</span></a></span><span> </span><span class="annot"><span class="annottext">(SqlSelect be Int32 -&gt; m (Maybe Int32))
+-&gt; SqlSelect be Int32 -&gt; m (Maybe Int32)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Q be
+  BeamMigrateDb
+  QBaseScope
+  (QGenExpr QValueContext be QBaseScope Int32)
+-&gt; SqlSelect
+     be (QExprToIdentity (QGenExpr QValueContext be QBaseScope Int32))
+forall be (db :: (* -&gt; *) -&gt; *) res.
+(BeamSqlBackend be, HasQBuilder be, Projectible be res) =&gt;
+Q be db QBaseScope res -&gt; SqlSelect be (QExprToIdentity res)
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">select</span></a></span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   QBaseScope
+   (QGenExpr QValueContext be QBaseScope Int32)
+ -&gt; SqlSelect
+      be (QExprToIdentity (QGenExpr QValueContext be QBaseScope Int32)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (QGenExpr QValueContext be QBaseScope Int32)
+-&gt; SqlSelect
+     be (QExprToIdentity (QGenExpr QValueContext be QBaseScope Int32))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-184"></span><span>          </span><span class="annot"><span class="annottext">(LogEntryT (QExpr be (QNested QBaseScope))
+ -&gt; QGenExpr QAggregateContext be (QNested QBaseScope) Int32)
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (LogEntryT (QExpr be (QNested QBaseScope)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (WithRewrittenThread
+        (QNested QBaseScope)
+        QBaseScope
+        (WithRewrittenContext
+           (QGenExpr QAggregateContext be (QNested QBaseScope) Int32)
+           QValueContext))
+forall be a r (db :: (* -&gt; *) -&gt; *) s.
+(BeamSqlBackend be, Aggregable be a, Projectible be r,
+ Projectible be a, ContextRewritable a,
+ ThreadRewritable
+   (QNested s) (WithRewrittenContext a QValueContext)) =&gt;
+(r -&gt; a)
+-&gt; Q be db (QNested s) r
+-&gt; Q be
+     db
+     s
+     (WithRewrittenThread
+        (QNested s) s (WithRewrittenContext a QValueContext))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">aggregate_</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">LogEntryT (QExpr be (QNested QBaseScope))
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">QGenExpr QAggregateContext be (QNested QBaseScope) Int32
+-&gt; QGenExpr QAggregateContext be (QNested QBaseScope) Int32
+forall a ctxt be s. QGenExpr ctxt be s a -&gt; QGenExpr ctxt be s a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">as_</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span> </span><span class="annot"><span class="annottext">QGenExpr QAggregateContext be (QNested QBaseScope) Int32
+forall be a s. (BeamSqlBackend be, Integral a) =&gt; QAgg be s a
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">countAll_</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Q be
+   BeamMigrateDb
+   (QNested QBaseScope)
+   (LogEntryT (QExpr be (QNested QBaseScope)))
+ -&gt; Q be
+      BeamMigrateDb
+      QBaseScope
+      (WithRewrittenThread
+         (QNested QBaseScope)
+         QBaseScope
+         (WithRewrittenContext
+            (QGenExpr QAggregateContext be (QNested QBaseScope) Int32)
+            QValueContext)))
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (LogEntryT (QExpr be (QNested QBaseScope)))
+-&gt; Q be
+     BeamMigrateDb
+     QBaseScope
+     (WithRewrittenThread
+        (QNested QBaseScope)
+        QBaseScope
+        (WithRewrittenContext
+           (QGenExpr QAggregateContext be (QNested QBaseScope) Int32)
+           QValueContext))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-185"></span><span>          </span><span class="annot"><span class="annottext">DatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+-&gt; Q be
+     BeamMigrateDb
+     (QNested QBaseScope)
+     (LogEntryT (QExpr be (QNested QBaseScope)))
+forall be (db :: (* -&gt; *) -&gt; *) (table :: (* -&gt; *) -&gt; *) s.
+(Database be db, BeamSqlBackend be) =&gt;
+DatabaseEntity be db (TableEntity table)
+-&gt; Q be db s (table (QExpr be s))
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">all_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+-&gt; DatabaseEntity be BeamMigrateDb (TableEntity LogEntryT)
+forall (entity :: * -&gt; *).
+BeamMigrateDb entity -&gt; entity (TableEntity LogEntryT)
+</span><a href="Database.Beam.Migrate.Log.html#_beamMigrateLogEntries"><span class="hs-identifier hs-var hs-var">_beamMigrateLogEntries</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+BeamMigrateDb (DatabaseEntity be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+DatabaseSettings be BeamMigrateDb
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDb"><span class="hs-identifier hs-var">beamMigrateDb</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298405"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-186"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; m () -&gt; m ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">when</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679298378"><span class="hs-identifier hs-var">totalCnt</span></a></span><span> </span><span class="annot"><span class="annottext">Int32 -&gt; Int32 -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; m ()
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;beam-migrate: No versioning information, but log entries present&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>        </span><span class="annot"><span class="annottext">BeamSqlBackendSyntax be -&gt; m ()
+forall be (m :: * -&gt; *).
+MonadBeam be m =&gt;
+BeamSqlBackendSyntax be -&gt; m ()
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runNoReturn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be)
+-&gt; BeamSqlBackendSyntax be
+forall syntax.
+IsSql92DdlCommandSyntax syntax =&gt;
+Sql92DdlCommandDropTableSyntax syntax -&gt; syntax
+</span><a href="Database.Beam.Migrate.SQL.SQL92.html#dropTableCmd"><span class="hs-identifier hs-var">dropTableCmd</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Sql92DropTableTableNameSyntax
+  (Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be))
+-&gt; Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be)
+forall syntax.
+IsSql92DropTableSyntax syntax =&gt;
+Sql92DropTableTableNameSyntax syntax -&gt; syntax
+</span><a href="Database.Beam.Migrate.SQL.SQL92.html#dropTableSyntax"><span class="hs-identifier hs-var">dropTableSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Text
+-&gt; Text
+-&gt; Sql92DropTableTableNameSyntax
+     (Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be))
+forall tblName.
+IsSql92TableNameSyntax tblName =&gt;
+Maybe Text -&gt; Text -&gt; tblName
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">tableName</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;beam_migration&quot;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-188"></span><span>
+</span><span id="line-189"></span><span>      </span><span class="annot"><span class="annottext">BeamSqlBackendSyntax be -&gt; m ()
+forall be (m :: * -&gt; *).
+MonadBeam be m =&gt;
+BeamSqlBackendSyntax be -&gt; m ()
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">runNoReturn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be)
+-&gt; BeamSqlBackendSyntax be
+forall syntax.
+IsSql92DdlCommandSyntax syntax =&gt;
+Sql92DdlCommandDropTableSyntax syntax -&gt; syntax
+</span><a href="Database.Beam.Migrate.SQL.SQL92.html#dropTableCmd"><span class="hs-identifier hs-var">dropTableCmd</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Sql92DropTableTableNameSyntax
+  (Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be))
+-&gt; Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be)
+forall syntax.
+IsSql92DropTableSyntax syntax =&gt;
+Sql92DropTableTableNameSyntax syntax -&gt; syntax
+</span><a href="Database.Beam.Migrate.SQL.SQL92.html#dropTableSyntax"><span class="hs-identifier hs-var">dropTableSyntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Text
+-&gt; Text
+-&gt; Sql92DropTableTableNameSyntax
+     (Sql92DdlCommandDropTableSyntax (BeamSqlBackendSyntax be))
+forall tblName.
+IsSql92TableNameSyntax tblName =&gt;
+Maybe Text -&gt; Text -&gt; tblName
+</span><a href="../../../../beam-core/html/src"><span class="hs-identifier hs-var">tableName</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;beam_version&quot;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-190"></span><span>
+</span><span id="line-191"></span><span>      </span><span class="annot"><span class="annottext">m ()
+</span><a href="#local-6989586621679298396"><span class="hs-identifier hs-var">createSchema</span></a></span><span>
+</span><span id="line-192"></span><span>
+</span><span id="line-193"></span><span>    </span><span id="local-6989586621679298396"><span class="annot"><span class="annottext">createSchema :: m ()
+</span><a href="#local-6989586621679298396"><span class="hs-identifier hs-var hs-var">createSchema</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-194"></span><span>      </span><span class="annot"><span class="annottext">CheckedDatabaseSettings be BeamMigrateDb
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(BeamSqlBackendSyntax be -&gt; m ())
+-&gt; Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+-&gt; m (CheckedDatabaseSettings be BeamMigrateDb)
+forall (m :: * -&gt; *) be a.
+Applicative m =&gt;
+(BeamSqlBackendSyntax be -&gt; m ()) -&gt; Migration be a -&gt; m a
+</span><a href="Database.Beam.Migrate.Types.html#executeMigration"><span class="hs-identifier hs-var">executeMigration</span></a></span><span> </span><span class="annot"><span class="annottext">BeamSqlBackendSyntax be -&gt; m ()
+forall be (m :: * -&gt; *).
+MonadBeam be m =&gt;
+BeamSqlBackendSyntax be -&gt; m ()
+</span><a href="#local-6989586621679298395"><span class="hs-identifier hs-var">doStep</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ MonadBeam be m) =&gt;
+Migration be (CheckedDatabaseSettings be BeamMigrateDb)
+</span><a href="Database.Beam.Migrate.Log.html#beamMigrateDbMigration"><span class="hs-identifier hs-var">beamMigrateDbMigration</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298405"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679298404"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-195"></span><span>      </span><span class="annot"><span class="annottext">m ()
+forall be (m :: * -&gt; *).
+(BeamMigrateSqlBackend be,
+ HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be),
+ BeamSqlBackendCanSerialize be Text, MonadBeam be m) =&gt;
+m ()
+</span><a href="Database.Beam.Migrate.Log.html#updateSchemaToCurrent"><span class="hs-identifier hs-var">updateSchemaToCurrent</span></a></span><span>
+</span><span id="line-196"></span><span>
+</span><span id="line-197"></span><span id="local-6989586621679298593"><span id="local-6989586621679298594"><span class="annot"><a href="Database.Beam.Migrate.Log.html#checkForBackendTables"><span class="hs-identifier hs-type">checkForBackendTables</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Backend.html#BeamMigrationBackend"><span class="hs-identifier hs-type">BeamMigrationBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298594"><span class="hs-identifier hs-type">be</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679298593"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679298593"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span></span></span><span>
+</span><span id="line-198"></span><span id="checkForBackendTables"><span class="annot"><span class="annottext">checkForBackendTables :: BeamMigrationBackend be m -&gt; m Bool
+</span><a href="Database.Beam.Migrate.Log.html#checkForBackendTables"><span class="hs-identifier hs-var hs-var">checkForBackendTables</span></a></span></span><span> </span><span class="annot"><a href="Database.Beam.Migrate.Backend.html#BeamMigrationBackend"><span class="hs-identifier hs-type">BeamMigrationBackend</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">backendGetDbConstraints :: forall be (m :: * -&gt; *).
+BeamMigrationBackend be m -&gt; m [SomeDatabasePredicate]
+</span><a href="Database.Beam.Migrate.Backend.html#backendGetDbConstraints"><span class="hs-identifier hs-var">backendGetDbConstraints</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="local-6989586621679298371"><span class="annot"><span class="annottext">m [SomeDatabasePredicate]
+</span><a href="#local-6989586621679298371"><span class="hs-identifier hs-var">getCs</span></a></span></span><span> </span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-199"></span><span>  </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679298370"><span class="annot"><span class="annottext">[SomeDatabasePredicate]
+</span><a href="#local-6989586621679298370"><span class="hs-identifier hs-var">cs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m [SomeDatabasePredicate]
+</span><a href="#local-6989586621679298371"><span class="hs-identifier hs-var">getCs</span></a></span><span>
+</span><span id="line-200"></span><span>     </span><span class="annot"><span class="annottext">Bool -&gt; m Bool
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(SomeDatabasePredicate -&gt; Bool) -&gt; [SomeDatabasePredicate] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">any</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SomeDatabasePredicate -&gt; SomeDatabasePredicate -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">TableExistsPredicate -&gt; SomeDatabasePredicate
+forall p. DatabasePredicate p =&gt; p -&gt; SomeDatabasePredicate
+</span><a href="Database.Beam.Migrate.Types.Predicates.html#p"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">QualifiedName -&gt; TableExistsPredicate
+</span><a href="Database.Beam.Migrate.Checks.html#TableExistsPredicate"><span class="hs-identifier hs-var">TableExistsPredicate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe Text -&gt; Text -&gt; QualifiedName
+</span><a href="Database.Beam.Migrate.Types.Predicates.html#QualifiedName"><span class="hs-identifier hs-var">QualifiedName</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;beam_version&quot;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[SomeDatabasePredicate]
+</span><a href="#local-6989586621679298370"><span class="hs-identifier hs-var">cs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-201"></span></pre></body></html>

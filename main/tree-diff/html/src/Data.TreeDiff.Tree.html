@@ -1,0 +1,197 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- | Tree diffing working on @containers@ 'Tree'.</span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.TreeDiff.Tree</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.Tree.html#treeDiff"><span class="hs-identifier">treeDiff</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.TreeDiff.Tree.html#EditTree"><span class="hs-identifier">EditTree</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier">Edit</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Tree</span></a></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Tree</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html"><span class="hs-identifier">Data.TreeDiff.List</span></a></span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- $setup</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- &gt;&gt;&gt; import Data.Tree (Tree (..))</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- &gt;&gt;&gt; import qualified Text.PrettyPrint as PP</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- &gt;&gt;&gt; :{</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- ppTree :: (a -&gt; PP.Doc) -&gt; Tree a -&gt; PP.Doc</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- ppTree pp = ppT</span><span>
+</span><span id="line-14"></span><span class="hs-comment">--   where</span><span>
+</span><span id="line-15"></span><span class="hs-comment">--     ppT (Node x []) = pp x</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--     ppT (Node x xs) = PP.parens $ PP.hang (pp x) 2 $</span><span>
+</span><span id="line-17"></span><span class="hs-comment">--         PP.sep $ map ppT xs</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- ppEditTree :: (a -&gt; PP.Doc) -&gt; Edit (EditTree a) -&gt; PP.Doc</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- ppEditTree pp = PP.sep . ppEdit</span><span>
+</span><span id="line-20"></span><span class="hs-comment">--   where</span><span>
+</span><span id="line-21"></span><span class="hs-comment">--     ppEdit (Cpy tree) = [ ppTree tree ]</span><span>
+</span><span id="line-22"></span><span class="hs-comment">--     ppEdit (Ins tree) = [ PP.char '+' PP.&lt;&gt; ppTree tree ]</span><span>
+</span><span id="line-23"></span><span class="hs-comment">--     ppEdit (Del tree) = [ PP.char '-' PP.&lt;&gt; ppTree tree ]</span><span>
+</span><span id="line-24"></span><span class="hs-comment">--     ppEdit (Swp a b) =</span><span>
+</span><span id="line-25"></span><span class="hs-comment">--         [ PP.char '-' PP.&lt;&gt; ppTree a</span><span>
+</span><span id="line-26"></span><span class="hs-comment">--         , PP.char '+' PP.&lt;&gt; ppTree b</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--         ]</span><span>
+</span><span id="line-28"></span><span class="hs-comment">--     ppTree (EditNode x []) = pp x</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--     ppTree (EditNode x xs) = PP.parens $ PP.hang (pp x) 2 $</span><span>
+</span><span id="line-30"></span><span class="hs-comment">--        PP.sep $ concatMap ppEdit xs</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- :}</span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- | A breadth-traversal diff.</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- It's different from @gdiff@, as it doesn't produce a flat edit script,</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- but edit script iself is a tree. This makes visualising the diff much</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- simpler.</span><span>
+</span><span id="line-38"></span><span class="hs-comment">--</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- ==== Examples</span><span>
+</span><span id="line-40"></span><span class="hs-comment">--</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- Let's start from simple tree. We pretty print them as s-expressions.</span><span>
+</span><span id="line-42"></span><span class="hs-comment">--</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- &gt;&gt;&gt; let x = Node 'a' [Node 'b' [], Node 'c' [return 'd', return 'e'], Node 'f' []]</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- &gt;&gt;&gt; ppTree PP.char x</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- (a b (c d e) f)</span><span>
+</span><span id="line-46"></span><span class="hs-comment">--</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- If we modify an argument in a tree, we'll notice it's changed:</span><span>
+</span><span id="line-48"></span><span class="hs-comment">--</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- &gt;&gt;&gt; let y = Node 'a' [Node 'b' [], Node 'c' [return 'x', return 'e'], Node 'f' []]</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- &gt;&gt;&gt; ppTree PP.char y</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- (a b (c x e) f)</span><span>
+</span><span id="line-52"></span><span class="hs-comment">--</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- &gt;&gt;&gt; ppEditTree PP.char (treeDiff x y)</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- (a b (c -d +x e) f)</span><span>
+</span><span id="line-55"></span><span class="hs-comment">--</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- If we modify a constructor, the whole sub-trees is replaced, though there</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- might be common subtrees.</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- &gt;&gt;&gt; let z = Node 'a' [Node 'b' [], Node 'd' [], Node 'f' []]</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- &gt;&gt;&gt; ppTree PP.char z</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- (a b d f)</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- &gt;&gt;&gt; ppEditTree PP.char (treeDiff x z)</span><span>
+</span><span id="line-64"></span><span class="hs-comment">-- (a b -(c d e) +d f)</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--</span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- If we add arguments, they are spotted too:</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--</span><span>
+</span><span id="line-68"></span><span class="hs-comment">-- &gt;&gt;&gt; let w = Node 'a' [Node 'b' [], Node 'c' [return 'd', return 'x', return 'e'], Node 'f' []]</span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- &gt;&gt;&gt; ppTree PP.char w</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- (a b (c d x e) f)</span><span>
+</span><span id="line-71"></span><span class="hs-comment">--</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- &gt;&gt;&gt; ppEditTree PP.char (treeDiff x w)</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- (a b (c d +x e) f)</span><span>
+</span><span id="line-74"></span><span class="hs-comment">--</span><span>
+</span><span id="line-75"></span><span id="local-6989586621679091299"><span class="annot"><a href="Data.TreeDiff.Tree.html#treeDiff"><span class="hs-identifier hs-type">treeDiff</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091299"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Eq</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091299"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091299"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091299"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.Tree.html#EditTree"><span class="hs-identifier hs-type">EditTree</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091299"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-76"></span><span id="treeDiff"><span class="annot"><span class="annottext">treeDiff :: Tree a -&gt; Tree a -&gt; Edit (EditTree a)
+</span><a href="Data.TreeDiff.Tree.html#treeDiff"><span class="hs-identifier hs-var hs-var">treeDiff</span></a></span></span><span> </span><span id="local-6989586621679091288"><span class="annot"><span class="annottext">ta :: Tree a
+</span><a href="#local-6989586621679091288"><span class="hs-identifier hs-var">ta</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Node</span></a></span><span> </span><span id="local-6989586621679091286"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091286"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679091285"><span class="annot"><span class="annottext">[Tree a]
+</span><a href="#local-6989586621679091285"><span class="hs-keyword hs-var">as</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679091284"><span class="annot"><span class="annottext">tb :: Tree a
+</span><a href="#local-6989586621679091284"><span class="hs-identifier hs-var">tb</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Node</span></a></span><span> </span><span id="local-6989586621679091283"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091283"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span id="local-6989586621679091282"><span class="annot"><span class="annottext">[Tree a]
+</span><a href="#local-6989586621679091282"><span class="hs-identifier hs-var">bs</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091286"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091283"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EditTree a -&gt; Edit (EditTree a)
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-var">Cpy</span></a></span><span> </span><span class="annot"><span class="annottext">(EditTree a -&gt; Edit (EditTree a))
+-&gt; EditTree a -&gt; Edit (EditTree a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; [Edit (EditTree a)] -&gt; EditTree a
+forall a. a -&gt; [Edit (EditTree a)] -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#EditNode"><span class="hs-identifier hs-var">EditNode</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091286"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Edit (Tree a) -&gt; Edit (EditTree a))
+-&gt; [Edit (Tree a)] -&gt; [Edit (EditTree a)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Edit (Tree a) -&gt; Edit (EditTree a)
+forall a. (Show a, Eq a) =&gt; Edit (Tree a) -&gt; Edit (EditTree a)
+</span><a href="#local-6989586621679091279"><span class="hs-identifier hs-var">rec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Tree a -&gt; Tree a -&gt; Bool)
+-&gt; [Tree a] -&gt; [Tree a] -&gt; [Edit (Tree a)]
+forall a. Show a =&gt; (a -&gt; a -&gt; Bool) -&gt; [a] -&gt; [a] -&gt; [Edit a]
+</span><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier hs-var">diffBy</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a -&gt; Tree a -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">(==)</span></a></span><span> </span><span class="annot"><span class="annottext">[Tree a]
+</span><a href="#local-6989586621679091285"><span class="hs-keyword hs-var">as</span></a></span><span> </span><span class="annot"><span class="annottext">[Tree a]
+</span><a href="#local-6989586621679091282"><span class="hs-identifier hs-var">bs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EditTree a -&gt; EditTree a -&gt; Edit (EditTree a)
+forall a. a -&gt; a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Swp"><span class="hs-identifier hs-var">Swp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+forall a. Tree a -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-var">treeToEdit</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091288"><span class="hs-identifier hs-var">ta</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+forall a. Tree a -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-var">treeToEdit</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091284"><span class="hs-identifier hs-var">tb</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621679091279"><span class="annot"><span class="annottext">rec :: Edit (Tree a) -&gt; Edit (EditTree a)
+</span><a href="#local-6989586621679091279"><span class="hs-identifier hs-var hs-var">rec</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-type">Ins</span></a></span><span> </span><span id="local-6989586621679091274"><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091274"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EditTree a -&gt; Edit (EditTree a)
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-var">Ins</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+forall a. Tree a -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-var">treeToEdit</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091274"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><a href="#local-6989586621679091279"><span class="hs-identifier hs-var">rec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-type">Del</span></a></span><span> </span><span id="local-6989586621679091272"><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091272"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EditTree a -&gt; Edit (EditTree a)
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-var">Del</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+forall a. Tree a -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-var">treeToEdit</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091272"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>    </span><span class="annot"><a href="#local-6989586621679091279"><span class="hs-identifier hs-var">rec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-type">Cpy</span></a></span><span> </span><span id="local-6989586621679091271"><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091271"><span class="hs-identifier hs-var">z</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EditTree a -&gt; Edit (EditTree a)
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-var">Cpy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+forall a. Tree a -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-var">treeToEdit</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091271"><span class="hs-identifier hs-var">z</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-83"></span><span>    </span><span class="annot"><a href="#local-6989586621679091279"><span class="hs-identifier hs-var">rec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Swp"><span class="hs-identifier hs-type">Swp</span></a></span><span> </span><span id="local-6989586621679091270"><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091270"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679091269"><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091269"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree a -&gt; Tree a -&gt; Edit (EditTree a)
+forall a. (Show a, Eq a) =&gt; Tree a -&gt; Tree a -&gt; Edit (EditTree a)
+</span><a href="Data.TreeDiff.Tree.html#treeDiff"><span class="hs-identifier hs-var">treeDiff</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091270"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a
+</span><a href="#local-6989586621679091269"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- | Type used in the result of 'treeDiff'.</span><span>
+</span><span id="line-86"></span><span class="hs-comment">--</span><span>
+</span><span id="line-87"></span><span class="hs-comment">-- It's essentially a 'Tree', but the forest list is changed from</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- @[tree a]@ to @['Edit' (tree a)]@. This highlights that</span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- 'treeDiff' performs a list diff on each tree level.</span><span>
+</span><span id="line-90"></span><span class="hs-keyword">data</span><span> </span><span id="EditTree"><span class="annot"><a href="Data.TreeDiff.Tree.html#EditTree"><span class="hs-identifier hs-var">EditTree</span></a></span></span><span> </span><span id="local-6989586621679091305"><span class="annot"><a href="#local-6989586621679091305"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span id="EditNode"><span class="annot"><a href="Data.TreeDiff.Tree.html#EditNode"><span class="hs-identifier hs-var">EditNode</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679091305"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.Tree.html#EditTree"><span class="hs-identifier hs-type">EditTree</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091305"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><span id="line-92"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679091263"><span id="local-6989586621679091265"><span id="local-6989586621679091267"><span class="annot"><span class="annottext">Int -&gt; EditTree a -&gt; ShowS
+[EditTree a] -&gt; ShowS
+EditTree a -&gt; String
+(Int -&gt; EditTree a -&gt; ShowS)
+-&gt; (EditTree a -&gt; String)
+-&gt; ([EditTree a] -&gt; ShowS)
+-&gt; Show (EditTree a)
+forall a. Show a =&gt; Int -&gt; EditTree a -&gt; ShowS
+forall a. Show a =&gt; [EditTree a] -&gt; ShowS
+forall a. Show a =&gt; EditTree a -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [EditTree a] -&gt; ShowS
+$cshowList :: forall a. Show a =&gt; [EditTree a] -&gt; ShowS
+show :: EditTree a -&gt; String
+$cshow :: forall a. Show a =&gt; EditTree a -&gt; String
+showsPrec :: Int -&gt; EditTree a -&gt; ShowS
+$cshowsPrec :: forall a. Show a =&gt; Int -&gt; EditTree a -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span id="local-6989586621679091300"><span class="annot"><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-type">treeToEdit</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091300"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.Tree.html#EditTree"><span class="hs-identifier hs-type">EditTree</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679091300"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-95"></span><span id="treeToEdit"><span class="annot"><span class="annottext">treeToEdit :: Tree a -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#treeToEdit"><span class="hs-identifier hs-var hs-var">treeToEdit</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+forall a. Tree a -&gt; EditTree a
+</span><a href="#local-6989586621679091261"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679091261"><span class="annot"><span class="annottext">go :: Tree a -&gt; EditTree a
+</span><a href="#local-6989586621679091261"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Node</span></a></span><span> </span><span id="local-6989586621679091260"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091260"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679091259"><span class="annot"><span class="annottext">[Tree a]
+</span><a href="#local-6989586621679091259"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; [Edit (EditTree a)] -&gt; EditTree a
+forall a. a -&gt; [Edit (EditTree a)] -&gt; EditTree a
+</span><a href="Data.TreeDiff.Tree.html#EditNode"><span class="hs-identifier hs-var">EditNode</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679091260"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Tree a -&gt; Edit (EditTree a)) -&gt; [Tree a] -&gt; [Edit (EditTree a)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EditTree a -&gt; Edit (EditTree a)
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-var">Cpy</span></a></span><span> </span><span class="annot"><span class="annottext">(EditTree a -&gt; Edit (EditTree a))
+-&gt; (Tree a -&gt; EditTree a) -&gt; Tree a -&gt; Edit (EditTree a)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Tree a -&gt; EditTree a
+</span><a href="#local-6989586621679091261"><span class="hs-identifier hs-var">go</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Tree a]
+</span><a href="#local-6989586621679091259"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span></pre></body></html>

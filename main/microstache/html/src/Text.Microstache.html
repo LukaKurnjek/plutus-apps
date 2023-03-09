@@ -1,0 +1,93 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module      :  Text.Microstache</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Copyright   :  &#169; 2016&#8211;2017 Stack Builders</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- License     :  BSD 3 clause</span><span>
+</span><span id="line-5"></span><span class="hs-comment">--</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Maintainer  :  Mark Karpov &lt;markkarpov@openmailbox.org&gt;</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Stability   :  experimental</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Portability :  portable</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- This is a Haskell implementation of Mustache templates. The</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- implementation conforms to the version 1.1.3 of official Mustache</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- specification &lt;https://github.com/mustache/spec&gt;. It is extremely simple</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- and straightforward to use with minimal but complete API &#8212; three</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- functions to compile templates (from directory, from file, and from lazy</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- text) and one to render them.</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- For rendering you only need to create Aeson's 'Data.Aeson.Value' where</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- you put the data to interpolate. Since the library re-uses Aeson's</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- instances and most data types in Haskell ecosystem are instances of</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- classes like 'Data.Aeson.ToJSON', the whole process is very simple for</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- the end user.</span><span>
+</span><span id="line-22"></span><span class="hs-comment">--</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- Template Haskell helpers for compilation of templates at compile time are</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- available in the &quot;Text.Microstache.Compile.TH&quot; module. The helpers are</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- currently available only for GHC 8 users though.</span><span>
+</span><span id="line-26"></span><span class="hs-comment">--</span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- One feature that is not currently supported is lambdas. The feature is</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- marked as optional in the spec and can be emulated via processing of</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- parsed template representation. The decision to drop lambdas is</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- intentional, for the sake of simplicity and better integration with</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- Aeson.</span><span>
+</span><span id="line-32"></span><span class="hs-comment">--</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- Here is an example of basic usage:</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- &gt; {-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- &gt;</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- &gt; module Main (main) where</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- &gt;</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- &gt; import Data.Aeson</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- &gt; import Data.Text</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- &gt; import Text.Microstache</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- &gt; import qualified Data.Text.Lazy.IO as TIO</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- &gt;</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- &gt; main :: IO ()</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- &gt; main = do</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- &gt;   let res = compileMustacheText &quot;foo&quot;</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- &gt;         &quot;Hi, {{name}}! You have:\n{{#things}}\n  * {{.}}\n{{/things}}\n&quot;</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- &gt;   case res of</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- &gt;     Left err -&gt; print err</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- &gt;     Right template -&gt; TIO.putStr $ renderMustache template $ object</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- &gt;       [ &quot;name&quot;   .= (&quot;John&quot; :: Text)</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- &gt;       , &quot;things&quot; .= [&quot;pen&quot; :: Text, &quot;candle&quot;, &quot;egg&quot;]</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- &gt;       ]</span><span>
+</span><span id="line-54"></span><span class="hs-comment">--</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- If I run the program, it prints the following:</span><span>
+</span><span id="line-56"></span><span class="hs-comment">--</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- &gt; Hi, John! You have:</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- &gt;   * pen</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- &gt;   * candle</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- &gt;   * egg</span><span>
+</span><span id="line-61"></span><span class="hs-comment">--</span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- For more information about Mustache templates the following links may be</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- helpful:</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--     * The official Mustache site: &lt;https://mustache.github.io/&gt;</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--     * The manual: &lt;https://mustache.github.io/mustache.5.html&gt;</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--     * The specification: &lt;https://github.com/mustache/spec&gt;</span><span>
+</span><span id="line-68"></span><span class="hs-comment">--     * Stack Builders Stache tutorial: &lt;https://www.stackbuilders.com/tutorials/haskell/mustache-templates/&gt;</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Text.Microstache</span><span>
+</span><span id="line-71"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Types</span></span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><a href="Text.Microstache.Type.html#Template"><span class="hs-identifier">Template</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#Node"><span class="hs-identifier">Node</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#Key"><span class="hs-identifier">Key</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#PName"><span class="hs-identifier">PName</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#MustacheException"><span class="hs-identifier">MustacheException</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-77"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#displayMustacheException"><span class="hs-identifier">displayMustacheException</span></a></span><span>
+</span><span id="line-78"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#MustacheWarning"><span class="hs-identifier">MustacheWarning</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html#displayMustacheWarning"><span class="hs-identifier">displayMustacheWarning</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Compiling</span></span><span>
+</span><span id="line-81"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Compile.html#compileMustacheDir"><span class="hs-identifier">compileMustacheDir</span></a></span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Compile.html#compileMustacheFile"><span class="hs-identifier">compileMustacheFile</span></a></span><span>
+</span><span id="line-83"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Compile.html#compileMustacheText"><span class="hs-identifier">compileMustacheText</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Rendering</span></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Render.html#renderMustache"><span class="hs-identifier">renderMustache</span></a></span><span>
+</span><span id="line-86"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Text.Microstache.Render.html#renderMustacheW"><span class="hs-identifier">renderMustacheW</span></a></span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Text.Microstache.Compile.html"><span class="hs-identifier">Text.Microstache.Compile</span></a></span><span>
+</span><span id="line-91"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Text.Microstache.Render.html"><span class="hs-identifier">Text.Microstache.Render</span></a></span><span>
+</span><span id="line-92"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Text.Microstache.Type.html"><span class="hs-identifier">Text.Microstache.Type</span></a></span><span>
+</span><span id="line-93"></span></pre></body></html>

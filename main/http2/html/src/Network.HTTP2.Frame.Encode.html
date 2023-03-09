@@ -1,0 +1,926 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE RecordWildCards #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Network.HTTP2.Frame.Encode</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-4"></span><span>    </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrame"><span class="hs-identifier">encodeFrame</span></a></span><span>
+</span><span id="line-5"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrameChunks"><span class="hs-identifier">encodeFrameChunks</span></a></span><span>
+</span><span id="line-6"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeader"><span class="hs-identifier">encodeFrameHeader</span></a></span><span>
+</span><span id="line-7"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeaderBuf"><span class="hs-identifier">encodeFrameHeaderBuf</span></a></span><span>
+</span><span id="line-8"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFramePayload"><span class="hs-identifier">encodeFramePayload</span></a></span><span>
+</span><span id="line-9"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier">EncodeInfo</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeInfo"><span class="hs-identifier">encodeInfo</span></a></span><span>
+</span><span id="line-11"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Internal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">unsafeCreate</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Foreign.Ptr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Ptr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">plusPtr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../network-byte-order/html/src"><span class="hs-identifier">Network.ByteOrder</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">N</span></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Imports.html"><span class="hs-identifier">Imports</span></a></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html"><span class="hs-identifier">Network.HTTP2.Frame.Types</span></a></span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">type</span><span> </span><span id="Builder"><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-var">Builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- | Auxiliary information for frame encoding.</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">data</span><span> </span><span id="EncodeInfo"><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-var">EncodeInfo</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="EncodeInfo"><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-var">EncodeInfo</span></a></span></span><span> </span><span class="hs-special">{</span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-comment">-- | Flags to be set in a frame header</span><span>
+</span><span id="line-28"></span><span>      </span><span id="encodeFlags"><span class="annot"><span class="annottext">EncodeInfo -&gt; FrameFlags
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFlags"><span class="hs-identifier hs-var hs-var">encodeFlags</span></a></span></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameFlags"><span class="hs-identifier hs-type">FrameFlags</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-comment">-- | Stream id to be set in a frame header</span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="encodeStreamId"><span class="annot"><span class="annottext">EncodeInfo -&gt; StreamId
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeStreamId"><span class="hs-identifier hs-var hs-var">encodeStreamId</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#StreamId"><span class="hs-identifier hs-type">StreamId</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-comment">-- | Padding if any. In the case where this value is set but the priority flag is not set, this value gets preference over the priority flag. So, if this value is set, the priority flag is also set.</span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="encodePadding"><span class="annot"><span class="annottext">EncodeInfo -&gt; Maybe Padding
+</span><a href="Network.HTTP2.Frame.Encode.html#encodePadding"><span class="hs-identifier hs-var hs-var">encodePadding</span></a></span></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#Padding"><span class="hs-identifier hs-type">Padding</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679090883"><span id="local-6989586621679090885"><span id="local-6989586621679090887"><span class="annot"><span class="annottext">StreamId -&gt; EncodeInfo -&gt; ShowS
+[EncodeInfo] -&gt; ShowS
+EncodeInfo -&gt; String
+(StreamId -&gt; EncodeInfo -&gt; ShowS)
+-&gt; (EncodeInfo -&gt; String)
+-&gt; ([EncodeInfo] -&gt; ShowS)
+-&gt; Show EncodeInfo
+forall a.
+(StreamId -&gt; a -&gt; ShowS)
+-&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [EncodeInfo] -&gt; ShowS
+$cshowList :: [EncodeInfo] -&gt; ShowS
+show :: EncodeInfo -&gt; String
+$cshow :: EncodeInfo -&gt; String
+showsPrec :: StreamId -&gt; EncodeInfo -&gt; ShowS
+$cshowsPrec :: StreamId -&gt; EncodeInfo -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span id="local-6989586621679090874"><span id="local-6989586621679090876"><span id="local-6989586621679090878"><span id="local-6989586621679090880"><span class="annot"><span class="annottext">ReadPrec [EncodeInfo]
+ReadPrec EncodeInfo
+StreamId -&gt; ReadS EncodeInfo
+ReadS [EncodeInfo]
+(StreamId -&gt; ReadS EncodeInfo)
+-&gt; ReadS [EncodeInfo]
+-&gt; ReadPrec EncodeInfo
+-&gt; ReadPrec [EncodeInfo]
+-&gt; Read EncodeInfo
+forall a.
+(StreamId -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+readListPrec :: ReadPrec [EncodeInfo]
+$creadListPrec :: ReadPrec [EncodeInfo]
+readPrec :: ReadPrec EncodeInfo
+$creadPrec :: ReadPrec EncodeInfo
+readList :: ReadS [EncodeInfo]
+$creadList :: ReadS [EncodeInfo]
+readsPrec :: StreamId -&gt; ReadS EncodeInfo
+$creadsPrec :: StreamId -&gt; ReadS EncodeInfo
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span>
+</span><span id="line-35"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- | A smart builder of 'EncodeInfo'.</span><span>
+</span><span id="line-38"></span><span class="hs-comment">--</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- &gt;&gt;&gt; encodeInfo setAck 0</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- EncodeInfo {encodeFlags = 1, encodeStreamId = 0, encodePadding = Nothing}</span><span>
+</span><span id="line-41"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeInfo"><span class="hs-identifier hs-type">encodeInfo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameFlags"><span class="hs-identifier hs-type">FrameFlags</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameFlags"><span class="hs-identifier hs-type">FrameFlags</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-comment">-- ^ stream identifier</span><span>
+</span><span id="line-43"></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span>
+</span><span id="line-44"></span><span id="encodeInfo"><span class="annot"><span class="annottext">encodeInfo :: (FrameFlags -&gt; FrameFlags) -&gt; StreamId -&gt; EncodeInfo
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeInfo"><span class="hs-identifier hs-var hs-var">encodeInfo</span></a></span></span><span> </span><span id="local-6989586621679090872"><span class="annot"><span class="annottext">FrameFlags -&gt; FrameFlags
+</span><a href="#local-6989586621679090872"><span class="hs-identifier hs-var">set</span></a></span></span><span> </span><span id="local-6989586621679090871"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090871"><span class="hs-identifier hs-var">sid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FrameFlags -&gt; StreamId -&gt; Maybe Padding -&gt; EncodeInfo
+</span><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-var">EncodeInfo</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameFlags -&gt; FrameFlags
+</span><a href="#local-6989586621679090872"><span class="hs-identifier hs-var">set</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="Network.HTTP2.Frame.Types.html#defaultFlags"><span class="hs-identifier hs-var">defaultFlags</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090871"><span class="hs-identifier hs-var">sid</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Padding
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- | Encoding an HTTP/2 frame to 'ByteString'.</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- This function is not efficient enough for high performace</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- program because of the concatenation of 'ByteString'.</span><span>
+</span><span id="line-51"></span><span class="hs-comment">--</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- &gt;&gt;&gt; encodeFrame (encodeInfo id 1) (DataFrame &quot;body&quot;)</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- &quot;\NUL\NUL\EOT\NUL\NUL\NUL\NUL\NUL\SOHbody&quot;</span><span>
+</span><span id="line-54"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrame"><span class="hs-identifier hs-type">encodeFrame</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FramePayload"><span class="hs-identifier hs-type">FramePayload</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-55"></span><span id="encodeFrame"><span class="annot"><span class="annottext">encodeFrame :: EncodeInfo -&gt; FramePayload -&gt; Padding
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrame"><span class="hs-identifier hs-var hs-var">encodeFrame</span></a></span></span><span> </span><span id="local-6989586621679090869"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090869"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span id="local-6989586621679090868"><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090868"><span class="hs-identifier hs-var">payload</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; Padding
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.concat</span></a></span><span> </span><span class="annot"><span class="annottext">([Padding] -&gt; Padding) -&gt; [Padding] -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo -&gt; FramePayload -&gt; [Padding]
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrameChunks"><span class="hs-identifier hs-var">encodeFrameChunks</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090869"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090868"><span class="hs-identifier hs-var">payload</span></a></span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- | Encoding an HTTP/2 frame to ['ByteString'].</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--   This is suitable for sendMany.</span><span>
+</span><span id="line-59"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrameChunks"><span class="hs-identifier hs-type">encodeFrameChunks</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FramePayload"><span class="hs-identifier hs-type">FramePayload</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-60"></span><span id="encodeFrameChunks"><span class="annot"><span class="annottext">encodeFrameChunks :: EncodeInfo -&gt; FramePayload -&gt; [Padding]
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrameChunks"><span class="hs-identifier hs-var hs-var">encodeFrameChunks</span></a></span></span><span> </span><span id="local-6989586621679090866"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090866"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span id="local-6989586621679090865"><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090865"><span class="hs-identifier hs-var">payload</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090864"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">[Padding]
+</span><a href="#local-6989586621679090863"><span class="hs-identifier hs-var">bss</span></a></span><span>
+</span><span id="line-61"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-62"></span><span>    </span><span id="local-6989586621679090862"><span class="annot"><span class="annottext">ftid :: FrameTypeId
+</span><a href="#local-6989586621679090862"><span class="hs-identifier hs-var hs-var">ftid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FramePayload -&gt; FrameTypeId
+</span><a href="Network.HTTP2.Frame.Types.html#framePayloadToFrameTypeId"><span class="hs-identifier hs-var">framePayloadToFrameTypeId</span></a></span><span> </span><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090865"><span class="hs-identifier hs-var">payload</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span id="local-6989586621679090864"><span class="annot"><span class="annottext">bs :: Padding
+</span><a href="#local-6989586621679090864"><span class="hs-identifier hs-var hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FrameTypeId -&gt; FrameHeader -&gt; Padding
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeader"><span class="hs-identifier hs-var">encodeFrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">FrameTypeId
+</span><a href="#local-6989586621679090862"><span class="hs-identifier hs-var">ftid</span></a></span><span> </span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090860"><span class="hs-identifier hs-var">header</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621679090860"><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090860"><span class="hs-identifier hs-var">header</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679090863"><span class="annot"><span class="annottext">[Padding]
+</span><a href="#local-6989586621679090863"><span class="hs-identifier hs-var">bss</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EncodeInfo -&gt; FramePayload -&gt; (FrameHeader, [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFramePayload"><span class="hs-identifier hs-var">encodeFramePayload</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090866"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090865"><span class="hs-identifier hs-var">payload</span></a></span><span>
+</span><span id="line-65"></span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- | Encoding an HTTP/2 frame header.</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--   The frame header must be completed.</span><span>
+</span><span id="line-68"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeader"><span class="hs-identifier hs-type">encodeFrameHeader</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameTypeId"><span class="hs-identifier hs-type">FrameTypeId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span>
+</span><span id="line-69"></span><span id="encodeFrameHeader"><span class="annot"><span class="annottext">encodeFrameHeader :: FrameTypeId -&gt; FrameHeader -&gt; Padding
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeader"><span class="hs-identifier hs-var hs-var">encodeFrameHeader</span></a></span></span><span> </span><span id="local-6989586621679090859"><span class="annot"><span class="annottext">FrameTypeId
+</span><a href="#local-6989586621679090859"><span class="hs-identifier hs-var">ftid</span></a></span></span><span> </span><span id="local-6989586621679090858"><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090858"><span class="hs-identifier hs-var">fhdr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">unsafeCreate</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="Network.HTTP2.Frame.Types.html#frameHeaderLength"><span class="hs-identifier hs-var">frameHeaderLength</span></a></span><span> </span><span class="annot"><span class="annottext">((Ptr FrameFlags -&gt; IO ()) -&gt; Padding)
+-&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FrameTypeId -&gt; FrameHeader -&gt; Ptr FrameFlags -&gt; IO ()
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeaderBuf"><span class="hs-identifier hs-var">encodeFrameHeaderBuf</span></a></span><span> </span><span class="annot"><span class="annottext">FrameTypeId
+</span><a href="#local-6989586621679090859"><span class="hs-identifier hs-var">ftid</span></a></span><span> </span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090858"><span class="hs-identifier hs-var">fhdr</span></a></span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- | Writing an encoded HTTP/2 frame header to the buffer.</span><span>
+</span><span id="line-72"></span><span class="hs-comment">--   The length of the buffer must be larger than or equal to 9 bytes.</span><span>
+</span><span id="line-73"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeaderBuf"><span class="hs-identifier hs-type">encodeFrameHeaderBuf</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameTypeId"><span class="hs-identifier hs-type">FrameTypeId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Ptr</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span id="encodeFrameHeaderBuf"><span class="annot"><span class="annottext">encodeFrameHeaderBuf :: FrameTypeId -&gt; FrameHeader -&gt; Ptr FrameFlags -&gt; IO ()
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFrameHeaderBuf"><span class="hs-identifier hs-var hs-var">encodeFrameHeaderBuf</span></a></span></span><span> </span><span id="local-6989586621679090856"><span class="annot"><span class="annottext">FrameTypeId
+</span><a href="#local-6989586621679090856"><span class="hs-identifier hs-var">ftid</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090852"><span id="local-6989586621679090853"><span id="local-6989586621679090854"><span class="annot"><span class="annottext">StreamId
+FrameFlags
+streamId :: FrameHeader -&gt; StreamId
+flags :: FrameHeader -&gt; FrameFlags
+payloadLength :: FrameHeader -&gt; StreamId
+streamId :: StreamId
+flags :: FrameFlags
+payloadLength :: StreamId
+</span><a href="Network.HTTP2.Frame.Types.html#streamId"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090848"><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090848"><span class="hs-identifier hs-var">ptr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><span class="annottext">Word32 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke24</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679090846"><span class="hs-identifier hs-var">plen</span></a></span><span>  </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090848"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-76"></span><span>    </span><span class="annot"><span class="annottext">FrameFlags -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke8</span></a></span><span>  </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090844"><span class="hs-identifier hs-var">typ</span></a></span><span>   </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090848"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">3</span></span><span>
+</span><span id="line-77"></span><span>    </span><span class="annot"><span class="annottext">FrameFlags -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke8</span></a></span><span>  </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090853"><span class="hs-identifier hs-var">flags</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090848"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">4</span></span><span>
+</span><span id="line-78"></span><span>    </span><span class="annot"><span class="annottext">Word32 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke32</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679090842"><span class="hs-identifier hs-var">sid</span></a></span><span>   </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090848"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">5</span></span><span>
+</span><span id="line-79"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621679090846"><span class="annot"><span class="annottext">plen :: Word32
+</span><a href="#local-6989586621679090846"><span class="hs-identifier hs-var hs-var">plen</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090854"><span class="hs-identifier hs-var">payloadLength</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span id="local-6989586621679090844"><span class="annot"><span class="annottext">typ :: FrameFlags
+</span><a href="#local-6989586621679090844"><span class="hs-identifier hs-var hs-var">typ</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FrameTypeId -&gt; FrameFlags
+</span><a href="Network.HTTP2.Frame.Types.html#fromFrameTypeId"><span class="hs-identifier hs-var">fromFrameTypeId</span></a></span><span> </span><span class="annot"><span class="annottext">FrameTypeId
+</span><a href="#local-6989586621679090856"><span class="hs-identifier hs-var">ftid</span></a></span><span>
+</span><span id="line-82"></span><span>    </span><span id="local-6989586621679090842"><span class="annot"><span class="annottext">sid :: Word32
+</span><a href="#local-6989586621679090842"><span class="hs-identifier hs-var hs-var">sid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090852"><span class="hs-identifier hs-var">streamId</span></a></span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- | Encoding an HTTP/2 frame payload.</span><span>
+</span><span id="line-85"></span><span class="hs-comment">--   This returns a complete frame header and chunks of payload.</span><span>
+</span><span id="line-86"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#encodeFramePayload"><span class="hs-identifier hs-type">encodeFramePayload</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FramePayload"><span class="hs-identifier hs-type">FramePayload</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span id="encodeFramePayload"><span class="annot"><span class="annottext">encodeFramePayload :: EncodeInfo -&gt; FramePayload -&gt; (FrameHeader, [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFramePayload"><span class="hs-identifier hs-var hs-var">encodeFramePayload</span></a></span></span><span> </span><span id="local-6989586621679090840"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090840"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span id="local-6989586621679090839"><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090839"><span class="hs-identifier hs-var">payload</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090838"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090837"><span class="hs-identifier hs-var">builder</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621679090838"><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090838"><span class="hs-identifier hs-var">header</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679090837"><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090837"><span class="hs-identifier hs-var">builder</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EncodeInfo -&gt; FramePayload -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090840"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">FramePayload
+</span><a href="#local-6989586621679090839"><span class="hs-identifier hs-var">payload</span></a></span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-type">buildFramePayload</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FramePayload"><span class="hs-identifier hs-type">FramePayload</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-94"></span><span id="buildFramePayload"><span class="annot"><span class="annottext">buildFramePayload :: EncodeInfo -&gt; FramePayload -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var hs-var">buildFramePayload</span></a></span></span><span> </span><span id="local-6989586621679090835"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090835"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#DataFrame"><span class="hs-identifier hs-type">DataFrame</span></a></span><span> </span><span id="local-6989586621679090833"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090833"><span class="hs-identifier hs-var">body</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-95"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadData"><span class="hs-identifier hs-var">buildFramePayloadData</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090835"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090833"><span class="hs-identifier hs-var">body</span></a></span><span>
+</span><span id="line-96"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090831"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090831"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#HeadersFrame"><span class="hs-identifier hs-type">HeadersFrame</span></a></span><span> </span><span id="local-6989586621679090829"><span class="annot"><span class="annottext">Maybe Priority
+</span><a href="#local-6989586621679090829"><span class="hs-identifier hs-var">mpri</span></a></span></span><span> </span><span id="local-6989586621679090828"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090828"><span class="hs-identifier hs-var">hdr</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-97"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; Maybe Priority
+-&gt; Padding
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadHeaders"><span class="hs-identifier hs-var">buildFramePayloadHeaders</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090831"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Priority
+</span><a href="#local-6989586621679090829"><span class="hs-identifier hs-var">mpri</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090828"><span class="hs-identifier hs-var">hdr</span></a></span><span>
+</span><span id="line-98"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090826"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090826"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#PriorityFrame"><span class="hs-identifier hs-type">PriorityFrame</span></a></span><span> </span><span id="local-6989586621679090824"><span class="annot"><span class="annottext">Priority
+</span><a href="#local-6989586621679090824"><span class="hs-identifier hs-var">pri</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-99"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; Priority -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPriority"><span class="hs-identifier hs-var">buildFramePayloadPriority</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090826"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">Priority
+</span><a href="#local-6989586621679090824"><span class="hs-identifier hs-var">pri</span></a></span><span>
+</span><span id="line-100"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090822"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090822"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#RSTStreamFrame"><span class="hs-identifier hs-type">RSTStreamFrame</span></a></span><span> </span><span id="local-6989586621679090820"><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090820"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; ErrorCodeId -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadRSTStream"><span class="hs-identifier hs-var">buildFramePayloadRSTStream</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090822"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090820"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-102"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090818"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090818"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#SettingsFrame"><span class="hs-identifier hs-type">SettingsFrame</span></a></span><span> </span><span id="local-6989586621679090816"><span class="annot"><span class="annottext">SettingsList
+</span><a href="#local-6989586621679090816"><span class="hs-identifier hs-var">settings</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-103"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; SettingsList -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadSettings"><span class="hs-identifier hs-var">buildFramePayloadSettings</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090818"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">SettingsList
+</span><a href="#local-6989586621679090816"><span class="hs-identifier hs-var">settings</span></a></span><span>
+</span><span id="line-104"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090814"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090814"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#PushPromiseFrame"><span class="hs-identifier hs-type">PushPromiseFrame</span></a></span><span> </span><span id="local-6989586621679090812"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090812"><span class="hs-identifier hs-var">sid</span></a></span></span><span> </span><span id="local-6989586621679090811"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090811"><span class="hs-identifier hs-var">hdr</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-105"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; StreamId -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPushPromise"><span class="hs-identifier hs-var">buildFramePayloadPushPromise</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090814"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090812"><span class="hs-identifier hs-var">sid</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090811"><span class="hs-identifier hs-var">hdr</span></a></span><span>
+</span><span id="line-106"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090809"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090809"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#PingFrame"><span class="hs-identifier hs-type">PingFrame</span></a></span><span> </span><span id="local-6989586621679090807"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090807"><span class="hs-identifier hs-var">opaque</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-107"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPing"><span class="hs-identifier hs-var">buildFramePayloadPing</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090809"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090807"><span class="hs-identifier hs-var">opaque</span></a></span><span>
+</span><span id="line-108"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090805"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090805"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#GoAwayFrame"><span class="hs-identifier hs-type">GoAwayFrame</span></a></span><span> </span><span id="local-6989586621679090803"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090803"><span class="hs-identifier hs-var">sid</span></a></span></span><span> </span><span id="local-6989586621679090802"><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090802"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span id="local-6989586621679090801"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090801"><span class="hs-identifier hs-var">debug</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-109"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; StreamId
+-&gt; ErrorCodeId
+-&gt; Padding
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadGoAway"><span class="hs-identifier hs-var">buildFramePayloadGoAway</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090805"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090803"><span class="hs-identifier hs-var">sid</span></a></span><span> </span><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090802"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090801"><span class="hs-identifier hs-var">debug</span></a></span><span>
+</span><span id="line-110"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090799"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090799"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#WindowUpdateFrame"><span class="hs-identifier hs-type">WindowUpdateFrame</span></a></span><span> </span><span id="local-6989586621679090797"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090797"><span class="hs-identifier hs-var">size</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-111"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; StreamId -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadWindowUpdate"><span class="hs-identifier hs-var">buildFramePayloadWindowUpdate</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090799"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090797"><span class="hs-identifier hs-var">size</span></a></span><span>
+</span><span id="line-112"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090795"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090795"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#ContinuationFrame"><span class="hs-identifier hs-type">ContinuationFrame</span></a></span><span> </span><span id="local-6989586621679090793"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090793"><span class="hs-identifier hs-var">hdr</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-113"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadContinuation"><span class="hs-identifier hs-var">buildFramePayloadContinuation</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090795"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090793"><span class="hs-identifier hs-var">hdr</span></a></span><span>
+</span><span id="line-114"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayload"><span class="hs-identifier hs-var">buildFramePayload</span></a></span><span> </span><span id="local-6989586621679090791"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090791"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#UnknownFrame"><span class="hs-identifier hs-type">UnknownFrame</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679090789"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090789"><span class="hs-identifier hs-var">opaque</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-115"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadUnknown"><span class="hs-identifier hs-var">buildFramePayloadUnknown</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090791"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090789"><span class="hs-identifier hs-var">opaque</span></a></span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-118"></span><span>
+</span><span id="line-119"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-type">buildPadding</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span>
+</span><span id="line-120"></span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-121"></span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-comment">-- ^ Payload length.</span><span>
+</span><span id="line-122"></span><span>             </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span id="buildPadding"><span class="annot"><span class="annottext">buildPadding :: EncodeInfo
+-&gt; ([Padding] -&gt; [Padding])
+-&gt; StreamId
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-var hs-var">buildPadding</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">encodePadding :: EncodeInfo -&gt; Maybe Padding
+</span><a href="Network.HTTP2.Frame.Encode.html#encodePadding"><span class="hs-identifier hs-var">encodePadding</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Padding
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679090785"><span id="local-6989586621679090786"><span class="annot"><span class="annottext">StreamId
+FrameFlags
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090785"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090784"><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090784"><span class="hs-identifier hs-var">builder</span></a></span></span><span> </span><span id="local-6989586621679090783"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090783"><span class="hs-identifier hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090782"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090784"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-126"></span><span>    </span><span id="local-6989586621679090782"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090782"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090783"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090786"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090785"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-127"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-var">buildPadding</span></a></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">encodePadding :: EncodeInfo -&gt; Maybe Padding
+</span><a href="Network.HTTP2.Frame.Encode.html#encodePadding"><span class="hs-identifier hs-var">encodePadding</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679090781"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090781"><span class="hs-identifier hs-var">padding</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679090779"><span id="local-6989586621679090780"><span class="annot"><span class="annottext">StreamId
+FrameFlags
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090779"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090778"><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090778"><span class="hs-identifier hs-var">btarget</span></a></span></span><span> </span><span id="local-6989586621679090777"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090777"><span class="hs-identifier hs-var">targetLength</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-128"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090776"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090775"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-129"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-130"></span><span>    </span><span id="local-6989586621679090776"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090776"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090774"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090773"><span class="hs-identifier hs-var">newflags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090779"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-131"></span><span>    </span><span id="local-6989586621679090775"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090775"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090772"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([Padding] -&gt; [Padding])
+-&gt; ([Padding] -&gt; [Padding]) -&gt; [Padding] -&gt; [Padding]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090778"><span class="hs-identifier hs-var">btarget</span></a></span><span> </span><span class="annot"><span class="annottext">([Padding] -&gt; [Padding])
+-&gt; ([Padding] -&gt; [Padding]) -&gt; [Padding] -&gt; [Padding]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090781"><span class="hs-identifier hs-var">padding</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>    </span><span id="local-6989586621679090772"><span class="annot"><span class="annottext">b1 :: Padding
+</span><a href="#local-6989586621679090772"><span class="hs-identifier hs-var hs-var">b1</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FrameFlags -&gt; Padding
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.singleton</span></a></span><span> </span><span class="annot"><span class="annottext">(FrameFlags -&gt; Padding) -&gt; FrameFlags -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090769"><span class="hs-identifier hs-var">paddingLength</span></a></span><span>
+</span><span id="line-133"></span><span>    </span><span id="local-6989586621679090769"><span class="annot"><span class="annottext">paddingLength :: StreamId
+</span><a href="#local-6989586621679090769"><span class="hs-identifier hs-var hs-var">paddingLength</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090781"><span class="hs-identifier hs-var">padding</span></a></span><span>
+</span><span id="line-134"></span><span>    </span><span id="local-6989586621679090774"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090774"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090777"><span class="hs-identifier hs-var">targetLength</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090769"><span class="hs-identifier hs-var">paddingLength</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-135"></span><span>    </span><span id="local-6989586621679090773"><span class="annot"><span class="annottext">newflags :: FrameFlags
+</span><a href="#local-6989586621679090773"><span class="hs-identifier hs-var hs-var">newflags</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FrameFlags -&gt; FrameFlags
+</span><a href="Network.HTTP2.Frame.Types.html#setPadded"><span class="hs-identifier hs-var">setPadded</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090780"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildPriority"><span class="hs-identifier hs-type">buildPriority</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#Priority"><span class="hs-identifier hs-type">Priority</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span>
+</span><span id="line-138"></span><span id="buildPriority"><span class="annot"><span class="annottext">buildPriority :: Priority -&gt; [Padding] -&gt; [Padding]
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPriority"><span class="hs-identifier hs-var hs-var">buildPriority</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#Priority"><span class="hs-identifier hs-type">Priority</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090761"><span id="local-6989586621679090762"><span id="local-6989586621679090763"><span class="annot"><span class="annottext">Bool
+StreamId
+weight :: Priority -&gt; StreamId
+streamDependency :: Priority -&gt; StreamId
+exclusive :: Priority -&gt; Bool
+weight :: StreamId
+streamDependency :: StreamId
+exclusive :: Bool
+</span><a href="Network.HTTP2.Frame.Types.html#weight"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090757"><span class="hs-identifier hs-var">builder</span></a></span><span>
+</span><span id="line-139"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-140"></span><span>    </span><span id="local-6989586621679090757"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090757"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090756"><span class="hs-identifier hs-var">priority</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>    </span><span id="local-6989586621679090755"><span class="annot"><span class="annottext">estream :: StreamId
+</span><a href="#local-6989586621679090755"><span class="hs-identifier hs-var hs-var">estream</span></a></span></span><span>
+</span><span id="line-142"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679090763"><span class="hs-identifier hs-var">exclusive</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId
+</span><a href="Network.HTTP2.Frame.Types.html#setExclusive"><span class="hs-identifier hs-var">setExclusive</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090762"><span class="hs-identifier hs-var">streamDependency</span></a></span><span>
+</span><span id="line-143"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090762"><span class="hs-identifier hs-var">streamDependency</span></a></span><span>
+</span><span id="line-144"></span><span>    </span><span id="local-6989586621679090756"><span class="annot"><span class="annottext">priority :: Padding
+</span><a href="#local-6989586621679090756"><span class="hs-identifier hs-var hs-var">priority</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">unsafeCreate</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">5</span></span><span> </span><span class="annot"><span class="annottext">((Ptr FrameFlags -&gt; IO ()) -&gt; Padding)
+-&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679090753"><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090753"><span class="hs-identifier hs-var">ptr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-145"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679090752"><span class="annot"><span class="annottext">esid :: Word32
+</span><a href="#local-6989586621679090752"><span class="hs-identifier hs-var hs-var">esid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090755"><span class="hs-identifier hs-var">estream</span></a></span><span>
+</span><span id="line-146"></span><span>            </span><span id="local-6989586621679090751"><span class="annot"><span class="annottext">w :: FrameFlags
+</span><a href="#local-6989586621679090751"><span class="hs-identifier hs-var hs-var">w</span></a></span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(StreamId -&gt; FrameFlags) -&gt; StreamId -&gt; FrameFlags
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090761"><span class="hs-identifier hs-var">weight</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-147"></span><span>        </span><span class="annot"><span class="annottext">Word32 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke32</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679090752"><span class="hs-identifier hs-var">esid</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090753"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-148"></span><span>        </span><span class="annot"><span class="annottext">FrameFlags -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke8</span></a></span><span>  </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090751"><span class="hs-identifier hs-var">w</span></a></span><span>    </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090753"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">4</span></span><span>
+</span><span id="line-149"></span><span>
+</span><span id="line-150"></span><span class="hs-comment">----------------------------------------------------------------</span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadData"><span class="hs-identifier hs-type">buildFramePayloadData</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-153"></span><span id="buildFramePayloadData"><span class="annot"><span class="annottext">buildFramePayloadData :: EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadData"><span class="hs-identifier hs-var hs-var">buildFramePayloadData</span></a></span></span><span> </span><span id="local-6989586621679090750"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090750"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span id="local-6989586621679090749"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090749"><span class="hs-identifier hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; ([Padding] -&gt; [Padding])
+-&gt; StreamId
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-var">buildPadding</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090750"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090748"><span class="hs-identifier hs-var">builder</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090747"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-154"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-155"></span><span>    </span><span id="local-6989586621679090748"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090748"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090749"><span class="hs-identifier hs-var">body</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-156"></span><span>    </span><span id="local-6989586621679090747"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090747"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090749"><span class="hs-identifier hs-var">body</span></a></span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadHeaders"><span class="hs-identifier hs-type">buildFramePayloadHeaders</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#Priority"><span class="hs-identifier hs-type">Priority</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#HeaderBlockFragment"><span class="hs-identifier hs-type">HeaderBlockFragment</span></a></span><span>
+</span><span id="line-159"></span><span>                         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-160"></span><span id="buildFramePayloadHeaders"><span class="annot"><span class="annottext">buildFramePayloadHeaders :: EncodeInfo
+-&gt; Maybe Priority
+-&gt; Padding
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadHeaders"><span class="hs-identifier hs-var hs-var">buildFramePayloadHeaders</span></a></span></span><span> </span><span id="local-6989586621679090745"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090745"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe Priority
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span id="local-6989586621679090744"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090744"><span class="hs-identifier hs-var">hdr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-161"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; ([Padding] -&gt; [Padding])
+-&gt; StreamId
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-var">buildPadding</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090745"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090743"><span class="hs-identifier hs-var">builder</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090742"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-162"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621679090743"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090743"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090744"><span class="hs-identifier hs-var">hdr</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-164"></span><span>    </span><span id="local-6989586621679090742"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090742"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090744"><span class="hs-identifier hs-var">hdr</span></a></span><span>
+</span><span id="line-165"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadHeaders"><span class="hs-identifier hs-var">buildFramePayloadHeaders</span></a></span><span> </span><span id="local-6989586621679090741"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090741"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679090740"><span class="annot"><span class="annottext">Priority
+</span><a href="#local-6989586621679090740"><span class="hs-identifier hs-var">pri</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679090739"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090739"><span class="hs-identifier hs-var">hdr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-166"></span><span>    </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; ([Padding] -&gt; [Padding])
+-&gt; StreamId
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-var">buildPadding</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090738"><span class="hs-identifier hs-var">einfo'</span></a></span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090737"><span class="hs-identifier hs-var">builder</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090736"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-167"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-168"></span><span>    </span><span id="local-6989586621679090737"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090737"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Priority -&gt; [Padding] -&gt; [Padding]
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPriority"><span class="hs-identifier hs-var">buildPriority</span></a></span><span> </span><span class="annot"><span class="annottext">Priority
+</span><a href="#local-6989586621679090740"><span class="hs-identifier hs-var">pri</span></a></span><span> </span><span class="annot"><span class="annottext">([Padding] -&gt; [Padding])
+-&gt; ([Padding] -&gt; [Padding]) -&gt; [Padding] -&gt; [Padding]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090739"><span class="hs-identifier hs-var">hdr</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-169"></span><span>    </span><span id="local-6989586621679090736"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090736"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090739"><span class="hs-identifier hs-var">hdr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">5</span></span><span>
+</span><span id="line-170"></span><span>    </span><span id="local-6989586621679090738"><span class="annot"><span class="annottext">einfo' :: EncodeInfo
+</span><a href="#local-6989586621679090738"><span class="hs-identifier hs-var hs-var">einfo'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090741"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">encodeFlags :: FrameFlags
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFlags"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FrameFlags -&gt; FrameFlags
+</span><a href="Network.HTTP2.Frame.Types.html#setPriority"><span class="hs-identifier hs-var">setPriority</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EncodeInfo -&gt; FrameFlags
+</span><a href="Network.HTTP2.Frame.Encode.html#encodeFlags"><span class="hs-identifier hs-var hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090741"><span class="hs-identifier hs-var">einfo</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-171"></span><span>
+</span><span id="line-172"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPriority"><span class="hs-identifier hs-type">buildFramePayloadPriority</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#Priority"><span class="hs-identifier hs-type">Priority</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span id="buildFramePayloadPriority"><span class="annot"><span class="annottext">buildFramePayloadPriority :: EncodeInfo -&gt; Priority -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPriority"><span class="hs-identifier hs-var hs-var">buildFramePayloadPriority</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090732"><span id="local-6989586621679090733"><span id="local-6989586621679090734"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090732"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090731"><span class="annot"><span class="annottext">Priority
+</span><a href="#local-6989586621679090731"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090730"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090729"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-174"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-175"></span><span>    </span><span id="local-6989586621679090729"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090729"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Priority -&gt; [Padding] -&gt; [Padding]
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPriority"><span class="hs-identifier hs-var">buildPriority</span></a></span><span> </span><span class="annot"><span class="annottext">Priority
+</span><a href="#local-6989586621679090731"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-176"></span><span>    </span><span id="local-6989586621679090730"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090730"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">5</span></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090734"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090733"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-177"></span><span>
+</span><span id="line-178"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadRSTStream"><span class="hs-identifier hs-type">buildFramePayloadRSTStream</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#ErrorCodeId"><span class="hs-identifier hs-type">ErrorCodeId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-179"></span><span id="buildFramePayloadRSTStream"><span class="annot"><span class="annottext">buildFramePayloadRSTStream :: EncodeInfo -&gt; ErrorCodeId -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadRSTStream"><span class="hs-identifier hs-var hs-var">buildFramePayloadRSTStream</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090726"><span id="local-6989586621679090727"><span id="local-6989586621679090728"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090726"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090725"><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090725"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090724"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090723"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-180"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-181"></span><span>    </span><span id="local-6989586621679090723"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090723"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090722"><span class="hs-identifier hs-var">b4</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-182"></span><span>    </span><span id="local-6989586621679090722"><span class="annot"><span class="annottext">b4 :: Padding
+</span><a href="#local-6989586621679090722"><span class="hs-identifier hs-var hs-var">b4</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; Padding
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.bytestring32</span></a></span><span> </span><span class="annot"><span class="annottext">(Word32 -&gt; Padding) -&gt; Word32 -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ErrorCodeId -&gt; Word32
+</span><a href="Network.HTTP2.Frame.Types.html#fromErrorCodeId"><span class="hs-identifier hs-var">fromErrorCodeId</span></a></span><span> </span><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090725"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-183"></span><span>    </span><span id="local-6989586621679090724"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090724"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">4</span></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090728"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090727"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-184"></span><span>
+</span><span id="line-185"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadSettings"><span class="hs-identifier hs-type">buildFramePayloadSettings</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#SettingsList"><span class="hs-identifier hs-type">SettingsList</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-186"></span><span id="buildFramePayloadSettings"><span class="annot"><span class="annottext">buildFramePayloadSettings :: EncodeInfo -&gt; SettingsList -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadSettings"><span class="hs-identifier hs-var hs-var">buildFramePayloadSettings</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090717"><span id="local-6989586621679090718"><span id="local-6989586621679090719"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090717"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090716"><span class="annot"><span class="annottext">SettingsList
+</span><a href="#local-6989586621679090716"><span class="hs-identifier hs-var">alist</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090715"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090714"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-188"></span><span>    </span><span id="local-6989586621679090714"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090714"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090713"><span class="hs-identifier hs-var">settings</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-189"></span><span>    </span><span id="local-6989586621679090713"><span class="annot"><span class="annottext">settings :: Padding
+</span><a href="#local-6989586621679090713"><span class="hs-identifier hs-var hs-var">settings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">unsafeCreate</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090712"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">((Ptr FrameFlags -&gt; IO ()) -&gt; Padding)
+-&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679090711"><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090711"><span class="hs-identifier hs-var">ptr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags -&gt; SettingsList -&gt; IO ()
+forall a.
+Integral a =&gt;
+Ptr FrameFlags -&gt; [(SettingsKeyId, a)] -&gt; IO ()
+</span><a href="#local-6989586621679090710"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090711"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">SettingsList
+</span><a href="#local-6989586621679090716"><span class="hs-identifier hs-var">alist</span></a></span><span>
+</span><span id="line-190"></span><span>    </span><span id="local-6989586621679090710"><span class="annot"><span class="annottext">go :: Ptr FrameFlags -&gt; [(SettingsKeyId, a)] -&gt; IO ()
+</span><a href="#local-6989586621679090710"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-191"></span><span>    </span><span class="annot"><a href="#local-6989586621679090710"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span id="local-6989586621679090709"><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090709"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span id="local-6989586621679090708"><span class="annot"><span class="annottext">SettingsKeyId
+</span><a href="#local-6989586621679090708"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679090707"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679090707"><span class="hs-identifier hs-var">v</span></a></span></span><span class="hs-special">)</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span id="local-6989586621679090706"><span class="annot"><span class="annottext">[(SettingsKeyId, a)]
+</span><a href="#local-6989586621679090706"><span class="hs-identifier hs-var">kvs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-192"></span><span>        </span><span class="annot"><span class="annottext">Word16 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke16</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SettingsKeyId -&gt; Word16
+</span><a href="Network.HTTP2.Frame.Types.html#fromSettingsKeyId"><span class="hs-identifier hs-var">fromSettingsKeyId</span></a></span><span> </span><span class="annot"><span class="annottext">SettingsKeyId
+</span><a href="#local-6989586621679090708"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090709"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-193"></span><span>        </span><span class="annot"><span class="annottext">Word32 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke32</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679090707"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span>      </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090709"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">2</span></span><span>
+</span><span id="line-194"></span><span>        </span><span class="annot"><span class="annottext">Ptr FrameFlags -&gt; [(SettingsKeyId, a)] -&gt; IO ()
+</span><a href="#local-6989586621679090710"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090709"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags -&gt; StreamId -&gt; Ptr FrameFlags
+forall a b. Ptr a -&gt; StreamId -&gt; Ptr b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`plusPtr`</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">6</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(SettingsKeyId, a)]
+</span><a href="#local-6989586621679090706"><span class="hs-identifier hs-var">kvs</span></a></span><span>
+</span><span id="line-195"></span><span>    </span><span id="local-6989586621679090712"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090712"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">SettingsList -&gt; StreamId
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; StreamId
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">SettingsList
+</span><a href="#local-6989586621679090716"><span class="hs-identifier hs-var">alist</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">6</span></span><span>
+</span><span id="line-196"></span><span>    </span><span id="local-6989586621679090715"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090715"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090712"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090719"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090718"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-197"></span><span>
+</span><span id="line-198"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPushPromise"><span class="hs-identifier hs-type">buildFramePayloadPushPromise</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#StreamId"><span class="hs-identifier hs-type">StreamId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#HeaderBlockFragment"><span class="hs-identifier hs-type">HeaderBlockFragment</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-199"></span><span id="buildFramePayloadPushPromise"><span class="annot"><span class="annottext">buildFramePayloadPushPromise :: EncodeInfo
+-&gt; StreamId -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPushPromise"><span class="hs-identifier hs-var hs-var">buildFramePayloadPushPromise</span></a></span></span><span> </span><span id="local-6989586621679090701"><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090701"><span class="hs-identifier hs-var">einfo</span></a></span></span><span> </span><span id="local-6989586621679090700"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090700"><span class="hs-identifier hs-var">sid</span></a></span></span><span> </span><span id="local-6989586621679090699"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090699"><span class="hs-identifier hs-var">hdr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+-&gt; ([Padding] -&gt; [Padding])
+-&gt; StreamId
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildPadding"><span class="hs-identifier hs-var">buildPadding</span></a></span><span> </span><span class="annot"><span class="annottext">EncodeInfo
+</span><a href="#local-6989586621679090701"><span class="hs-identifier hs-var">einfo</span></a></span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090698"><span class="hs-identifier hs-var">builder</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090697"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-200"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-201"></span><span>    </span><span id="local-6989586621679090698"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090698"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090696"><span class="hs-identifier hs-var">b4</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([Padding] -&gt; [Padding])
+-&gt; ([Padding] -&gt; [Padding]) -&gt; [Padding] -&gt; [Padding]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090699"><span class="hs-identifier hs-var">hdr</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-202"></span><span>    </span><span id="local-6989586621679090696"><span class="annot"><span class="annottext">b4 :: Padding
+</span><a href="#local-6989586621679090696"><span class="hs-identifier hs-var hs-var">b4</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; Padding
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.bytestring32</span></a></span><span> </span><span class="annot"><span class="annottext">(Word32 -&gt; Padding) -&gt; Word32 -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090700"><span class="hs-identifier hs-var">sid</span></a></span><span>
+</span><span id="line-203"></span><span>    </span><span id="local-6989586621679090697"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090697"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">4</span></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090699"><span class="hs-identifier hs-var">hdr</span></a></span><span>
+</span><span id="line-204"></span><span>
+</span><span id="line-205"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPing"><span class="hs-identifier hs-type">buildFramePayloadPing</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span id="buildFramePayloadPing"><span class="annot"><span class="annottext">buildFramePayloadPing :: EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadPing"><span class="hs-identifier hs-var hs-var">buildFramePayloadPing</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090693"><span id="local-6989586621679090694"><span id="local-6989586621679090695"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090693"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090692"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090692"><span class="hs-identifier hs-var">odata</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090691"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090690"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-207"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-208"></span><span>    </span><span id="local-6989586621679090690"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090690"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090692"><span class="hs-identifier hs-var">odata</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-209"></span><span>    </span><span id="local-6989586621679090691"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090691"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">8</span></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090695"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090694"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-210"></span><span>
+</span><span id="line-211"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadGoAway"><span class="hs-identifier hs-type">buildFramePayloadGoAway</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#StreamId"><span class="hs-identifier hs-type">StreamId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#ErrorCodeId"><span class="hs-identifier hs-type">ErrorCodeId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-212"></span><span id="buildFramePayloadGoAway"><span class="annot"><span class="annottext">buildFramePayloadGoAway :: EncodeInfo
+-&gt; StreamId
+-&gt; ErrorCodeId
+-&gt; Padding
+-&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadGoAway"><span class="hs-identifier hs-var hs-var">buildFramePayloadGoAway</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090687"><span id="local-6989586621679090688"><span id="local-6989586621679090689"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090687"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090686"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090686"><span class="hs-identifier hs-var">sid</span></a></span></span><span> </span><span id="local-6989586621679090685"><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090685"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span id="local-6989586621679090684"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090684"><span class="hs-identifier hs-var">debug</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090683"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090682"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-213"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-214"></span><span>    </span><span id="local-6989586621679090682"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090682"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090681"><span class="hs-identifier hs-var">b8</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([Padding] -&gt; [Padding])
+-&gt; ([Padding] -&gt; [Padding]) -&gt; [Padding] -&gt; [Padding]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090684"><span class="hs-identifier hs-var">debug</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-215"></span><span>    </span><span id="local-6989586621679090680"><span class="annot"><span class="annottext">len0 :: StreamId
+</span><a href="#local-6989586621679090680"><span class="hs-identifier hs-var hs-var">len0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">8</span></span><span>
+</span><span id="line-216"></span><span>    </span><span id="local-6989586621679090681"><span class="annot"><span class="annottext">b8 :: Padding
+</span><a href="#local-6989586621679090681"><span class="hs-identifier hs-var hs-var">b8</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">unsafeCreate</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090680"><span class="hs-identifier hs-var">len0</span></a></span><span> </span><span class="annot"><span class="annottext">((Ptr FrameFlags -&gt; IO ()) -&gt; Padding)
+-&gt; (Ptr FrameFlags -&gt; IO ()) -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679090679"><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090679"><span class="hs-identifier hs-var">ptr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-217"></span><span>        </span><span class="annot"><span class="annottext">Word32 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke32</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StreamId -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090686"><span class="hs-identifier hs-var">sid</span></a></span><span class="hs-special">)</span><span>  </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090679"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-218"></span><span>        </span><span class="annot"><span class="annottext">Word32 -&gt; Ptr FrameFlags -&gt; StreamId -&gt; IO ()
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.poke32</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ErrorCodeId -&gt; Word32
+</span><a href="Network.HTTP2.Frame.Types.html#fromErrorCodeId"><span class="hs-identifier hs-var">fromErrorCodeId</span></a></span><span> </span><span class="annot"><span class="annottext">ErrorCodeId
+</span><a href="#local-6989586621679090685"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Ptr FrameFlags
+</span><a href="#local-6989586621679090679"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">4</span></span><span>
+</span><span id="line-219"></span><span>    </span><span id="local-6989586621679090678"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090678"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090680"><span class="hs-identifier hs-var">len0</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; StreamId -&gt; StreamId
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090684"><span class="hs-identifier hs-var">debug</span></a></span><span>
+</span><span id="line-220"></span><span>    </span><span id="local-6989586621679090683"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090683"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090678"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090689"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090688"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-221"></span><span>
+</span><span id="line-222"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadWindowUpdate"><span class="hs-identifier hs-type">buildFramePayloadWindowUpdate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#WindowSize"><span class="hs-identifier hs-type">WindowSize</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-223"></span><span id="buildFramePayloadWindowUpdate"><span class="annot"><span class="annottext">buildFramePayloadWindowUpdate :: EncodeInfo -&gt; StreamId -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadWindowUpdate"><span class="hs-identifier hs-var hs-var">buildFramePayloadWindowUpdate</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090674"><span id="local-6989586621679090675"><span id="local-6989586621679090676"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090674"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090673"><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090673"><span class="hs-identifier hs-var">size</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090672"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090671"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-224"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-225"></span><span>    </span><span class="hs-comment">-- fixme: reserve bit</span><span>
+</span><span id="line-226"></span><span>    </span><span id="local-6989586621679090671"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090671"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090670"><span class="hs-identifier hs-var">b4</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-227"></span><span>    </span><span id="local-6989586621679090670"><span class="annot"><span class="annottext">b4 :: Padding
+</span><a href="#local-6989586621679090670"><span class="hs-identifier hs-var hs-var">b4</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; Padding
+</span><a href="../../../../network-byte-order/html/src"><span class="hs-identifier hs-var">N.bytestring32</span></a></span><span> </span><span class="annot"><span class="annottext">(Word32 -&gt; Padding) -&gt; Word32 -&gt; Padding
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; Word32
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090673"><span class="hs-identifier hs-var">size</span></a></span><span>
+</span><span id="line-228"></span><span>    </span><span id="local-6989586621679090672"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090672"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><span class="hs-number">4</span></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090676"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090675"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-229"></span><span>
+</span><span id="line-230"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadContinuation"><span class="hs-identifier hs-type">buildFramePayloadContinuation</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#HeaderBlockFragment"><span class="hs-identifier hs-type">HeaderBlockFragment</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-231"></span><span id="buildFramePayloadContinuation"><span class="annot"><span class="annottext">buildFramePayloadContinuation :: EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadContinuation"><span class="hs-identifier hs-var hs-var">buildFramePayloadContinuation</span></a></span></span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span class="hs-special">{</span><span id="local-6989586621679090667"><span id="local-6989586621679090668"><span id="local-6989586621679090669"><span class="annot"><span class="annottext">StreamId
+Maybe Padding
+FrameFlags
+encodePadding :: Maybe Padding
+encodeStreamId :: StreamId
+encodeFlags :: FrameFlags
+encodePadding :: EncodeInfo -&gt; Maybe Padding
+encodeStreamId :: EncodeInfo -&gt; StreamId
+encodeFlags :: EncodeInfo -&gt; FrameFlags
+</span><a href="#local-6989586621679090667"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679090666"><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090666"><span class="hs-identifier hs-var">hdr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FrameHeader
+</span><a href="#local-6989586621679090665"><span class="hs-identifier hs-var">header</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090664"><span class="hs-identifier hs-var">builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-232"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-233"></span><span>    </span><span id="local-6989586621679090664"><span class="annot"><span class="annottext">builder :: [Padding] -&gt; [Padding]
+</span><a href="#local-6989586621679090664"><span class="hs-identifier hs-var hs-var">builder</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090666"><span class="hs-identifier hs-var">hdr</span></a></span><span> </span><span class="annot"><span class="annottext">Padding -&gt; [Padding] -&gt; [Padding]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-234"></span><span>    </span><span id="local-6989586621679090663"><span class="annot"><span class="annottext">len :: StreamId
+</span><a href="#local-6989586621679090663"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Padding -&gt; StreamId
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">BS.length</span></a></span><span> </span><span class="annot"><span class="annottext">Padding
+</span><a href="#local-6989586621679090666"><span class="hs-identifier hs-var">hdr</span></a></span><span>
+</span><span id="line-235"></span><span>    </span><span id="local-6989586621679090665"><span class="annot"><span class="annottext">header :: FrameHeader
+</span><a href="#local-6989586621679090665"><span class="hs-identifier hs-var hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StreamId -&gt; FrameFlags -&gt; StreamId -&gt; FrameHeader
+</span><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-var">FrameHeader</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090663"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">FrameFlags
+</span><a href="#local-6989586621679090669"><span class="hs-identifier hs-var">encodeFlags</span></a></span><span> </span><span class="annot"><span class="annottext">StreamId
+</span><a href="#local-6989586621679090668"><span class="hs-identifier hs-var">encodeStreamId</span></a></span><span>
+</span><span id="line-236"></span><span>
+</span><span id="line-237"></span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadUnknown"><span class="hs-identifier hs-type">buildFramePayloadUnknown</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#EncodeInfo"><span class="hs-identifier hs-type">EncodeInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.HTTP2.Frame.Types.html#FrameHeader"><span class="hs-identifier hs-type">FrameHeader</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.HTTP2.Frame.Encode.html#Builder"><span class="hs-identifier hs-type">Builder</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-238"></span><span id="buildFramePayloadUnknown"><span class="annot"><span class="annottext">buildFramePayloadUnknown :: EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadUnknown"><span class="hs-identifier hs-var hs-var">buildFramePayloadUnknown</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EncodeInfo -&gt; Padding -&gt; (FrameHeader, [Padding] -&gt; [Padding])
+</span><a href="Network.HTTP2.Frame.Encode.html#buildFramePayloadData"><span class="hs-identifier hs-var">buildFramePayloadData</span></a></span><span>
+</span><span id="line-239"></span></pre></body></html>

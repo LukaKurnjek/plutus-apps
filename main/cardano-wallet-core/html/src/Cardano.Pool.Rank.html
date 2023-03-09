@@ -1,0 +1,1311 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE NamedFieldPuns #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards #-}</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Copyright: &#169; 2022 IOHK</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- This module provides tools to estimate pool rewards</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- for the purpose of ranking pools.</span><span>
+</span><span id="line-9"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Pool.Rank</span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Pool information</span></span><span>
+</span><span id="line-11"></span><span>      </span><span class="annot"><span class="hs-comment">-- $RewardEpochs</span></span><span>
+</span><span id="line-12"></span><span>      </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier">RewardInfoPool</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier">RewardParams</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier">StakePoolsSummary</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Ranking formulas</span></span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#poolSaturation"><span class="hs-identifier">poolSaturation</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier">optimalRewards</span></a></span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#currentROS"><span class="hs-identifier">currentROS</span></a></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#saturationROS"><span class="hs-identifier">saturationROS</span></a></span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Redelegation warning</span></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RedelegationWarning"><span class="hs-identifier">RedelegationWarning</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#redelegationWarning"><span class="hs-identifier">redelegationWarning</span></a></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Legacy metrics</span></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#nonMyopicMemberReward"><span class="hs-identifier">nonMyopicMemberReward</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#desirability"><span class="hs-identifier">desirability</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#PoolScore"><span class="hs-identifier">PoolScore</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#scorePools"><span class="hs-identifier">scorePools</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.html"><span class="hs-identifier">Cardano.Wallet.Primitive.Types</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.html#EpochNo"><span class="hs-identifier">EpochNo</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.html#PoolId"><span class="hs-identifier">PoolId</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html"><span class="hs-identifier">Cardano.Wallet.Primitive.Types.Coin</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier">Coin</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Ord</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Down</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.Quantity.html"><span class="hs-identifier">Data.Quantity</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier">Percentage</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier">clipToPercentage</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">Fmt</span></a></span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier">Buildable</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">blockListF'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">listF'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../fmt/html/src"><span class="hs-identifier">mapF</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span>
+</span><span id="line-49"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html"><span class="hs-identifier">Cardano.Wallet.Primitive.Types.Coin</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Coin</span></span><span>
+</span><span id="line-50"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">L</span></span><span>
+</span><span id="line-51"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    Pool information necessary to compute rewards
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- | Information need for the computation of rewards, such as the</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- stake currently delegated to a pool, or the pool cost and margin.</span><span>
+</span><span id="line-58"></span><span class="hs-keyword">data</span><span> </span><span id="RewardInfoPool"><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-var">RewardInfoPool</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="RewardInfoPool"><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-var">RewardInfoPool</span></a></span></span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="stakeRelative"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#stakeRelative"><span class="hs-identifier hs-var hs-var">stakeRelative</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span> </span><span class="hs-comment">-- ^ sigma = pool stake / total stake</span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="ownerPledge"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#ownerPledge"><span class="hs-identifier hs-var hs-var">ownerPledge</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-comment">-- ^ pledge of pool owner(s)</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="ownerStake"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#ownerStake"><span class="hs-identifier hs-var hs-var">ownerStake</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-comment">-- ^ absolute stake delegated by pool owner(s)</span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="ownerStakeRelative"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#ownerStakeRelative"><span class="hs-identifier hs-var hs-var">ownerStakeRelative</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span> </span><span class="hs-comment">-- ^ s = owner stake / total stake</span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="cost"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#cost"><span class="hs-identifier hs-var hs-var">cost</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="margin"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#margin"><span class="hs-identifier hs-var hs-var">margin</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="performanceEstimate"><span class="annot"><span class="annottext">RewardInfoPool -&gt; Double
+</span><a href="Cardano.Pool.Rank.html#performanceEstimate"><span class="hs-identifier hs-var hs-var">performanceEstimate</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466287"><span id="local-6989586621682466289"><span id="local-6989586621682466291"><span class="annot"><span class="annottext">Int -&gt; RewardInfoPool -&gt; ShowS
+[RewardInfoPool] -&gt; ShowS
+RewardInfoPool -&gt; String
+(Int -&gt; RewardInfoPool -&gt; ShowS)
+-&gt; (RewardInfoPool -&gt; String)
+-&gt; ([RewardInfoPool] -&gt; ShowS)
+-&gt; Show RewardInfoPool
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [RewardInfoPool] -&gt; ShowS
+$cshowList :: [RewardInfoPool] -&gt; ShowS
+show :: RewardInfoPool -&gt; String
+$cshow :: RewardInfoPool -&gt; String
+showsPrec :: Int -&gt; RewardInfoPool -&gt; ShowS
+$cshowsPrec :: Int -&gt; RewardInfoPool -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466282"><span id="local-6989586621682466284"><span class="annot"><span class="annottext">RewardInfoPool -&gt; RewardInfoPool -&gt; Bool
+(RewardInfoPool -&gt; RewardInfoPool -&gt; Bool)
+-&gt; (RewardInfoPool -&gt; RewardInfoPool -&gt; Bool) -&gt; Eq RewardInfoPool
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: RewardInfoPool -&gt; RewardInfoPool -&gt; Bool
+$c/= :: RewardInfoPool -&gt; RewardInfoPool -&gt; Bool
+== :: RewardInfoPool -&gt; RewardInfoPool -&gt; Bool
+$c== :: RewardInfoPool -&gt; RewardInfoPool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>
+</span><span id="line-68"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-type">Buildable</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-69"></span><span>    </span><span id="local-6989586621682466278"><span class="annot"><span class="annottext">build :: RewardInfoPool -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">build</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span>
+</span><span id="line-70"></span><span>            </span><span class="hs-special">{</span><span id="local-6989586621682466276"><span class="annot"><span class="annottext">Percentage
+stakeRelative :: Percentage
+stakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466276"><span class="hs-identifier hs-var hs-var">stakeRelative</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466275"><span class="annot"><span class="annottext">Coin
+ownerPledge :: Coin
+ownerPledge :: RewardInfoPool -&gt; Coin
+</span><a href="#local-6989586621682466275"><span class="hs-identifier hs-var hs-var">ownerPledge</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466274"><span class="annot"><span class="annottext">Coin
+ownerStake :: Coin
+ownerStake :: RewardInfoPool -&gt; Coin
+</span><a href="#local-6989586621682466274"><span class="hs-identifier hs-var hs-var">ownerStake</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466273"><span class="annot"><span class="annottext">Percentage
+ownerStakeRelative :: Percentage
+ownerStakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466273"><span class="hs-identifier hs-var hs-var">ownerStakeRelative</span></a></span></span><span>
+</span><span id="line-71"></span><span>            </span><span class="hs-special">,</span><span id="local-6989586621682466272"><span class="annot"><span class="annottext">Coin
+cost :: Coin
+cost :: RewardInfoPool -&gt; Coin
+</span><a href="#local-6989586621682466272"><span class="hs-identifier hs-var hs-var">cost</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466271"><span class="annot"><span class="annottext">Percentage
+margin :: Percentage
+margin :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466271"><span class="hs-identifier hs-var hs-var">margin</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466270"><span class="annot"><span class="annottext">Double
+performanceEstimate :: Double
+performanceEstimate :: RewardInfoPool -&gt; Double
+</span><a href="#local-6989586621682466270"><span class="hs-identifier hs-var hs-var">performanceEstimate</span></a></span></span><span>
+</span><span id="line-72"></span><span>            </span><span class="hs-special">}</span><span>
+</span><span id="line-73"></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Builder -&gt; Builder) -&gt; [Builder] -&gt; Builder
+forall (f :: * -&gt; *) a.
+Foldable f =&gt;
+(a -&gt; Builder) -&gt; f a -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">listF'</span></a></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-74"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Stake (relative): &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466276"><span class="hs-identifier hs-var">stakeRelative</span></a></span><span>
+</span><span id="line-75"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Pledge: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466275"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span>
+</span><span id="line-76"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Owner stake: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466274"><span class="hs-identifier hs-var">ownerStake</span></a></span><span>
+</span><span id="line-77"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Owner stake (relative): &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466273"><span class="hs-identifier hs-var">ownerStakeRelative</span></a></span><span>
+</span><span id="line-78"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Pool cost: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466272"><span class="hs-identifier hs-var">cost</span></a></span><span>
+</span><span id="line-79"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Pool margin: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466271"><span class="hs-identifier hs-var">margin</span></a></span><span>
+</span><span id="line-80"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Pool performance: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466270"><span class="hs-identifier hs-var">performanceEstimate</span></a></span><span>
+</span><span id="line-81"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-82"></span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- | Global parameters used for computing rewards</span><span>
+</span><span id="line-84"></span><span class="hs-keyword">data</span><span> </span><span id="RewardParams"><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-var">RewardParams</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="RewardParams"><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-var">RewardParams</span></a></span></span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="nOpt"><span class="annot"><span class="annottext">RewardParams -&gt; Int
+</span><a href="Cardano.Pool.Rank.html#nOpt"><span class="hs-identifier hs-var hs-var">nOpt</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-comment">-- ^ desired number of stake pools</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="a0"><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#a0"><span class="hs-identifier hs-var hs-var">a0</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span> </span><span class="hs-comment">-- ^ influence of the pool owner's pledge on rewards</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="r"><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#r"><span class="hs-identifier hs-var hs-var">r</span></a></span></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-comment">-- ^ Total rewards available for the given epoch</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="totalStake"><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-comment">-- ^ Maximum lovelace supply minus treasury</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466258"><span id="local-6989586621682466260"><span id="local-6989586621682466262"><span class="annot"><span class="annottext">Int -&gt; RewardParams -&gt; ShowS
+[RewardParams] -&gt; ShowS
+RewardParams -&gt; String
+(Int -&gt; RewardParams -&gt; ShowS)
+-&gt; (RewardParams -&gt; String)
+-&gt; ([RewardParams] -&gt; ShowS)
+-&gt; Show RewardParams
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [RewardParams] -&gt; ShowS
+$cshowList :: [RewardParams] -&gt; ShowS
+show :: RewardParams -&gt; String
+$cshow :: RewardParams -&gt; String
+showsPrec :: Int -&gt; RewardParams -&gt; ShowS
+$cshowsPrec :: Int -&gt; RewardParams -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466254"><span id="local-6989586621682466256"><span class="annot"><span class="annottext">RewardParams -&gt; RewardParams -&gt; Bool
+(RewardParams -&gt; RewardParams -&gt; Bool)
+-&gt; (RewardParams -&gt; RewardParams -&gt; Bool) -&gt; Eq RewardParams
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: RewardParams -&gt; RewardParams -&gt; Bool
+$c/= :: RewardParams -&gt; RewardParams -&gt; Bool
+== :: RewardParams -&gt; RewardParams -&gt; Bool
+$c== :: RewardParams -&gt; RewardParams -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-comment">-- NOTE: In the ledger, @a0@ has type 'NonNegativeInterval'.</span><span>
+</span><span id="line-91"></span><span>
+</span><span id="line-92"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-type">Buildable</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-93"></span><span>    </span><span id="local-6989586621682466252"><span class="annot"><span class="annottext">build :: RewardParams -&gt; Builder
+</span><a href="#local-6989586621682466252"><span class="hs-identifier hs-var hs-var hs-var hs-var">build</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466251"><span class="annot"><span class="annottext">Int
+nOpt :: Int
+nOpt :: RewardParams -&gt; Int
+</span><a href="#local-6989586621682466251"><span class="hs-identifier hs-var hs-var">nOpt</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466250"><span class="annot"><span class="annottext">Rational
+a0 :: Rational
+a0 :: RewardParams -&gt; Rational
+</span><a href="#local-6989586621682466250"><span class="hs-identifier hs-var hs-var">a0</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466249"><span class="annot"><span class="annottext">Coin
+r :: Coin
+r :: RewardParams -&gt; Coin
+</span><a href="#local-6989586621682466249"><span class="hs-identifier hs-var hs-var">r</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466248"><span class="annot"><span class="annottext">Coin
+totalStake :: Coin
+totalStake :: RewardParams -&gt; Coin
+</span><a href="#local-6989586621682466248"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; (Builder -&gt; Builder) -&gt; [Builder] -&gt; Builder
+forall (f :: * -&gt; *) a.
+Foldable f =&gt;
+Text -&gt; (a -&gt; Builder) -&gt; f a -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">blockListF'</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;&quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-94"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Desired number of stake pools: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682466251"><span class="hs-identifier hs-var">nOpt</span></a></span><span>
+</span><span id="line-95"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Pledge influence parameter, a0: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466250"><span class="hs-identifier hs-var">a0</span></a></span><span>
+</span><span id="line-96"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Total rewards for this epoch: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466249"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-97"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Total stake: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466248"><span class="hs-identifier hs-var">totalStake</span></a></span><span>
+</span><span id="line-98"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span class="hs-comment">{- $RewardEpochs
+
+NOTE [RewardEpochs]
+
+We need to be careful to show the right information at the right time
+in order prevent manipulation of the proof-of-stake (PoS) protocol.
+
+In particular, we need to show those pool costs, margins, and owner stakes
+that will affect the rewards for a delegation choice made at the present moment.
+
+The reward cycle is illustrated in Section 11.2 of SL-D1, here a brief sketch.
+
+@
+                    mark   set     go
+                  +------.------.------
+                  |
+    |e0----|e1----|e2----|e3----|e4----|e5----|
+              ^
+          we are here
+@
+
+We imagine that we are in epoch /e1/, and choose to delegate to a pool.
+At the end of epoch /e1/, a snapshot of the stake distribution will be taken.
+This snapshot will be labeled &quot;mark&quot; during epoch /e2/, &quot;set&quot; during epoch /e3/,
+and &quot;go&quot; during epoch /e4/.
+Blocks will be produced randomly according to this stake distribution when
+it is labeled &quot;set&quot;, i.e. in epoch /e3/.
+Rewards for this block production will be computed when this stake
+distribution is labeled &quot;go&quot;, i.e. during epoch /e4/, and these rewards will
+paid out at the beginning of epoch /e5/.
+
+The owner stake is part of the snapshot taken at the end of epoch /e1/.
+If the pool is newly registered, its cost, margin and pledge are also
+immediately available in epoch /e1/. However, if a pool re-registers,
+the changes to its cost, margin and pledge will not be visible until the
+next epoch; put differently, the rewards for the stake snapshot taken
+at the end of epoch /e1/ will only depend on changes to cost, margin,
+and pledge that the pool owner initiated in epoch /e0/.
+This prevents pool owners from duping delegators by changing pool costs
+during an epoch. However, the pool owner could still choose to undelegate
+his stake, and fail to meet his pledge at the end of epoch /e1/,
+which results in zero rewards paid out at the beginning of /e5/.
+
+To summarize, in order to make an informed delegation choice
+during epoch /e1/, the delegator needs to know 'RewardInfoPool' where
+
+* 'stakeRelative', 'ownerStake', and 'ownerStakeRelative' are
+   taken at the time of decision (in epoch /e1/).
+* 'ownerPledge', 'margin', 'cost' are the values of the last pool
+   registration certificate
+   from epoch /e0/ in case of an update,
+   or from epoch /e1/ in case of a newly created pool.
+
+For the 'performanceEstimate', it's best to estimate it from recent pool
+block production using functions provided here.
+
+-}</span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="hs-comment">-- | Summary of stake distribution and stake pools obtained from network.</span><span>
+</span><span id="line-159"></span><span class="hs-keyword">data</span><span> </span><span id="StakePoolsSummary"><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier hs-var">StakePoolsSummary</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="StakePoolsSummary"><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier hs-var">StakePoolsSummary</span></a></span></span><span>
+</span><span id="line-160"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="rewardParams"><span class="annot"><span class="annottext">StakePoolsSummary -&gt; RewardParams
+</span><a href="Cardano.Pool.Rank.html#rewardParams"><span class="hs-identifier hs-var hs-var">rewardParams</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span>
+</span><span id="line-161"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="pools"><span class="annot"><span class="annottext">StakePoolsSummary -&gt; Map PoolId RewardInfoPool
+</span><a href="Cardano.Pool.Rank.html#pools"><span class="hs-identifier hs-var hs-var">pools</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.html#PoolId"><span class="hs-identifier hs-type">PoolId</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span>
+</span><span id="line-162"></span><span>    </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466239"><span id="local-6989586621682466241"><span id="local-6989586621682466243"><span class="annot"><span class="annottext">Int -&gt; StakePoolsSummary -&gt; ShowS
+[StakePoolsSummary] -&gt; ShowS
+StakePoolsSummary -&gt; String
+(Int -&gt; StakePoolsSummary -&gt; ShowS)
+-&gt; (StakePoolsSummary -&gt; String)
+-&gt; ([StakePoolsSummary] -&gt; ShowS)
+-&gt; Show StakePoolsSummary
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [StakePoolsSummary] -&gt; ShowS
+$cshowList :: [StakePoolsSummary] -&gt; ShowS
+show :: StakePoolsSummary -&gt; String
+$cshow :: StakePoolsSummary -&gt; String
+showsPrec :: Int -&gt; StakePoolsSummary -&gt; ShowS
+$cshowsPrec :: Int -&gt; StakePoolsSummary -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466235"><span id="local-6989586621682466237"><span class="annot"><span class="annottext">StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool
+(StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool)
+-&gt; (StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool)
+-&gt; Eq StakePoolsSummary
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool
+$c/= :: StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool
+== :: StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool
+$c== :: StakePoolsSummary -&gt; StakePoolsSummary -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-163"></span><span>
+</span><span id="line-164"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-type">Buildable</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier hs-type">StakePoolsSummary</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-165"></span><span>    </span><span id="local-6989586621682466233"><span class="annot"><span class="annottext">build :: StakePoolsSummary -&gt; Builder
+</span><a href="#local-6989586621682466233"><span class="hs-identifier hs-var hs-var hs-var hs-var">build</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier hs-type">StakePoolsSummary</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466232"><span class="annot"><span class="annottext">RewardParams
+rewardParams :: RewardParams
+rewardParams :: StakePoolsSummary -&gt; RewardParams
+</span><a href="#local-6989586621682466232"><span class="hs-identifier hs-var hs-var">rewardParams</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466231"><span class="annot"><span class="annottext">Map PoolId RewardInfoPool
+pools :: Map PoolId RewardInfoPool
+pools :: StakePoolsSummary -&gt; Map PoolId RewardInfoPool
+</span><a href="#local-6989586621682466231"><span class="hs-identifier hs-var hs-var">pools</span></a></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; (Builder -&gt; Builder) -&gt; [Builder] -&gt; Builder
+forall (f :: * -&gt; *) a.
+Foldable f =&gt;
+Text -&gt; (a -&gt; Builder) -&gt; f a -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">blockListF'</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;&quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-166"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Global reward parameters: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466232"><span class="hs-identifier hs-var">rewardParams</span></a></span><span>
+</span><span id="line-167"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Builder
+</span><span class="hs-string">&quot;Individual pools: &quot;</span></span><span> </span><span class="annot"><span class="annottext">Builder -&gt; Builder -&gt; Builder
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[(PoolId, RewardInfoPool)] -&gt; Builder
+forall t k v.
+(IsList t, Item t ~ (k, v), Buildable k, Buildable v) =&gt;
+t -&gt; Builder
+</span><a href="../../../../fmt/html/src"><span class="hs-identifier hs-var">mapF</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map PoolId RewardInfoPool -&gt; [(PoolId, RewardInfoPool)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.toList</span></a></span><span> </span><span class="annot"><span class="annottext">Map PoolId RewardInfoPool
+</span><a href="#local-6989586621682466231"><span class="hs-identifier hs-var">pools</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-168"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    Reward formulas
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-173"></span><span id="local-6989586621682466342"><span class="annot"><a href="Cardano.Pool.Rank.html#fractionOf"><span class="hs-identifier hs-type">fractionOf</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">RealFrac</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682466342"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682466342"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span></span><span>
+</span><span id="line-174"></span><span id="fractionOf"><span class="annot"><span class="annottext">fractionOf :: r -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#fractionOf"><span class="hs-identifier hs-var hs-var">fractionOf</span></a></span></span><span> </span><span id="local-6989586621682466228"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621682466228"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span id="local-6989586621682466226"><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621682466226"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Coin
+</span><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-var">Coin</span></a></span><span> </span><span class="annot"><span class="annottext">(Natural -&gt; Coin) -&gt; (r -&gt; Natural) -&gt; r -&gt; Coin
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">r -&gt; Natural
+forall a b. (RealFrac a, Integral b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">floor</span></a></span><span> </span><span class="annot"><span class="annottext">(r -&gt; Coin) -&gt; r -&gt; Coin
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621682466228"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">r -&gt; r -&gt; r
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Natural -&gt; r
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621682466226"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-175"></span><span>
+</span><span id="line-176"></span><span class="annot"><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-identifier hs-type">proportionTo</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span>
+</span><span id="line-177"></span><span id="proportionTo"><span class="annot"><span class="annottext">proportionTo :: Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-identifier hs-var hs-var">proportionTo</span></a></span></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><span class="hs-identifier">_</span></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-178"></span><span class="annot"><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-identifier hs-var">proportionTo</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span id="local-6989586621682466221"><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621682466221"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span id="local-6989586621682466220"><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621682466220"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Rational
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621682466221"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Rational
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621682466220"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span class="annot"><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-type">z0</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span>
+</span><span id="line-181"></span><span id="z0"><span class="annot"><span class="annottext">z0 :: RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-var hs-var">z0</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466217"><span class="annot"><span class="annottext">Int
+nOpt :: Int
+nOpt :: RewardParams -&gt; Int
+</span><a href="#local-6989586621682466217"><span class="hs-identifier hs-var hs-var">nOpt</span></a></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Rational
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682466217"><span class="hs-identifier hs-var">nOpt</span></a></span><span>
+</span><span id="line-182"></span><span>
+</span><span id="line-183"></span><span class="annot"><a href="Cardano.Pool.Rank.html#epochsPerYear"><span class="hs-identifier hs-type">epochsPerYear</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-184"></span><span id="epochsPerYear"><span class="annot"><span class="annottext">epochsPerYear :: Int
+</span><a href="Cardano.Pool.Rank.html#epochsPerYear"><span class="hs-identifier hs-var hs-var">epochsPerYear</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">73</span></span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span class="hs-comment">-- | The yearly rate of return per unit of stake,</span><span>
+</span><span id="line-187"></span><span class="hs-comment">-- assuming that the pool's stake remains at the same level.</span><span>
+</span><span id="line-188"></span><span class="hs-comment">-- Rewards compound every epoch.</span><span>
+</span><span id="line-189"></span><span class="annot"><a href="Cardano.Pool.Rank.html#currentROS"><span class="hs-identifier hs-type">currentROS</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span>
+</span><span id="line-190"></span><span id="currentROS"><span class="annot"><span class="annottext">currentROS :: RewardParams -&gt; RewardInfoPool -&gt; Coin -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#currentROS"><span class="hs-identifier hs-var hs-var">currentROS</span></a></span></span><span> </span><span id="local-6989586621682466215"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466215"><span class="hs-identifier hs-var">rp</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466208"><span id="local-6989586621682466209"><span id="local-6989586621682466210"><span id="local-6989586621682466211"><span id="local-6989586621682466212"><span id="local-6989586621682466213"><span id="local-6989586621682466214"><span class="annot"><span class="annottext">Double
+Percentage
+Coin
+performanceEstimate :: Double
+margin :: Percentage
+cost :: Coin
+ownerStakeRelative :: Percentage
+ownerStake :: Coin
+ownerPledge :: Coin
+stakeRelative :: Percentage
+performanceEstimate :: RewardInfoPool -&gt; Double
+margin :: RewardInfoPool -&gt; Percentage
+cost :: RewardInfoPool -&gt; Coin
+ownerStakeRelative :: RewardInfoPool -&gt; Percentage
+ownerStake :: RewardInfoPool -&gt; Coin
+ownerPledge :: RewardInfoPool -&gt; Coin
+stakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466208"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621682466207"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466207"><span class="hs-identifier hs-var">x</span></a></span></span><span>
+</span><span id="line-191"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466212"><span class="hs-identifier hs-var">ownerStake</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466213"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-192"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Percentage) -&gt; Rational -&gt; Percentage
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466204"><span class="hs-identifier hs-var">astar</span></a></span><span class="hs-special">)</span><span class="annot"><span class="annottext">Rational -&gt; Int -&gt; Rational
+forall a b. (Num a, Integral b) =&gt; a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">^</span></a></span><span class="annot"><span class="annottext">Int
+</span><a href="Cardano.Pool.Rank.html#epochsPerYear"><span class="hs-identifier hs-var">epochsPerYear</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-193"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-194"></span><span>    </span><span id="local-6989586621682466202"><span class="annot"><span class="annottext">s :: Percentage
+</span><a href="#local-6989586621682466202"><span class="hs-identifier hs-var hs-var">s</span></a></span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Percentage) -&gt; Rational -&gt; Percentage
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466213"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466215"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-195"></span><span>    </span><span id="local-6989586621682466201"><span class="annot"><span class="annottext">sigma :: Rational
+</span><a href="#local-6989586621682466201"><span class="hs-identifier hs-var hs-var">sigma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466214"><span class="hs-identifier hs-var">stakeRelative</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466207"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466215"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-196"></span><span>
+</span><span id="line-197"></span><span>    </span><span id="local-6989586621682466204"><span class="annot"><span class="annottext">astar :: Rational
+</span><a href="#local-6989586621682466204"><span class="hs-identifier hs-var hs-var">astar</span></a></span></span><span>
+</span><span id="line-198"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466201"><span class="hs-identifier hs-var">sigma</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-199"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Coin -&gt; Percentage -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#shareAfterFees"><span class="hs-identifier hs-var">shareAfterFees</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466201"><span class="hs-identifier hs-var">sigma</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466210"><span class="hs-identifier hs-var">cost</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466209"><span class="hs-identifier hs-var">margin</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466198"><span class="hs-identifier hs-var">fhat</span></a></span><span>
+</span><span id="line-200"></span><span>            </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466215"><span class="hs-identifier hs-var">rp</span></a></span><span>
+</span><span id="line-201"></span><span>    </span><span id="local-6989586621682466198"><span class="annot"><span class="annottext">fhat :: Coin
+</span><a href="#local-6989586621682466198"><span class="hs-identifier hs-var hs-var">fhat</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Percentage -&gt; Rational -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier hs-var">optimalRewards</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466215"><span class="hs-identifier hs-var">rp</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466202"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466201"><span class="hs-identifier hs-var">sigma</span></a></span><span>
+</span><span id="line-202"></span><span>
+</span><span id="line-203"></span><span class="hs-comment">-- | The (yearly) return per unit of stake</span><span>
+</span><span id="line-204"></span><span class="hs-comment">-- for a pool that has reached saturation.</span><span>
+</span><span id="line-205"></span><span class="annot"><a href="Cardano.Pool.Rank.html#saturationROS"><span class="hs-identifier hs-type">saturationROS</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span>
+</span><span id="line-206"></span><span id="saturationROS"><span class="annot"><span class="annottext">saturationROS :: RewardParams -&gt; RewardInfoPool -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#saturationROS"><span class="hs-identifier hs-var hs-var">saturationROS</span></a></span></span><span> </span><span id="local-6989586621682466197"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466197"><span class="hs-identifier hs-var">rp</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466190"><span id="local-6989586621682466191"><span id="local-6989586621682466192"><span id="local-6989586621682466193"><span id="local-6989586621682466194"><span id="local-6989586621682466195"><span id="local-6989586621682466196"><span class="annot"><span class="annottext">Double
+Percentage
+Coin
+performanceEstimate :: Double
+margin :: Percentage
+cost :: Coin
+ownerStakeRelative :: Percentage
+ownerStake :: Coin
+ownerPledge :: Coin
+stakeRelative :: Percentage
+performanceEstimate :: RewardInfoPool -&gt; Double
+margin :: RewardInfoPool -&gt; Percentage
+cost :: RewardInfoPool -&gt; Coin
+ownerStakeRelative :: RewardInfoPool -&gt; Percentage
+ownerStake :: RewardInfoPool -&gt; Coin
+ownerPledge :: RewardInfoPool -&gt; Coin
+stakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466190"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span></span></span><span class="hs-special">}</span><span>
+</span><span id="line-207"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466194"><span class="hs-identifier hs-var">ownerStake</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466195"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-208"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Percentage) -&gt; Rational -&gt; Percentage
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466189"><span class="hs-identifier hs-var">bstar</span></a></span><span class="hs-special">)</span><span class="annot"><span class="annottext">Rational -&gt; Int -&gt; Rational
+forall a b. (Num a, Integral b) =&gt; a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">^</span></a></span><span class="annot"><span class="annottext">Int
+</span><a href="Cardano.Pool.Rank.html#epochsPerYear"><span class="hs-identifier hs-var">epochsPerYear</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-209"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-210"></span><span>    </span><span id="local-6989586621682466188"><span class="annot"><span class="annottext">s :: Percentage
+</span><a href="#local-6989586621682466188"><span class="hs-identifier hs-var hs-var">s</span></a></span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Percentage) -&gt; Rational -&gt; Percentage
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466195"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466197"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-211"></span><span>    </span><span id="local-6989586621682466187"><span class="annot"><span class="annottext">sigma :: Rational
+</span><a href="#local-6989586621682466187"><span class="hs-identifier hs-var hs-var">sigma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-var">z0</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466197"><span class="hs-identifier hs-var">rp</span></a></span><span> </span><span class="hs-comment">-- saturation, never = 0</span><span>
+</span><span id="line-212"></span><span>
+</span><span id="line-213"></span><span>    </span><span id="local-6989586621682466189"><span class="annot"><span class="annottext">bstar :: Rational
+</span><a href="#local-6989586621682466189"><span class="hs-identifier hs-var hs-var">bstar</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Coin -&gt; Percentage -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#shareAfterFees"><span class="hs-identifier hs-var">shareAfterFees</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466187"><span class="hs-identifier hs-var">sigma</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466192"><span class="hs-identifier hs-var">cost</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466191"><span class="hs-identifier hs-var">margin</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466186"><span class="hs-identifier hs-var">fhat</span></a></span><span>
+</span><span id="line-214"></span><span>        </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466197"><span class="hs-identifier hs-var">rp</span></a></span><span>
+</span><span id="line-215"></span><span>    </span><span id="local-6989586621682466186"><span class="annot"><span class="annottext">fhat :: Coin
+</span><a href="#local-6989586621682466186"><span class="hs-identifier hs-var hs-var">fhat</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Percentage -&gt; Rational -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier hs-var">optimalRewards</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466197"><span class="hs-identifier hs-var">rp</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466188"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466187"><span class="hs-identifier hs-var">sigma</span></a></span><span>
+</span><span id="line-216"></span><span>
+</span><span id="line-217"></span><span class="hs-comment">-- | Non-Myopic Pool Member Rewards</span><span>
+</span><span id="line-218"></span><span class="hs-comment">-- according to Eq.(3) of Section 5.6.4 in SL-D1.</span><span>
+</span><span id="line-219"></span><span class="annot"><a href="Cardano.Pool.Rank.html#nonMyopicMemberReward"><span class="hs-identifier hs-type">nonMyopicMemberReward</span></a></span><span>
+</span><span id="line-220"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span>
+</span><span id="line-221"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span>
+</span><span id="line-222"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span> </span><span class="hs-comment">-- ^ The pool ranks in the top @nOpt@ pools</span><span>
+</span><span id="line-223"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-comment">-- ^ stake that the member wants to delegate</span><span>
+</span><span id="line-224"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-225"></span><span id="nonMyopicMemberReward"><span class="annot"><span class="annottext">nonMyopicMemberReward :: RewardParams -&gt; RewardInfoPool -&gt; Bool -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#nonMyopicMemberReward"><span class="hs-identifier hs-var hs-var">nonMyopicMemberReward</span></a></span></span><span> </span><span id="local-6989586621682466185"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466185"><span class="hs-identifier hs-var">rp</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466178"><span id="local-6989586621682466179"><span id="local-6989586621682466180"><span id="local-6989586621682466181"><span id="local-6989586621682466182"><span id="local-6989586621682466183"><span id="local-6989586621682466184"><span class="annot"><span class="annottext">Double
+Percentage
+Coin
+performanceEstimate :: Double
+margin :: Percentage
+cost :: Coin
+ownerStakeRelative :: Percentage
+ownerStake :: Coin
+ownerPledge :: Coin
+stakeRelative :: Percentage
+performanceEstimate :: RewardInfoPool -&gt; Double
+margin :: RewardInfoPool -&gt; Percentage
+cost :: RewardInfoPool -&gt; Coin
+ownerStakeRelative :: RewardInfoPool -&gt; Percentage
+ownerStake :: RewardInfoPool -&gt; Coin
+ownerPledge :: RewardInfoPool -&gt; Coin
+stakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466178"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621682466177"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621682466177"><span class="hs-identifier hs-var">isTop</span></a></span></span><span> </span><span id="local-6989586621682466176"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466176"><span class="hs-identifier hs-var">tcoin</span></a></span></span><span>
+</span><span id="line-226"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466182"><span class="hs-identifier hs-var">ownerStake</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466183"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Coin
+</span><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-var">Coin</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-227"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>
+</span><span id="line-228"></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Coin -&gt; Percentage -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#shareAfterFees"><span class="hs-identifier hs-var">shareAfterFees</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466175"><span class="hs-identifier hs-var">memberShare</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466180"><span class="hs-identifier hs-var">cost</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466179"><span class="hs-identifier hs-var">margin</span></a></span><span>
+</span><span id="line-229"></span><span>        </span><span class="annot"><span class="annottext">(Coin -&gt; Coin) -&gt; Coin -&gt; Coin
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466178"><span class="hs-identifier hs-var">performanceEstimate</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Coin -&gt; Coin
+forall r. RealFrac r =&gt; r -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#fractionOf"><span class="hs-operator hs-var">`fractionOf`</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-230"></span><span>        </span><span class="annot"><span class="annottext">(Coin -&gt; Coin) -&gt; Coin -&gt; Coin
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Percentage -&gt; Rational -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier hs-var">optimalRewards</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466185"><span class="hs-identifier hs-var">rp</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466174"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466173"><span class="hs-identifier hs-var">sigma_nonmyopic</span></a></span><span>
+</span><span id="line-231"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-232"></span><span>    </span><span id="local-6989586621682466174"><span class="annot"><span class="annottext">s :: Percentage
+</span><a href="#local-6989586621682466174"><span class="hs-identifier hs-var hs-var">s</span></a></span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Percentage) -&gt; Rational -&gt; Percentage
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466183"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466185"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-233"></span><span>    </span><span id="local-6989586621682466172"><span class="annot"><span class="annottext">sigma :: Percentage
+</span><a href="#local-6989586621682466172"><span class="hs-identifier hs-var hs-var">sigma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466184"><span class="hs-identifier hs-var">stakeRelative</span></a></span><span>
+</span><span id="line-234"></span><span>    </span><span id="local-6989586621682466171"><span class="annot"><span class="annottext">t :: Rational
+</span><a href="#local-6989586621682466171"><span class="hs-identifier hs-var hs-var">t</span></a></span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466176"><span class="hs-identifier hs-var">tcoin</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466185"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-235"></span><span>
+</span><span id="line-236"></span><span>    </span><span id="local-6989586621682466175"><span class="annot"><span class="annottext">memberShare :: Rational
+</span><a href="#local-6989586621682466175"><span class="hs-identifier hs-var hs-var">memberShare</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466171"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466173"><span class="hs-identifier hs-var">sigma_nonmyopic</span></a></span><span>
+</span><span id="line-237"></span><span>
+</span><span id="line-238"></span><span>    </span><span id="local-6989586621682466173"><span class="annot"><span class="annottext">sigma_nonmyopic :: Rational
+</span><a href="#local-6989586621682466173"><span class="hs-identifier hs-var hs-var">sigma_nonmyopic</span></a></span></span><span>
+</span><span id="line-239"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621682466177"><span class="hs-identifier hs-var">isTop</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">max</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466172"><span class="hs-identifier hs-var">sigma</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466171"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-var">z0</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466185"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-240"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466174"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466171"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-241"></span><span>
+</span><span id="line-242"></span><span class="hs-comment">-- | Compute share of 'Coin' after subtracting fixed cost and</span><span>
+</span><span id="line-243"></span><span class="hs-comment">-- percentage margin.</span><span>
+</span><span id="line-244"></span><span class="annot"><a href="Cardano.Pool.Rank.html#shareAfterFees"><span class="hs-identifier hs-type">shareAfterFees</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-245"></span><span id="shareAfterFees"><span class="annot"><span class="annottext">shareAfterFees :: Rational -&gt; Coin -&gt; Percentage -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#shareAfterFees"><span class="hs-identifier hs-var hs-var">shareAfterFees</span></a></span></span><span> </span><span id="local-6989586621682466169"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466169"><span class="hs-identifier hs-var">share</span></a></span></span><span> </span><span id="local-6989586621682466168"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466168"><span class="hs-identifier hs-var">cost</span></a></span></span><span> </span><span id="local-6989586621682466167"><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466167"><span class="hs-identifier hs-var">margin</span></a></span></span><span> </span><span id="local-6989586621682466166"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466166"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466166"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Maybe Coin
+</span><a href="Cardano.Wallet.Primitive.Types.Coin.html#subtract"><span class="hs-operator hs-var">`Coin.subtract`</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466168"><span class="hs-identifier hs-var">cost</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-246"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682466164"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466164"><span class="hs-identifier hs-var">y</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466169"><span class="hs-identifier hs-var">share</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466167"><span class="hs-identifier hs-var">margin</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Coin -&gt; Coin
+forall r. RealFrac r =&gt; r -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#fractionOf"><span class="hs-operator hs-var">`fractionOf`</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466164"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-247"></span><span>    </span><span class="annot"><span class="annottext">Maybe Coin
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Coin
+</span><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-var">Coin</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-248"></span><span>
+</span><span id="line-249"></span><span class="hs-comment">-- | Optimal rewards for a stake pool</span><span>
+</span><span id="line-250"></span><span class="hs-comment">-- according to Eq.(2) of Section 5.5.3 in SL-D1.</span><span>
+</span><span id="line-251"></span><span class="hs-comment">--</span><span>
+</span><span id="line-252"></span><span class="hs-comment">-- &gt; optimalRewards s sigma</span><span>
+</span><span id="line-253"></span><span class="hs-comment">--</span><span>
+</span><span id="line-254"></span><span class="hs-comment">-- NOTE: This computation uses 'Double' internally</span><span>
+</span><span id="line-255"></span><span class="hs-comment">-- and is only suitable for the purpose of ranking,</span><span>
+</span><span id="line-256"></span><span class="hs-comment">-- not for computing actual monetary rewards.</span><span>
+</span><span id="line-257"></span><span class="annot"><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier hs-type">optimalRewards</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Quantity.html#Percentage"><span class="hs-identifier hs-type">Percentage</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-258"></span><span id="optimalRewards"><span class="annot"><span class="annottext">optimalRewards :: RewardParams -&gt; Percentage -&gt; Rational -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier hs-var hs-var">optimalRewards</span></a></span></span><span> </span><span id="local-6989586621682466163"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466163"><span class="hs-identifier hs-var">params</span></a></span></span><span> </span><span id="local-6989586621682466162"><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466162"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span id="local-6989586621682466161"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466161"><span class="hs-identifier hs-var">sigma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466160"><span class="hs-identifier hs-var">factor</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Coin -&gt; Coin
+forall r. RealFrac r =&gt; r -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#fractionOf"><span class="hs-operator hs-var">`fractionOf`</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#r"><span class="hs-identifier hs-var hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466163"><span class="hs-identifier hs-var">params</span></a></span><span>
+</span><span id="line-259"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-260"></span><span>    </span><span id="local-6989586621682466160"><span class="annot"><span class="annottext">factor :: Double
+</span><a href="#local-6989586621682466160"><span class="hs-identifier hs-var hs-var">factor</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466159"><span class="hs-identifier hs-var">a0_</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-261"></span><span>        </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466158"><span class="hs-identifier hs-var">sigma'</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466157"><span class="hs-identifier hs-var">s'</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466159"><span class="hs-identifier hs-var">a0_</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466158"><span class="hs-identifier hs-var">sigma'</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466157"><span class="hs-identifier hs-var">s'</span></a></span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466156"><span class="hs-identifier hs-var">z0_</span></a></span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466158"><span class="hs-identifier hs-var">sigma'</span></a></span><span class="hs-special">)</span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466156"><span class="hs-identifier hs-var">z0_</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466156"><span class="hs-identifier hs-var">z0_</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-262"></span><span>
+</span><span id="line-263"></span><span>    </span><span class="annot"><a href="#local-6989586621682466156"><span class="hs-identifier hs-type">z0_</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621682466159"><span class="hs-identifier hs-type">a0_</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621682466158"><span class="hs-identifier hs-type">sigma'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621682466157"><span class="hs-identifier hs-type">s'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>
+</span><span id="line-264"></span><span>    </span><span id="local-6989586621682466156"><span class="annot"><span class="annottext">z0_ :: Double
+</span><a href="#local-6989586621682466156"><span class="hs-identifier hs-var hs-var">z0_</span></a></span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-var">z0</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466163"><span class="hs-identifier hs-var">params</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-265"></span><span>    </span><span id="local-6989586621682466159"><span class="annot"><span class="annottext">a0_ :: Double
+</span><a href="#local-6989586621682466159"><span class="hs-identifier hs-var hs-var">a0_</span></a></span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#a0"><span class="hs-identifier hs-var hs-var">a0</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466163"><span class="hs-identifier hs-var">params</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-266"></span><span>    </span><span id="local-6989586621682466158"><span class="annot"><span class="annottext">sigma' :: Double
+</span><a href="#local-6989586621682466158"><span class="hs-identifier hs-var hs-var">sigma'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466161"><span class="hs-identifier hs-var">sigma</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466156"><span class="hs-identifier hs-var">z0_</span></a></span><span>
+</span><span id="line-267"></span><span>    </span><span id="local-6989586621682466157"><span class="annot"><span class="annottext">s' :: Double
+</span><a href="#local-6989586621682466157"><span class="hs-identifier hs-var hs-var">s'</span></a></span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">min</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Double) -&gt; Rational -&gt; Double
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466162"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466156"><span class="hs-identifier hs-var">z0_</span></a></span><span>
+</span><span id="line-268"></span><span>
+</span><span id="line-269"></span><span class="hs-comment">-- | The desirabilty of a pool is equal to the total</span><span>
+</span><span id="line-270"></span><span class="hs-comment">-- member rewards at saturation</span><span>
+</span><span id="line-271"></span><span class="hs-comment">-- IF the owner meets their pledge.</span><span>
+</span><span id="line-272"></span><span class="annot"><a href="Cardano.Pool.Rank.html#desirability"><span class="hs-identifier hs-type">desirability</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-273"></span><span id="desirability"><span class="annot"><span class="annottext">desirability :: RewardParams -&gt; RewardInfoPool -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#desirability"><span class="hs-identifier hs-var hs-var">desirability</span></a></span></span><span> </span><span id="local-6989586621682466154"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466154"><span class="hs-identifier hs-var">rp</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466147"><span id="local-6989586621682466148"><span id="local-6989586621682466149"><span id="local-6989586621682466150"><span id="local-6989586621682466151"><span id="local-6989586621682466152"><span id="local-6989586621682466153"><span class="annot"><span class="annottext">Double
+Percentage
+Coin
+performanceEstimate :: Double
+margin :: Percentage
+cost :: Coin
+ownerStakeRelative :: Percentage
+ownerStake :: Coin
+ownerPledge :: Coin
+stakeRelative :: Percentage
+performanceEstimate :: RewardInfoPool -&gt; Double
+margin :: RewardInfoPool -&gt; Percentage
+cost :: RewardInfoPool -&gt; Coin
+ownerStakeRelative :: RewardInfoPool -&gt; Percentage
+ownerStake :: RewardInfoPool -&gt; Coin
+ownerPledge :: RewardInfoPool -&gt; Coin
+stakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466147"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span></span></span><span class="hs-special">}</span><span>
+</span><span id="line-274"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Coin -&gt; Percentage -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#shareAfterFees"><span class="hs-identifier hs-var">shareAfterFees</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466149"><span class="hs-identifier hs-var">cost</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466148"><span class="hs-identifier hs-var">margin</span></a></span><span>
+</span><span id="line-275"></span><span>    </span><span class="annot"><span class="annottext">(Coin -&gt; Coin) -&gt; Coin -&gt; Coin
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466147"><span class="hs-identifier hs-var">performanceEstimate</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Coin -&gt; Coin
+forall r. RealFrac r =&gt; r -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#fractionOf"><span class="hs-operator hs-var">`fractionOf`</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-276"></span><span>    </span><span class="annot"><span class="annottext">(Coin -&gt; Coin) -&gt; Coin -&gt; Coin
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; Percentage -&gt; Rational -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#optimalRewards"><span class="hs-identifier hs-var">optimalRewards</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466154"><span class="hs-identifier hs-var">rp</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466146"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-var">z0</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466154"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-277"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-278"></span><span>    </span><span id="local-6989586621682466146"><span class="annot"><span class="annottext">s :: Percentage
+</span><a href="#local-6989586621682466146"><span class="hs-identifier hs-var hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Percentage
+</span><a href="Data.Quantity.html#clipToPercentage"><span class="hs-identifier hs-var">clipToPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Rational -&gt; Percentage) -&gt; Rational -&gt; Percentage
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466152"><span class="hs-identifier hs-var">ownerPledge</span></a></span><span> </span><span class="annot"><span class="annottext">Coin -&gt; Coin -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#proportionTo"><span class="hs-operator hs-var">`proportionTo`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#totalStake"><span class="hs-identifier hs-var hs-var">totalStake</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466154"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-279"></span><span>
+</span><span id="line-280"></span><span class="hs-comment">-- | The saturation of a pool is the ratio of the current pool stake</span><span>
+</span><span id="line-281"></span><span class="hs-comment">-- to the fully saturated stake.</span><span>
+</span><span id="line-282"></span><span class="annot"><a href="Cardano.Pool.Rank.html#poolSaturation"><span class="hs-identifier hs-type">poolSaturation</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span>
+</span><span id="line-283"></span><span id="poolSaturation"><span class="annot"><span class="annottext">poolSaturation :: RewardParams -&gt; RewardInfoPool -&gt; Double
+</span><a href="Cardano.Pool.Rank.html#poolSaturation"><span class="hs-identifier hs-var hs-var">poolSaturation</span></a></span></span><span> </span><span id="local-6989586621682466145"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466145"><span class="hs-identifier hs-var">rp</span></a></span></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466144"><span class="annot"><span class="annottext">Percentage
+stakeRelative :: Percentage
+stakeRelative :: RewardInfoPool -&gt; Percentage
+</span><a href="#local-6989586621682466144"><span class="hs-identifier hs-var hs-var">stakeRelative</span></a></span></span><span class="hs-special">}</span><span>
+</span><span id="line-284"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466144"><span class="hs-identifier hs-var">stakeRelative</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Double
+forall a. Fractional a =&gt; Rational -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromRational</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Rational
+</span><a href="Cardano.Pool.Rank.html#z0"><span class="hs-identifier hs-var">z0</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466145"><span class="hs-identifier hs-var">rp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-285"></span><span>
+</span><span id="line-286"></span><span class="hs-keyword">data</span><span> </span><span id="PoolScore"><span class="annot"><a href="Cardano.Pool.Rank.html#PoolScore"><span class="hs-identifier hs-var">PoolScore</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="PoolScore"><span class="annot"><a href="Cardano.Pool.Rank.html#PoolScore"><span class="hs-identifier hs-var">PoolScore</span></a></span></span><span>
+</span><span id="line-287"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="_desirability"><span class="annot"><span class="annottext">PoolScore -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#_desirability"><span class="hs-identifier hs-var hs-var">_desirability</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-288"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="_nonMyopicMemberReward"><span class="annot"><span class="annottext">PoolScore -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#_nonMyopicMemberReward"><span class="hs-identifier hs-var hs-var">_nonMyopicMemberReward</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span>
+</span><span id="line-289"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-290"></span><span>
+</span><span id="line-291"></span><span class="hs-comment">-- | Compute the desirability and non-myopic rewards for all pools.</span><span>
+</span><span id="line-292"></span><span class="hs-comment">--</span><span>
+</span><span id="line-293"></span><span class="hs-comment">-- To compute the non-myopic rewards, we need to know all pools</span><span>
+</span><span id="line-294"></span><span class="hs-comment">-- in order to rank them by desirability,</span><span>
+</span><span id="line-295"></span><span class="hs-comment">-- and we need to know the stake that the user wants to delegate.</span><span>
+</span><span id="line-296"></span><span id="local-6989586621682466139"><span id="local-6989586621682466140"><span class="annot"><a href="Cardano.Pool.Rank.html#scorePools"><span class="hs-identifier hs-type">scorePools</span></a></span><span>
+</span><span id="line-297"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682466140"><span class="hs-identifier hs-type">poolId</span></a></span><span>
+</span><span id="line-298"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span>
+</span><span id="line-299"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682466140"><span class="hs-identifier hs-type">poolId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621682466139"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-300"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span> </span><span class="hs-comment">-- ^ Stake that the user wants to delegate</span><span>
+</span><span id="line-301"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682466140"><span class="hs-identifier hs-type">poolId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Pool.Rank.html#PoolScore"><span class="hs-identifier hs-type">PoolScore</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621682466139"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-302"></span><span id="scorePools"><span class="annot"><span class="annottext">scorePools :: RewardParams
+-&gt; Map poolId (RewardInfoPool, a)
+-&gt; Coin
+-&gt; Map poolId (PoolScore, RewardInfoPool, a)
+</span><a href="Cardano.Pool.Rank.html#scorePools"><span class="hs-identifier hs-var hs-var">scorePools</span></a></span></span><span> </span><span id="local-6989586621682466138"><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466138"><span class="hs-identifier hs-var">params</span></a></span></span><span> </span><span id="local-6989586621682466137"><span class="annot"><span class="annottext">Map poolId (RewardInfoPool, a)
+</span><a href="#local-6989586621682466137"><span class="hs-identifier hs-var">pools</span></a></span></span><span> </span><span id="local-6989586621682466136"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466136"><span class="hs-identifier hs-var">t</span></a></span></span><span>
+</span><span id="line-303"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(poolId, (PoolScore, RewardInfoPool, a))]
+-&gt; Map poolId (PoolScore, RewardInfoPool, a)
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.fromList</span></a></span><span> </span><span class="annot"><span class="annottext">([(poolId, (PoolScore, RewardInfoPool, a))]
+ -&gt; Map poolId (PoolScore, RewardInfoPool, a))
+-&gt; [(poolId, (PoolScore, RewardInfoPool, a))]
+-&gt; Map poolId (PoolScore, RewardInfoPool, a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((Coin, (poolId, RewardInfoPool, a))
+ -&gt; Bool -&gt; (poolId, (PoolScore, RewardInfoPool, a)))
+-&gt; [(Coin, (poolId, RewardInfoPool, a))]
+-&gt; [Bool]
+-&gt; [(poolId, (PoolScore, RewardInfoPool, a))]
+forall a b c. (a -&gt; b -&gt; c) -&gt; [a] -&gt; [b] -&gt; [c]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">zipWith</span></a></span><span> </span><span class="annot"><span class="annottext">(Coin, (poolId, RewardInfoPool, a))
+-&gt; Bool -&gt; (poolId, (PoolScore, RewardInfoPool, a))
+forall a c.
+(Coin, (a, RewardInfoPool, c))
+-&gt; Bool -&gt; (a, (PoolScore, RewardInfoPool, c))
+</span><a href="#local-6989586621682466133"><span class="hs-identifier hs-var">doScore</span></a></span><span> </span><span class="annot"><span class="annottext">[(Coin, (poolId, RewardInfoPool, a))]
+</span><a href="#local-6989586621682466132"><span class="hs-identifier hs-var">sortedByDesirability</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621682466131"><span class="hs-identifier hs-var">areTop</span></a></span><span>
+</span><span id="line-304"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-305"></span><span>    </span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardParams"><span class="hs-identifier hs-type">RewardParams</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466130"><span class="annot"><span class="annottext">Int
+nOpt :: Int
+nOpt :: RewardParams -&gt; Int
+</span><a href="#local-6989586621682466130"><span class="hs-identifier hs-var hs-var">nOpt</span></a></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466138"><span class="hs-identifier hs-var">params</span></a></span><span>
+</span><span id="line-306"></span><span>    </span><span id="local-6989586621682466131"><span class="annot"><span class="annottext">areTop :: [Bool]
+</span><a href="#local-6989586621682466131"><span class="hs-identifier hs-var hs-var">areTop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Bool -&gt; [Bool]
+forall a. Int -&gt; a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">replicate</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621682466130"><span class="hs-identifier hs-var">nOpt</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span> </span><span class="annot"><span class="annottext">[Bool] -&gt; [Bool] -&gt; [Bool]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; [Bool]
+forall a. a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">repeat</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-307"></span><span>
+</span><span id="line-308"></span><span>    </span><span id="local-6989586621682466133"><span class="annot"><span class="annottext">doScore :: (Coin, (a, RewardInfoPool, c))
+-&gt; Bool -&gt; (a, (PoolScore, RewardInfoPool, c))
+</span><a href="#local-6989586621682466133"><span class="hs-identifier hs-var hs-var">doScore</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466127"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466127"><span class="hs-identifier hs-var">d</span></a></span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466126"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682466126"><span class="hs-identifier hs-var">pid</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466125"><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466125"><span class="hs-identifier hs-var">pool</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466124"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621682466124"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span id="local-6989586621682466123"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621682466123"><span class="hs-identifier hs-var">isTop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682466126"><span class="hs-identifier hs-var">pid</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">PoolScore
+</span><a href="#local-6989586621682466122"><span class="hs-identifier hs-var">score</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466125"><span class="hs-identifier hs-var">pool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621682466124"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-309"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-310"></span><span>        </span><span id="local-6989586621682466122"><span class="annot"><span class="annottext">score :: PoolScore
+</span><a href="#local-6989586621682466122"><span class="hs-identifier hs-var hs-var">score</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">PoolScore :: Coin -&gt; Coin -&gt; PoolScore
+</span><a href="Cardano.Pool.Rank.html#PoolScore"><span class="hs-identifier hs-type">PoolScore</span></a></span><span>
+</span><span id="line-311"></span><span>            </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">_nonMyopicMemberReward :: Coin
+</span><a href="Cardano.Pool.Rank.html#_nonMyopicMemberReward"><span class="hs-identifier hs-var">_nonMyopicMemberReward</span></a></span><span>
+</span><span id="line-312"></span><span>                </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; RewardInfoPool -&gt; Bool -&gt; Coin -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#nonMyopicMemberReward"><span class="hs-identifier hs-var">nonMyopicMemberReward</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466138"><span class="hs-identifier hs-var">params</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466125"><span class="hs-identifier hs-var">pool</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621682466123"><span class="hs-identifier hs-var">isTop</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466136"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-313"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">_desirability :: Coin
+</span><a href="Cardano.Pool.Rank.html#_desirability"><span class="hs-identifier hs-var">_desirability</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466127"><span class="hs-identifier hs-var">d</span></a></span><span>
+</span><span id="line-314"></span><span>            </span><span class="hs-special">}</span><span>
+</span><span id="line-315"></span><span>
+</span><span id="line-316"></span><span>    </span><span id="local-6989586621682466132"><span class="annot"><span class="annottext">sortedByDesirability :: [(Coin, (poolId, RewardInfoPool, a))]
+</span><a href="#local-6989586621682466132"><span class="hs-identifier hs-var hs-var">sortedByDesirability</span></a></span></span><span>
+</span><span id="line-317"></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Coin, (poolId, RewardInfoPool, a)) -&gt; Down Coin)
+-&gt; [(Coin, (poolId, RewardInfoPool, a))]
+-&gt; [(Coin, (poolId, RewardInfoPool, a))]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">L.sortOn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Coin -&gt; Down Coin
+forall a. a -&gt; Down a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Down</span></a></span><span> </span><span class="annot"><span class="annottext">(Coin -&gt; Down Coin)
+-&gt; ((Coin, (poolId, RewardInfoPool, a)) -&gt; Coin)
+-&gt; (Coin, (poolId, RewardInfoPool, a))
+-&gt; Down Coin
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Coin, (poolId, RewardInfoPool, a)) -&gt; Coin
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-318"></span><span>        </span><span class="annot"><span class="annottext">([(Coin, (poolId, RewardInfoPool, a))]
+ -&gt; [(Coin, (poolId, RewardInfoPool, a))])
+-&gt; ([(poolId, (RewardInfoPool, a))]
+    -&gt; [(Coin, (poolId, RewardInfoPool, a))])
+-&gt; [(poolId, (RewardInfoPool, a))]
+-&gt; [(Coin, (poolId, RewardInfoPool, a))]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">((poolId, (RewardInfoPool, a))
+ -&gt; (Coin, (poolId, RewardInfoPool, a)))
+-&gt; [(poolId, (RewardInfoPool, a))]
+-&gt; [(Coin, (poolId, RewardInfoPool, a))]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621682466119"><span class="annot"><span class="annottext">poolId
+</span><a href="#local-6989586621682466119"><span class="hs-identifier hs-var">pid</span></a></span></span><span class="hs-special">,</span><span class="hs-special">(</span><span id="local-6989586621682466118"><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466118"><span class="hs-identifier hs-var">pool</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466117"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682466117"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; RewardInfoPool -&gt; Coin
+</span><a href="Cardano.Pool.Rank.html#desirability"><span class="hs-identifier hs-var">desirability</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466138"><span class="hs-identifier hs-var">params</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466118"><span class="hs-identifier hs-var">pool</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">poolId
+</span><a href="#local-6989586621682466119"><span class="hs-identifier hs-var">pid</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466118"><span class="hs-identifier hs-var">pool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621682466117"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-319"></span><span>        </span><span class="annot"><span class="annottext">([(poolId, (RewardInfoPool, a))]
+ -&gt; [(Coin, (poolId, RewardInfoPool, a))])
+-&gt; [(poolId, (RewardInfoPool, a))]
+-&gt; [(Coin, (poolId, RewardInfoPool, a))]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Map poolId (RewardInfoPool, a) -&gt; [(poolId, (RewardInfoPool, a))]
+forall k a. Map k a -&gt; [(k, a)]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.toList</span></a></span><span> </span><span class="annot"><span class="annottext">Map poolId (RewardInfoPool, a)
+</span><a href="#local-6989586621682466137"><span class="hs-identifier hs-var">pools</span></a></span><span>
+</span><span id="line-320"></span><span>
+</span><span id="line-321"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    Redelegation warning
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-324"></span><span class="hs-keyword">data</span><span> </span><span id="RedelegationWarning"><span class="annot"><a href="Cardano.Pool.Rank.html#RedelegationWarning"><span class="hs-identifier hs-var">RedelegationWarning</span></a></span></span><span>
+</span><span id="line-325"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span id="AllGood"><span class="annot"><a href="Cardano.Pool.Rank.html#AllGood"><span class="hs-identifier hs-var">AllGood</span></a></span></span><span>
+</span><span id="line-326"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="TooFewBlocks"><span class="annot"><a href="Cardano.Pool.Rank.html#TooFewBlocks"><span class="hs-identifier hs-var">TooFewBlocks</span></a></span></span><span>
+</span><span id="line-327"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="OtherPoolsBetter"><span class="annot"><a href="Cardano.Pool.Rank.html#OtherPoolsBetter"><span class="hs-identifier hs-var">OtherPoolsBetter</span></a></span></span><span>
+</span><span id="line-328"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466110"><span id="local-6989586621682466112"><span class="annot"><span class="annottext">RedelegationWarning -&gt; RedelegationWarning -&gt; Bool
+(RedelegationWarning -&gt; RedelegationWarning -&gt; Bool)
+-&gt; (RedelegationWarning -&gt; RedelegationWarning -&gt; Bool)
+-&gt; Eq RedelegationWarning
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: RedelegationWarning -&gt; RedelegationWarning -&gt; Bool
+$c/= :: RedelegationWarning -&gt; RedelegationWarning -&gt; Bool
+== :: RedelegationWarning -&gt; RedelegationWarning -&gt; Bool
+$c== :: RedelegationWarning -&gt; RedelegationWarning -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621682466104"><span id="local-6989586621682466106"><span id="local-6989586621682466108"><span class="annot"><span class="annottext">Int -&gt; RedelegationWarning -&gt; ShowS
+[RedelegationWarning] -&gt; ShowS
+RedelegationWarning -&gt; String
+(Int -&gt; RedelegationWarning -&gt; ShowS)
+-&gt; (RedelegationWarning -&gt; String)
+-&gt; ([RedelegationWarning] -&gt; ShowS)
+-&gt; Show RedelegationWarning
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [RedelegationWarning] -&gt; ShowS
+$cshowList :: [RedelegationWarning] -&gt; ShowS
+show :: RedelegationWarning -&gt; String
+$cshow :: RedelegationWarning -&gt; String
+showsPrec :: Int -&gt; RedelegationWarning -&gt; ShowS
+$cshowsPrec :: Int -&gt; RedelegationWarning -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-329"></span><span>
+</span><span id="line-330"></span><span class="hs-comment">-- FIXME: Adapt message to take care of previous epoch.</span><span>
+</span><span id="line-331"></span><span>
+</span><span id="line-332"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-type">Buildable</span></a></span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RedelegationWarning"><span class="hs-identifier hs-type">RedelegationWarning</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-333"></span><span>    </span><span id="local-6989586621682466102"><span class="annot"><span class="annottext">build :: RedelegationWarning -&gt; Builder
+</span><a href="#local-6989586621682466102"><span class="hs-identifier hs-var hs-var hs-var hs-var">build</span></a></span></span><span> </span><span class="annot"><span class="annottext">RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#AllGood"><span class="hs-identifier hs-var">AllGood</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Builder) -&gt; String -&gt; Builder
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unwords</span></a></span><span>
+</span><span id="line-334"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;The pool to which you had delegated your stake&quot;</span></span><span>
+</span><span id="line-335"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;gives rewards within expectations.&quot;</span></span><span>
+</span><span id="line-336"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-337"></span><span>    </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#TooFewBlocks"><span class="hs-identifier hs-var">TooFewBlocks</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Builder) -&gt; String -&gt; Builder
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unwords</span></a></span><span>
+</span><span id="line-338"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;The pool to which you have delegated your stake&quot;</span></span><span>
+</span><span id="line-339"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;may have not performed as expected,&quot;</span></span><span>
+</span><span id="line-340"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;please check your delegation choice.&quot;</span></span><span>
+</span><span id="line-341"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-342"></span><span>    </span><span class="annot"><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#OtherPoolsBetter"><span class="hs-identifier hs-var">OtherPoolsBetter</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Builder
+forall p. Buildable p =&gt; p -&gt; Builder
+</span><a href="../../../../formatting/html/src"><span class="hs-identifier hs-var">build</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Builder) -&gt; String -&gt; Builder
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unwords</span></a></span><span>
+</span><span id="line-343"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Other pools may offer higher rewards,&quot;</span></span><span>
+</span><span id="line-344"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;please check your delegation choice.&quot;</span></span><span>
+</span><span id="line-345"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-346"></span><span>
+</span><span id="line-347"></span><span class="hs-comment">-- | Compute redelegation warning from current pool performance.</span><span>
+</span><span id="line-348"></span><span class="hs-comment">--</span><span>
+</span><span id="line-349"></span><span class="hs-comment">-- Note: This function uses the 'performanceEstimate' for the pool</span><span>
+</span><span id="line-350"></span><span class="hs-comment">-- that we delegate to, but ignores this fields for the argument</span><span>
+</span><span id="line-351"></span><span class="hs-comment">-- 'StakePoolsSummary'.</span><span>
+</span><span id="line-352"></span><span class="annot"><a href="Cardano.Pool.Rank.html#redelegationWarning"><span class="hs-identifier hs-type">redelegationWarning</span></a></span><span>
+</span><span id="line-353"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.html#EpochNo"><span class="hs-identifier hs-type">EpochNo</span></a></span><span>
+</span><span id="line-354"></span><span>        </span><span class="hs-comment">-- ^ Epoch when delegation was made</span><span>
+</span><span id="line-355"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Pool.Rank.html#RewardInfoPool"><span class="hs-identifier hs-type">RewardInfoPool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.Coin.html#Coin"><span class="hs-identifier hs-type">Coin</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-356"></span><span>        </span><span class="hs-comment">-- ^ ( Info about the pool that we delegate to</span><span>
+</span><span id="line-357"></span><span>        </span><span class="hs-comment">--   , absolute stake that we delegate )</span><span>
+</span><span id="line-358"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier hs-type">StakePoolsSummary</span></a></span><span>
+</span><span id="line-359"></span><span>        </span><span class="hs-comment">-- ^ Current summary of all stake pools (for comparison)</span><span>
+</span><span id="line-360"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.Primitive.Types.html#EpochNo"><span class="hs-identifier hs-type">EpochNo</span></a></span><span>
+</span><span id="line-361"></span><span>        </span><span class="hs-comment">-- ^ Current epoch</span><span>
+</span><span id="line-362"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#RedelegationWarning"><span class="hs-identifier hs-type">RedelegationWarning</span></a></span><span>
+</span><span id="line-363"></span><span id="redelegationWarning"><span class="annot"><span class="annottext">redelegationWarning :: EpochNo
+-&gt; (RewardInfoPool, Coin)
+-&gt; StakePoolsSummary
+-&gt; EpochNo
+-&gt; RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#redelegationWarning"><span class="hs-identifier hs-var hs-var">redelegationWarning</span></a></span></span><span> </span><span id="local-6989586621682466100"><span class="annot"><span class="annottext">EpochNo
+</span><a href="#local-6989586621682466100"><span class="hs-identifier hs-var">timeOfDelegation</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621682466099"><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466099"><span class="hs-identifier hs-var">info</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621682466098"><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466098"><span class="hs-identifier hs-var">user</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="Cardano.Pool.Rank.html#StakePoolsSummary"><span class="hs-identifier hs-type">StakePoolsSummary</span></a></span><span class="hs-special">{</span><span id="local-6989586621682466096"><span id="local-6989586621682466097"><span class="annot"><span class="annottext">Map PoolId RewardInfoPool
+RewardParams
+pools :: Map PoolId RewardInfoPool
+rewardParams :: RewardParams
+pools :: StakePoolsSummary -&gt; Map PoolId RewardInfoPool
+rewardParams :: StakePoolsSummary -&gt; RewardParams
+</span><a href="#local-6989586621682466096"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621682466095"><span class="annot"><span class="annottext">EpochNo
+</span><a href="#local-6989586621682466095"><span class="hs-identifier hs-var">now</span></a></span></span><span>
+</span><span id="line-364"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466094"><span class="hs-identifier hs-var">sigma</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0.6</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466092"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466090"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0.85</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466094"><span class="hs-identifier hs-var">sigma</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">0.6</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466092"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621682466090"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0.9</span></span><span class="hs-special">)</span><span>
+</span><span id="line-365"></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#TooFewBlocks"><span class="hs-identifier hs-var">TooFewBlocks</span></a></span><span>
+</span><span id="line-366"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466087"><span class="hs-identifier hs-var">mr</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466086"><span class="hs-identifier hs-var">mrstar</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466085"><span class="hs-identifier hs-var">w</span></a></span><span>
+</span><span id="line-367"></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#OtherPoolsBetter"><span class="hs-identifier hs-var">OtherPoolsBetter</span></a></span><span>
+</span><span id="line-368"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>
+</span><span id="line-369"></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RedelegationWarning
+</span><a href="Cardano.Pool.Rank.html#AllGood"><span class="hs-identifier hs-var">AllGood</span></a></span><span>
+</span><span id="line-370"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-371"></span><span>    </span><span id="local-6989586621682466094"><span class="annot"><span class="annottext">sigma :: Rational
+</span><a href="#local-6989586621682466094"><span class="hs-identifier hs-var hs-var">sigma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Percentage -&gt; Rational
+</span><a href="Data.Quantity.html#getPercentage"><span class="hs-identifier hs-var hs-var">getPercentage</span></a></span><span> </span><span class="annot"><span class="annottext">(Percentage -&gt; Rational) -&gt; Percentage -&gt; Rational
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#stakeRelative"><span class="hs-identifier hs-var hs-var">stakeRelative</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466099"><span class="hs-identifier hs-var">info</span></a></span><span>
+</span><span id="line-372"></span><span>    </span><span id="local-6989586621682466092"><span class="annot"><span class="annottext">s :: Rational
+</span><a href="#local-6989586621682466092"><span class="hs-identifier hs-var hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Rational
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RewardParams -&gt; Int
+</span><a href="Cardano.Pool.Rank.html#nOpt"><span class="hs-identifier hs-var hs-var">nOpt</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466097"><span class="hs-identifier hs-var">rewardParams</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-373"></span><span>    </span><span id="local-6989586621682466090"><span class="annot"><span class="annottext">p :: Double
+</span><a href="#local-6989586621682466090"><span class="hs-identifier hs-var hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardInfoPool -&gt; Double
+</span><a href="Cardano.Pool.Rank.html#performanceEstimate"><span class="hs-identifier hs-var hs-var">performanceEstimate</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466099"><span class="hs-identifier hs-var">info</span></a></span><span>
+</span><span id="line-374"></span><span>
+</span><span id="line-375"></span><span>    </span><span id="local-6989586621682466087"><span class="annot"><span class="annottext">mr :: Percentage
+</span><a href="#local-6989586621682466087"><span class="hs-identifier hs-var hs-var">mr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; RewardInfoPool -&gt; Coin -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#currentROS"><span class="hs-identifier hs-var">currentROS</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466097"><span class="hs-identifier hs-var">rewardParams</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466099"><span class="hs-identifier hs-var">info</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466098"><span class="hs-identifier hs-var">user</span></a></span><span>
+</span><span id="line-376"></span><span>    </span><span id="local-6989586621682466086"><span class="annot"><span class="annottext">mrstar :: Percentage
+</span><a href="#local-6989586621682466086"><span class="hs-identifier hs-var hs-var">mrstar</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Percentage] -&gt; Percentage
+forall (t :: * -&gt; *) a. (Foldable t, Ord a) =&gt; t a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maximum</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Percentage
+</span><a href="#local-6989586621682466087"><span class="hs-identifier hs-var">mr</span></a></span><span class="annot"><span class="annottext">Percentage -&gt; [Percentage] -&gt; [Percentage]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="annot"><span class="annottext">[Percentage]
+</span><a href="#local-6989586621682466083"><span class="hs-identifier hs-var">returns</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-377"></span><span>    </span><span id="local-6989586621682466083"><span class="annot"><span class="annottext">returns :: [Percentage]
+</span><a href="#local-6989586621682466083"><span class="hs-identifier hs-var hs-var">returns</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(RewardInfoPool -&gt; Percentage) -&gt; [RewardInfoPool] -&gt; [Percentage]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621682466082"><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466082"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">RewardParams -&gt; RewardInfoPool -&gt; Coin -&gt; Percentage
+</span><a href="Cardano.Pool.Rank.html#currentROS"><span class="hs-identifier hs-var">currentROS</span></a></span><span> </span><span class="annot"><span class="annottext">RewardParams
+</span><a href="#local-6989586621682466097"><span class="hs-identifier hs-var">rewardParams</span></a></span><span> </span><span class="annot"><span class="annottext">RewardInfoPool
+</span><a href="#local-6989586621682466082"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Coin
+</span><a href="#local-6989586621682466098"><span class="hs-identifier hs-var">user</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([RewardInfoPool] -&gt; [Percentage])
+-&gt; [RewardInfoPool] -&gt; [Percentage]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Map PoolId RewardInfoPool -&gt; [RewardInfoPool]
+forall k a. Map k a -&gt; [a]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.elems</span></a></span><span> </span><span class="annot"><span class="annottext">Map PoolId RewardInfoPool
+</span><a href="#local-6989586621682466096"><span class="hs-identifier hs-var">pools</span></a></span><span>
+</span><span id="line-378"></span><span>
+</span><span id="line-379"></span><span>    </span><span id="local-6989586621682466085"><span class="annot"><span class="annottext">w :: Rational
+</span><a href="#local-6989586621682466085"><span class="hs-identifier hs-var hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466080"><span class="hs-identifier hs-var">dt</span></a></span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466080"><span class="hs-identifier hs-var">dt</span></a></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">/</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational
+</span><span class="hs-number">25</span></span><span> </span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466080"><span class="hs-identifier hs-var">dt</span></a></span><span class="annot"><span class="annottext">Rational -&gt; Rational -&gt; Rational
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*</span></a></span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621682466080"><span class="hs-identifier hs-var">dt</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Rational</span></a></span><span>
+</span><span id="line-380"></span><span>    </span><span id="local-6989586621682466080"><span class="annot"><span class="annottext">dt :: Rational
+</span><a href="#local-6989586621682466080"><span class="hs-identifier hs-var hs-var">dt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Rational
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Rational) -&gt; Int -&gt; Rational
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; Int
+forall a. Enum a =&gt; a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromEnum</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo
+</span><a href="#local-6989586621682466095"><span class="hs-identifier hs-var">now</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo -&gt; Int
+forall a. Enum a =&gt; a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromEnum</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNo
+</span><a href="#local-6989586621682466100"><span class="hs-identifier hs-var">timeOfDelegation</span></a></span><span>
+</span><span id="line-381"></span><span>        </span><span class="hs-comment">-- time different in number of epochs.</span><span>
+</span><span id="line-382"></span></pre></body></html>

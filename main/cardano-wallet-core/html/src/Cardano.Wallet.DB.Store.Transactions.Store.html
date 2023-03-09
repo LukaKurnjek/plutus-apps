@@ -1,0 +1,865 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE NoMonomorphismRestriction #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE RankNTypes #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-comment">{- |
+Copyright: 2022 IOHK
+License: Apache-2.0
+
+Implementation of a 'Store' for 'TxHistory'.
+
+-}</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Wallet.DB.Store.Transactions.Store</span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#selectTxHistory"><span class="hs-identifier">selectTxHistory</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#putTxHistory"><span class="hs-identifier">putTxHistory</span></a></span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkStoreTransactions"><span class="hs-identifier">mkStoreTransactions</span></a></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html"><span class="hs-identifier">Cardano.Wallet.DB.Sqlite.Schema</span></a></span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">EntityField</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateral"><span class="hs-identifier">TxCollateral</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOut"><span class="hs-identifier">TxCollateralOut</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOutToken"><span class="hs-identifier">TxCollateralOutToken</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxIn"><span class="hs-identifier">TxIn</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOut"><span class="hs-identifier">TxOut</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOutToken"><span class="hs-identifier">TxOutToken</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxWithdrawal"><span class="hs-identifier">TxWithdrawal</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Types.html"><span class="hs-identifier">Cardano.Wallet.DB.Sqlite.Types</span></a></span><span>
+</span><span id="line-34"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Types.html#TxId"><span class="hs-identifier">TxId</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html"><span class="hs-identifier">Cardano.Wallet.DB.Store.Transactions.Model</span></a></span><span>
+</span><span id="line-36"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#Decoration"><span class="hs-identifier">Decoration</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#Without"><span class="hs-identifier">Without</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#DeltaTxHistory"><span class="hs-identifier">DeltaTxHistory</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistory"><span class="hs-identifier">TxHistory</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistoryF"><span class="hs-identifier">TxHistoryF</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistoryF"><span class="hs-identifier">TxHistoryF</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxRelationF"><span class="hs-identifier">TxRelationF</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#tokenCollateralOrd"><span class="hs-identifier">tokenCollateralOrd</span></a></span><span>
+</span><span id="line-42"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#tokenOutOrd"><span class="hs-identifier">tokenOutOrd</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Arrow</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Arrow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(&amp;&amp;&amp;)</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../dbvar/html/src"><span class="hs-identifier">Data.DBVar</span></a></span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../dbvar/html/src"><span class="hs-identifier">Store</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Foldable</span></a></span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">fold</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forM_</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">toList</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">sortOn</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../split/html/src"><span class="hs-identifier">Data.List.Split</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../split/html/src"><span class="hs-identifier">chunksOf</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Maybe</span></a></span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">maybeToList</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Monoid</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">getFirst</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Database.Persist.Sql</span></a></span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Entity</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">SqlPersistT</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">deleteWhere</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">entityVal</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">keyFromRecordM</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">repsertMany</span></a></span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">selectList</span></a></span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-operator">(==.)</span></a></span><span>
+</span><span id="line-69"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkStoreTransactions"><span class="hs-identifier hs-type">mkStoreTransactions</span></a></span><span>
+</span><span id="line-74"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../dbvar/html/src"><span class="hs-identifier hs-type">Store</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#DeltaTxHistory"><span class="hs-identifier hs-type">DeltaTxHistory</span></a></span><span>
+</span><span id="line-75"></span><span id="mkStoreTransactions"><span class="annot"><span class="annottext">mkStoreTransactions :: Store (SqlPersistT IO) DeltaTxHistory
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkStoreTransactions"><span class="hs-identifier hs-var hs-var">mkStoreTransactions</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-76"></span><span>    </span><span class="annot"><span class="annottext">Store :: forall (m :: * -&gt; *) da.
+m (Either SomeException (Base da))
+-&gt; (Base da -&gt; m ()) -&gt; (Base da -&gt; da -&gt; m ()) -&gt; Store m da
+</span><a href="../../../../dbvar/html/src"><span class="hs-identifier hs-type">Store</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">loadS :: SqlPersistT IO (Either SomeException (Base DeltaTxHistory))
+</span><a href="../../../../dbvar/html/src"><span class="hs-identifier hs-var">loadS</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TxHistory -&gt; Either SomeException TxHistory
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(TxHistory -&gt; Either SomeException TxHistory)
+-&gt; ReaderT SqlBackend IO TxHistory
+-&gt; ReaderT SqlBackend IO (Either SomeException TxHistory)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO TxHistory
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#selectTxHistory"><span class="hs-identifier hs-var">selectTxHistory</span></a></span><span>
+</span><span id="line-78"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">writeS :: Base DeltaTxHistory -&gt; SqlPersistT IO ()
+</span><a href="../../../../dbvar/html/src"><span class="hs-identifier hs-var">writeS</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Base DeltaTxHistory -&gt; SqlPersistT IO ()
+TxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#write"><span class="hs-identifier hs-var">write</span></a></span><span>
+</span><span id="line-79"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">updateS :: Base DeltaTxHistory -&gt; DeltaTxHistory -&gt; SqlPersistT IO ()
+</span><a href="../../../../dbvar/html/src"><span class="hs-identifier hs-var">updateS</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Base DeltaTxHistory -&gt; DeltaTxHistory -&gt; SqlPersistT IO ()
+TxHistory -&gt; DeltaTxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#update"><span class="hs-identifier hs-var">update</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#update"><span class="hs-identifier hs-type">update</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistory"><span class="hs-identifier hs-type">TxHistory</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#DeltaTxHistory"><span class="hs-identifier hs-type">DeltaTxHistory</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-83"></span><span id="update"><span class="annot"><span class="annottext">update :: TxHistory -&gt; DeltaTxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#update"><span class="hs-identifier hs-var hs-var">update</span></a></span></span><span> </span><span class="annot"><span class="annottext">TxHistory
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621682457474"><span class="annot"><span class="annottext">DeltaTxHistory
+</span><a href="#local-6989586621682457474"><span class="hs-identifier hs-var">change</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">DeltaTxHistory
+</span><a href="#local-6989586621682457474"><span class="hs-identifier hs-var">change</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-84"></span><span>    </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#Append"><span class="hs-identifier hs-type">Append</span></a></span><span> </span><span id="local-6989586621682457472"><span class="annot"><span class="annottext">TxHistory
+</span><a href="#local-6989586621682457472"><span class="hs-identifier hs-var">txs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#putTxHistory"><span class="hs-identifier hs-var">putTxHistory</span></a></span><span> </span><span class="annot"><span class="annottext">TxHistory
+</span><a href="#local-6989586621682457472"><span class="hs-identifier hs-var">txs</span></a></span><span>
+</span><span id="line-85"></span><span>    </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#DeleteTx"><span class="hs-identifier hs-type">DeleteTx</span></a></span><span> </span><span id="local-6989586621682457470"><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-86"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxIn] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxIn TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxIn typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxInputTxId"><span class="hs-identifier hs-var">TxInputTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxIn TxId -&gt; TxId -&gt; Filter TxIn
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-87"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxCollateral] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxCollateral TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxCollateral typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralTxId"><span class="hs-identifier hs-var">TxCollateralTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxCollateral TxId -&gt; TxId -&gt; Filter TxCollateral
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-88"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxOutToken] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxOutToken TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxOutToken typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOutTokenTxId"><span class="hs-identifier hs-var">TxOutTokenTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxOutToken TxId -&gt; TxId -&gt; Filter TxOutToken
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-89"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxOut] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxOut TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxOut typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOutputTxId"><span class="hs-identifier hs-var">TxOutputTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxOut TxId -&gt; TxId -&gt; Filter TxOut
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-90"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxCollateralOutToken] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxCollateralOutToken TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxCollateralOutToken typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOutTokenTxId"><span class="hs-identifier hs-var">TxCollateralOutTokenTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxCollateralOutToken TxId
+-&gt; TxId -&gt; Filter TxCollateralOutToken
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-91"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxCollateralOut] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxCollateralOut TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxCollateralOut typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOutTxId"><span class="hs-identifier hs-var">TxCollateralOutTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxCollateralOut TxId -&gt; TxId -&gt; Filter TxCollateralOut
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-92"></span><span>        </span><span class="annot"><span class="annottext">[Filter TxWithdrawal] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">EntityField TxWithdrawal TxId
+forall typ. (typ ~ TxId) =&gt; EntityField TxWithdrawal typ
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxWithdrawalTxId"><span class="hs-identifier hs-var">TxWithdrawalTxId</span></a></span><span> </span><span class="annot"><span class="annottext">EntityField TxWithdrawal TxId -&gt; TxId -&gt; Filter TxWithdrawal
+forall v typ.
+PersistField typ =&gt;
+EntityField v typ -&gt; typ -&gt; Filter v
+</span><a href="../../../../persistent/html/src"><span class="hs-operator hs-var">==.</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457470"><span class="hs-identifier hs-var">tid</span></a></span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#write"><span class="hs-identifier hs-type">write</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistory"><span class="hs-identifier hs-type">TxHistory</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span id="write"><span class="annot"><span class="annottext">write :: TxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#write"><span class="hs-identifier hs-var hs-var">write</span></a></span></span><span> </span><span id="local-6989586621682457462"><span class="annot"><span class="annottext">TxHistory
+</span><a href="#local-6989586621682457462"><span class="hs-identifier hs-var">txs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-96"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxIn] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxIn"><span class="hs-identifier hs-type">TxIn</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxIn]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-97"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxCollateral] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateral"><span class="hs-identifier hs-type">TxCollateral</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxCollateral]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-98"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxOutToken] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOutToken"><span class="hs-identifier hs-type">TxOutToken</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxOutToken]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-99"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxOut] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOut"><span class="hs-identifier hs-type">TxOut</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxOut]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-100"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxCollateralOutToken] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOutToken"><span class="hs-identifier hs-type">TxCollateralOutToken</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxCollateralOutToken]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxCollateralOut] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOut"><span class="hs-identifier hs-type">TxCollateralOut</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxCollateralOut]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-102"></span><span>    </span><span class="annot"><span class="annottext">[Filter TxWithdrawal] -&gt; SqlPersistT IO ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">deleteWhere</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxWithdrawal"><span class="hs-identifier hs-type">TxWithdrawal</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter TxWithdrawal]
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-103"></span><span>    </span><span class="annot"><span class="annottext">TxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#putTxHistory"><span class="hs-identifier hs-var">putTxHistory</span></a></span><span> </span><span class="annot"><span class="annottext">TxHistory
+</span><a href="#local-6989586621682457462"><span class="hs-identifier hs-var">txs</span></a></span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span class="hs-comment">-- | Insert multiple transactions</span><span>
+</span><span id="line-107"></span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#putTxHistory"><span class="hs-identifier hs-type">putTxHistory</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistory"><span class="hs-identifier hs-type">TxHistory</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span id="putTxHistory"><span class="annot"><span class="annottext">putTxHistory :: TxHistory -&gt; SqlPersistT IO ()
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#putTxHistory"><span class="hs-identifier hs-var hs-var">putTxHistory</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistoryF"><span class="hs-identifier hs-type">TxHistoryF</span></a></span><span> </span><span id="local-6989586621682457461"><span class="annot"><span class="annottext">Map TxId (TxRelationF 'Without)
+</span><a href="#local-6989586621682457461"><span class="hs-identifier hs-var">tx_map</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map TxId (TxRelationF 'Without)
+-&gt; (TxRelationF 'Without -&gt; SqlPersistT IO ()) -&gt; SqlPersistT IO ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM_</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId (TxRelationF 'Without)
+</span><a href="#local-6989586621682457461"><span class="hs-identifier hs-var">tx_map</span></a></span><span> </span><span class="annot"><span class="annottext">((TxRelationF 'Without -&gt; SqlPersistT IO ()) -&gt; SqlPersistT IO ())
+-&gt; (TxRelationF 'Without -&gt; SqlPersistT IO ()) -&gt; SqlPersistT IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxRelationF"><span class="hs-identifier hs-type">TxRelationF</span></a></span><span> </span><span class="hs-special">{</span><span id="local-6989586621682457455"><span id="local-6989586621682457456"><span id="local-6989586621682457457"><span id="local-6989586621682457458"><span id="local-6989586621682457459"><span class="annot"><span class="annottext">[(TxOut, [TxOutToken])]
+[TxWithdrawal]
+[DecorateWithTxOut 'Without TxCollateral]
+[DecorateWithTxOut 'Without TxIn]
+Maybe (TxCollateralOut, [TxCollateralOutToken])
+$sel:withdrawals:TxRelationF :: forall (f :: Decoration). TxRelationF f -&gt; [TxWithdrawal]
+$sel:collateralOuts:TxRelationF :: forall (f :: Decoration).
+TxRelationF f -&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+$sel:outs:TxRelationF :: forall (f :: Decoration). TxRelationF f -&gt; [(TxOut, [TxOutToken])]
+$sel:collateralIns:TxRelationF :: forall (f :: Decoration).
+TxRelationF f -&gt; [DecorateWithTxOut f TxCollateral]
+$sel:ins:TxRelationF :: forall (f :: Decoration).
+TxRelationF f -&gt; [DecorateWithTxOut f TxIn]
+withdrawals :: [TxWithdrawal]
+collateralOuts :: Maybe (TxCollateralOut, [TxCollateralOutToken])
+outs :: [(TxOut, [TxOutToken])]
+collateralIns :: [DecorateWithTxOut 'Without TxCollateral]
+ins :: [DecorateWithTxOut 'Without TxIn]
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#%24sel%3Awithdrawals%3ATxRelationF"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-109"></span><span>    </span><span class="annot"><span class="annottext">[TxIn] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">[TxIn]
+[DecorateWithTxOut 'Without TxIn]
+</span><a href="#local-6989586621682457459"><span class="hs-identifier hs-var">ins</span></a></span><span>
+</span><span id="line-110"></span><span>    </span><span class="annot"><span class="annottext">[TxCollateral] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">[TxCollateral]
+[DecorateWithTxOut 'Without TxCollateral]
+</span><a href="#local-6989586621682457458"><span class="hs-identifier hs-var">collateralIns</span></a></span><span>
+</span><span id="line-111"></span><span>    </span><span class="annot"><span class="annottext">[TxOut] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">([TxOut] -&gt; SqlPersistT IO ()) -&gt; [TxOut] -&gt; SqlPersistT IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(TxOut, [TxOutToken]) -&gt; TxOut
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">((TxOut, [TxOutToken]) -&gt; TxOut)
+-&gt; [(TxOut, [TxOutToken])] -&gt; [TxOut]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[(TxOut, [TxOutToken])]
+</span><a href="#local-6989586621682457457"><span class="hs-identifier hs-var">outs</span></a></span><span>
+</span><span id="line-112"></span><span>    </span><span class="annot"><span class="annottext">[TxOutToken] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">([TxOutToken] -&gt; SqlPersistT IO ())
+-&gt; [TxOutToken] -&gt; SqlPersistT IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[(TxOut, [TxOutToken])]
+</span><a href="#local-6989586621682457457"><span class="hs-identifier hs-var">outs</span></a></span><span> </span><span class="annot"><span class="annottext">[(TxOut, [TxOutToken])]
+-&gt; ((TxOut, [TxOutToken]) -&gt; [TxOutToken]) -&gt; [TxOutToken]
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(TxOut, [TxOutToken]) -&gt; [TxOutToken]
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span>
+</span><span id="line-113"></span><span>    </span><span class="annot"><span class="annottext">[TxCollateralOut] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">([TxCollateralOut] -&gt; SqlPersistT IO ())
+-&gt; [TxCollateralOut] -&gt; SqlPersistT IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TxCollateralOut -&gt; [TxCollateralOut]
+forall a. Maybe a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybeToList</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe TxCollateralOut -&gt; [TxCollateralOut])
+-&gt; Maybe TxCollateralOut -&gt; [TxCollateralOut]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(TxCollateralOut, [TxCollateralOutToken]) -&gt; TxCollateralOut
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">((TxCollateralOut, [TxCollateralOutToken]) -&gt; TxCollateralOut)
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+-&gt; Maybe TxCollateralOut
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (TxCollateralOut, [TxCollateralOutToken])
+</span><a href="#local-6989586621682457456"><span class="hs-identifier hs-var">collateralOuts</span></a></span><span>
+</span><span id="line-114"></span><span>    </span><span class="annot"><span class="annottext">[TxCollateralOutToken] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">([TxCollateralOutToken] -&gt; SqlPersistT IO ())
+-&gt; [TxCollateralOutToken] -&gt; SqlPersistT IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (TxCollateralOut, [TxCollateralOutToken])
+-&gt; [(TxCollateralOut, [TxCollateralOutToken])]
+forall a. Maybe a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybeToList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe (TxCollateralOut, [TxCollateralOutToken])
+</span><a href="#local-6989586621682457456"><span class="hs-identifier hs-var">collateralOuts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(TxCollateralOut, [TxCollateralOutToken])]
+-&gt; ((TxCollateralOut, [TxCollateralOutToken])
+    -&gt; [TxCollateralOutToken])
+-&gt; [TxCollateralOutToken]
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(TxCollateralOut, [TxCollateralOutToken]) -&gt; [TxCollateralOutToken]
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span>
+</span><span id="line-115"></span><span>    </span><span class="annot"><span class="annottext">[TxWithdrawal] -&gt; SqlPersistT IO ()
+forall (m :: * -&gt; *) backend record.
+(MonadIO m, PersistStoreWrite backend, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+[record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var">repsertMany'</span></a></span><span> </span><span class="annot"><span class="annottext">[TxWithdrawal]
+</span><a href="#local-6989586621682457455"><span class="hs-identifier hs-var">withdrawals</span></a></span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-118"></span><span>        </span><span id="local-6989586621682457449"><span class="annot"><span class="annottext">repsertMany' :: [record] -&gt; ReaderT backend m ()
+</span><a href="#local-6989586621682457449"><span class="hs-identifier hs-var hs-var">repsertMany'</span></a></span></span><span> </span><span id="local-6989586621682457448"><span class="annot"><span class="annottext">[record]
+</span><a href="#local-6989586621682457448"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span>
+</span><span id="line-119"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621682457447"><span class="annot"><span class="annottext">record -&gt; Key record
+</span><a href="#local-6989586621682457447"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (record -&gt; Key record)
+forall record. PersistEntity record =&gt; Maybe (record -&gt; Key record)
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">keyFromRecordM</span></a></span><span>
+</span><span id="line-120"></span><span>            </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">([(Key record, record)] -&gt; ReaderT backend m ())
+-&gt; [(Key record, record)] -&gt; ReaderT backend m ()
+forall (m :: * -&gt; *) e b. Monad m =&gt; ([e] -&gt; m b) -&gt; [e] -&gt; m ()
+</span><a href="#local-6989586621682457446"><span class="hs-identifier hs-var">chunked</span></a></span><span> </span><span class="annot"><span class="annottext">[(Key record, record)] -&gt; ReaderT backend m ()
+forall backend record (m :: * -&gt; *).
+(PersistStoreWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[(Key record, record)] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">repsertMany</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="annottext">record -&gt; Key record
+forall record. PersistEntity record =&gt; record -&gt; Key record
+</span><a href="#local-6989586621682457447"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">record
+</span><a href="#local-6989586621682457445"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">record
+</span><a href="#local-6989586621682457445"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621682457445"><span class="annot"><span class="annottext">record
+</span><a href="#local-6989586621682457445"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[record]
+</span><a href="#local-6989586621682457448"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-121"></span><span>        </span><span class="hs-comment">-- needed to submit large numberot transactions</span><span>
+</span><span id="line-122"></span><span>        </span><span id="local-6989586621682457446"><span class="annot"><span class="annottext">chunked :: ([e] -&gt; m b) -&gt; [e] -&gt; m ()
+</span><a href="#local-6989586621682457446"><span class="hs-identifier hs-var hs-var">chunked</span></a></span></span><span> </span><span id="local-6989586621682457444"><span class="annot"><span class="annottext">[e] -&gt; m b
+</span><a href="#local-6989586621682457444"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621682457443"><span class="annot"><span class="annottext">[e]
+</span><a href="#local-6989586621682457443"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([e] -&gt; m b) -&gt; [[e]] -&gt; m ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM_</span></a></span><span> </span><span class="annot"><span class="annottext">[e] -&gt; m b
+</span><a href="#local-6989586621682457444"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; [e] -&gt; [[e]]
+forall e. Int -&gt; [e] -&gt; [[e]]
+</span><a href="../../../../split/html/src"><span class="hs-identifier hs-var">chunksOf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1000</span></span><span> </span><span class="annot"><span class="annottext">[e]
+</span><a href="#local-6989586621682457443"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span class="hs-comment">-- | Select transactions history from the database</span><span>
+</span><span id="line-125"></span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#selectTxHistory"><span class="hs-identifier hs-type">selectTxHistory</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistory"><span class="hs-identifier hs-type">TxHistory</span></a></span><span>
+</span><span id="line-126"></span><span id="selectTxHistory"><span class="annot"><span class="annottext">selectTxHistory :: ReaderT SqlBackend IO TxHistory
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#selectTxHistory"><span class="hs-identifier hs-var hs-var">selectTxHistory</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map TxId (TxRelationF 'Without) -&gt; TxHistory
+forall (f :: Decoration). Map TxId (TxRelationF f) -&gt; TxHistoryF f
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxHistoryF"><span class="hs-identifier hs-var">TxHistoryF</span></a></span><span> </span><span class="annot"><span class="annottext">(Map TxId (TxRelationF 'Without) -&gt; TxHistory)
+-&gt; ReaderT SqlBackend IO (Map TxId (TxRelationF 'Without))
+-&gt; ReaderT SqlBackend IO TxHistory
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO (Map TxId (TxRelationF 'Without))
+</span><a href="#local-6989586621682457441"><span class="hs-identifier hs-var">select</span></a></span><span>
+</span><span id="line-127"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-128"></span><span>    </span><span id="local-6989586621682457440"><span class="annot"><span class="annottext">selectListAll :: ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var hs-var">selectListAll</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Filter record]
+-&gt; [SelectOpt record] -&gt; ReaderT backend m [Entity record]
+forall record backend (m :: * -&gt; *).
+(MonadIO m, PersistQueryRead backend,
+ PersistRecordBackend record backend) =&gt;
+[Filter record]
+-&gt; [SelectOpt record] -&gt; ReaderT backend m [Entity record]
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">selectList</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-129"></span><span>    </span><span class="annot"><a href="#local-6989586621682457441"><span class="hs-identifier hs-type">select</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistT</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Types.html#TxId"><span class="hs-identifier hs-type">TxId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxRelationF"><span class="hs-identifier hs-type">TxRelationF</span></a></span><span> </span><span class="hs-special">'</span><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#Without"><span class="hs-identifier hs-type">Without</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span>    </span><span id="local-6989586621682457441"><span class="annot"><span class="annottext">select :: ReaderT SqlBackend IO (Map TxId (TxRelationF 'Without))
+</span><a href="#local-6989586621682457441"><span class="hs-identifier hs-var hs-var">select</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-131"></span><span>        </span><span id="local-6989586621682457439"><span class="annot"><span class="annottext">Map TxId [TxIn]
+</span><a href="#local-6989586621682457439"><span class="hs-identifier hs-var">inputs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(TxIn -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxIn]
+-&gt; ReaderT SqlBackend IO (Map TxId [TxIn])
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxIn -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txInputTxId"><span class="hs-identifier hs-var hs-var">txInputTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxIn]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-132"></span><span>        </span><span id="local-6989586621682457436"><span class="annot"><span class="annottext">Map TxId [TxCollateral]
+</span><a href="#local-6989586621682457436"><span class="hs-identifier hs-var">collaterals</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(TxCollateral -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxCollateral]
+-&gt; ReaderT SqlBackend IO (Map TxId [TxCollateral])
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxCollateral -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txCollateralTxId"><span class="hs-identifier hs-var hs-var">txCollateralTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxCollateral]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-133"></span><span>        </span><span id="local-6989586621682457434"><span class="annot"><span class="annottext">Map TxId [TxOut]
+</span><a href="#local-6989586621682457434"><span class="hs-identifier hs-var">outputs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(TxOut -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxOut]
+-&gt; ReaderT SqlBackend IO (Map TxId [TxOut])
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxOut -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txOutputTxId"><span class="hs-identifier hs-var hs-var">txOutputTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxOut]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-134"></span><span>        </span><span id="local-6989586621682457432"><span class="annot"><span class="annottext">Map TxId (Maybe TxCollateralOut)
+</span><a href="#local-6989586621682457432"><span class="hs-identifier hs-var">collateralOutputs</span></a></span></span><span>
+</span><span id="line-135"></span><span>            </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(First TxCollateralOut -&gt; Maybe TxCollateralOut)
+-&gt; Map TxId (First TxCollateralOut)
+-&gt; Map TxId (Maybe TxCollateralOut)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">First TxCollateralOut -&gt; Maybe TxCollateralOut
+forall a. First a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var">getFirst</span></a></span><span> </span><span class="annot"><span class="annottext">(Map TxId (First TxCollateralOut)
+ -&gt; Map TxId (Maybe TxCollateralOut))
+-&gt; ReaderT SqlBackend IO (Map TxId (First TxCollateralOut))
+-&gt; ReaderT SqlBackend IO (Map TxId (Maybe TxCollateralOut))
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(TxCollateralOut -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxCollateralOut]
+-&gt; ReaderT SqlBackend IO (Map TxId (First TxCollateralOut))
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxCollateralOut -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txCollateralOutTxId"><span class="hs-identifier hs-var hs-var">txCollateralOutTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxCollateralOut]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-136"></span><span>        </span><span id="local-6989586621682457430"><span class="annot"><span class="annottext">Map TxId [TxWithdrawal]
+</span><a href="#local-6989586621682457430"><span class="hs-identifier hs-var">withdrawals</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(TxWithdrawal -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxWithdrawal]
+-&gt; ReaderT SqlBackend IO (Map TxId [TxWithdrawal])
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxWithdrawal -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txWithdrawalTxId"><span class="hs-identifier hs-var hs-var">txWithdrawalTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxWithdrawal]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-137"></span><span>        </span><span id="local-6989586621682457428"><span class="annot"><span class="annottext">Map TxId [TxOutToken]
+</span><a href="#local-6989586621682457428"><span class="hs-identifier hs-var">outTokens</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(TxOutToken -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxOutToken]
+-&gt; ReaderT SqlBackend IO (Map TxId [TxOutToken])
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxOutToken -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txOutTokenTxId"><span class="hs-identifier hs-var hs-var">txOutTokenTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxOutToken]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-138"></span><span>        </span><span id="local-6989586621682457426"><span class="annot"><span class="annottext">Map TxId [TxCollateralOutToken]
+</span><a href="#local-6989586621682457426"><span class="hs-identifier hs-var">collateralTokens</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(TxCollateralOutToken -&gt; TxId)
+-&gt; ReaderT SqlBackend IO [Entity TxCollateralOutToken]
+-&gt; ReaderT SqlBackend IO (Map TxId [TxCollateralOutToken])
+forall k (f :: * -&gt; *) (g :: * -&gt; *) b.
+(Ord k, Functor f, Applicative g, Semigroup (g b)) =&gt;
+(b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var">mkMap</span></a></span><span> </span><span class="annot"><span class="annottext">TxCollateralOutToken -&gt; TxId
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txCollateralOutTokenTxId"><span class="hs-identifier hs-var hs-var">txCollateralOutTokenTxId</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT SqlBackend IO [Entity TxCollateralOutToken]
+forall backend (m :: * -&gt; *) record.
+(PersistQueryRead backend, MonadIO m, PersistEntity record,
+ PersistEntityBackend record ~ BaseBackend backend) =&gt;
+ReaderT backend m [Entity record]
+</span><a href="#local-6989586621682457440"><span class="hs-identifier hs-var">selectListAll</span></a></span><span>
+</span><span id="line-139"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621682457424"><span class="annot"><span class="annottext">ids :: Set TxId
+</span><a href="#local-6989586621682457424"><span class="hs-identifier hs-var hs-var">ids</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-140"></span><span>                </span><span class="annot"><span class="annottext">[Set TxId] -&gt; Set TxId
+forall (t :: * -&gt; *) m. (Foldable t, Monoid m) =&gt; t m -&gt; m
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fold</span></a></span><span>
+</span><span id="line-141"></span><span>                    </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Map TxId [TxIn] -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxIn]
+</span><a href="#local-6989586621682457439"><span class="hs-identifier hs-var">inputs</span></a></span><span>
+</span><span id="line-142"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map TxId [TxCollateral] -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxCollateral]
+</span><a href="#local-6989586621682457436"><span class="hs-identifier hs-var">collaterals</span></a></span><span>
+</span><span id="line-143"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map TxId [TxOut] -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxOut]
+</span><a href="#local-6989586621682457434"><span class="hs-identifier hs-var">outputs</span></a></span><span>
+</span><span id="line-144"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map TxId (Maybe TxCollateralOut) -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId (Maybe TxCollateralOut)
+</span><a href="#local-6989586621682457432"><span class="hs-identifier hs-var">collateralOutputs</span></a></span><span>
+</span><span id="line-145"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map TxId [TxWithdrawal] -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxWithdrawal]
+</span><a href="#local-6989586621682457430"><span class="hs-identifier hs-var">withdrawals</span></a></span><span>
+</span><span id="line-146"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map TxId [TxOutToken] -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxOutToken]
+</span><a href="#local-6989586621682457428"><span class="hs-identifier hs-var">outTokens</span></a></span><span>
+</span><span id="line-147"></span><span>                   </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map TxId [TxCollateralOutToken] -&gt; Set TxId
+forall k a. Map k a -&gt; Set k
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.keysSet</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxCollateralOutToken]
+</span><a href="#local-6989586621682457426"><span class="hs-identifier hs-var">collateralTokens</span></a></span><span>
+</span><span id="line-148"></span><span>                    </span><span class="hs-special">]</span><span>
+</span><span id="line-149"></span><span>            </span><span class="annot"><a href="#local-6989586621682457422"><span class="hs-identifier hs-type">selectOutTokens</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Types.html#TxId"><span class="hs-identifier hs-type">TxId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOut"><span class="hs-identifier hs-type">TxOut</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxOutToken"><span class="hs-identifier hs-type">TxOutToken</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-150"></span><span>            </span><span id="local-6989586621682457422"><span class="annot"><span class="annottext">selectOutTokens :: TxId -&gt; TxOut -&gt; [TxOutToken]
+</span><a href="#local-6989586621682457422"><span class="hs-identifier hs-var hs-var">selectOutTokens</span></a></span></span><span> </span><span id="local-6989586621682457421"><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457421"><span class="hs-identifier hs-var">txId</span></a></span></span><span> </span><span id="local-6989586621682457420"><span class="annot"><span class="annottext">TxOut
+</span><a href="#local-6989586621682457420"><span class="hs-identifier hs-var">txOut</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-151"></span><span>                </span><span class="annot"><span class="annottext">(TxOutToken -&gt; Bool) -&gt; [TxOutToken] -&gt; [TxOutToken]
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">filter</span></a></span><span>
+</span><span id="line-152"></span><span>                    </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621682457419"><span class="annot"><span class="annottext">TxOutToken
+</span><a href="#local-6989586621682457419"><span class="hs-identifier hs-var">token</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TxOutToken -&gt; Word32
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txOutTokenTxIndex"><span class="hs-identifier hs-var hs-var">txOutTokenTxIndex</span></a></span><span> </span><span class="annot"><span class="annottext">TxOutToken
+</span><a href="#local-6989586621682457419"><span class="hs-identifier hs-var">token</span></a></span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; Word32 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">TxOut -&gt; Word32
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txOutputIndex"><span class="hs-identifier hs-var hs-var">txOutputIndex</span></a></span><span> </span><span class="annot"><span class="annottext">TxOut
+</span><a href="#local-6989586621682457420"><span class="hs-identifier hs-var">txOut</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-153"></span><span>                </span><span class="annot"><span class="annottext">([TxOutToken] -&gt; [TxOutToken]) -&gt; [TxOutToken] -&gt; [TxOutToken]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[TxOutToken] -&gt; TxId -&gt; Map TxId [TxOutToken] -&gt; [TxOutToken]
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457421"><span class="hs-identifier hs-var">txId</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxOutToken]
+</span><a href="#local-6989586621682457428"><span class="hs-identifier hs-var">outTokens</span></a></span><span>
+</span><span id="line-154"></span><span>            </span><span class="annot"><a href="#local-6989586621682457415"><span class="hs-identifier hs-type">selectCollateralTokens</span></a></span><span>
+</span><span id="line-155"></span><span>                </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Types.html#TxId"><span class="hs-identifier hs-type">TxId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOut"><span class="hs-identifier hs-type">TxCollateralOut</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Cardano.Wallet.DB.Sqlite.Schema.html#TxCollateralOutToken"><span class="hs-identifier hs-type">TxCollateralOutToken</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-156"></span><span>            </span><span id="local-6989586621682457415"><span class="annot"><span class="annottext">selectCollateralTokens :: TxId -&gt; TxCollateralOut -&gt; [TxCollateralOutToken]
+</span><a href="#local-6989586621682457415"><span class="hs-identifier hs-var hs-var">selectCollateralTokens</span></a></span></span><span> </span><span id="local-6989586621682457414"><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457414"><span class="hs-identifier hs-var">txId</span></a></span></span><span> </span><span class="annot"><span class="annottext">TxCollateralOut
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-157"></span><span>                </span><span class="annot"><span class="annottext">[TxCollateralOutToken]
+-&gt; TxId
+-&gt; Map TxId [TxCollateralOutToken]
+-&gt; [TxCollateralOutToken]
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457414"><span class="hs-identifier hs-var">txId</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxCollateralOutToken]
+</span><a href="#local-6989586621682457426"><span class="hs-identifier hs-var">collateralTokens</span></a></span><span>
+</span><span id="line-158"></span><span>        </span><span class="annot"><span class="annottext">Map TxId (TxRelationF 'Without)
+-&gt; ReaderT SqlBackend IO (Map TxId (TxRelationF 'Without))
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Map TxId (TxRelationF 'Without)
+ -&gt; ReaderT SqlBackend IO (Map TxId (TxRelationF 'Without)))
+-&gt; Map TxId (TxRelationF 'Without)
+-&gt; ReaderT SqlBackend IO (Map TxId (TxRelationF 'Without))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Map TxId (TxRelationF 'Without)]
+-&gt; Map TxId (TxRelationF 'Without)
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mconcat</span></a></span><span> </span><span class="annot"><span class="annottext">([Map TxId (TxRelationF 'Without)]
+ -&gt; Map TxId (TxRelationF 'Without))
+-&gt; [Map TxId (TxRelationF 'Without)]
+-&gt; Map TxId (TxRelationF 'Without)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-159"></span><span>            </span><span id="local-6989586621682457413"><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Set TxId -&gt; [TxId]
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">toList</span></a></span><span> </span><span class="annot"><span class="annottext">Set TxId
+</span><a href="#local-6989586621682457424"><span class="hs-identifier hs-var">ids</span></a></span><span>
+</span><span id="line-160"></span><span>            </span><span class="annot"><span class="annottext">Map TxId (TxRelationF 'Without)
+-&gt; [Map TxId (TxRelationF 'Without)]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span>
+</span><span id="line-161"></span><span>                </span><span class="annot"><span class="annottext">(Map TxId (TxRelationF 'Without)
+ -&gt; [Map TxId (TxRelationF 'Without)])
+-&gt; Map TxId (TxRelationF 'Without)
+-&gt; [Map TxId (TxRelationF 'Without)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TxId -&gt; TxRelationF 'Without -&gt; Map TxId (TxRelationF 'Without)
+forall k a. k -&gt; a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.singleton</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span>
+</span><span id="line-162"></span><span>                </span><span class="annot"><span class="annottext">(TxRelationF 'Without -&gt; Map TxId (TxRelationF 'Without))
+-&gt; TxRelationF 'Without -&gt; Map TxId (TxRelationF 'Without)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TxRelationF :: forall (f :: Decoration).
+[DecorateWithTxOut f TxIn]
+-&gt; [DecorateWithTxOut f TxCollateral]
+-&gt; [(TxOut, [TxOutToken])]
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+-&gt; [TxWithdrawal]
+-&gt; TxRelationF f
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#TxRelationF"><span class="hs-identifier hs-type">TxRelationF</span></a></span><span>
+</span><span id="line-163"></span><span>                </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">$sel:ins:TxRelationF :: [DecorateWithTxOut 'Without TxIn]
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#%24sel%3Ains%3ATxRelationF"><span class="hs-identifier hs-var">ins</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(TxIn -&gt; Int) -&gt; [TxIn] -&gt; [TxIn]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="annot"><span class="annottext">TxIn -&gt; Int
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txInputOrder"><span class="hs-identifier hs-var hs-var">txInputOrder</span></a></span><span> </span><span class="annot"><span class="annottext">([TxIn] -&gt; [TxIn]) -&gt; [TxIn] -&gt; [TxIn]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[TxIn] -&gt; TxId -&gt; Map TxId [TxIn] -&gt; [TxIn]
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxIn]
+</span><a href="#local-6989586621682457439"><span class="hs-identifier hs-var">inputs</span></a></span><span>
+</span><span id="line-164"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">$sel:collateralIns:TxRelationF :: [DecorateWithTxOut 'Without TxCollateral]
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#%24sel%3AcollateralIns%3ATxRelationF"><span class="hs-identifier hs-var">collateralIns</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(TxCollateral -&gt; Int) -&gt; [TxCollateral] -&gt; [TxCollateral]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="annot"><span class="annottext">TxCollateral -&gt; Int
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txCollateralOrder"><span class="hs-identifier hs-var hs-var">txCollateralOrder</span></a></span><span>
+</span><span id="line-165"></span><span>                      </span><span class="annot"><span class="annottext">([TxCollateral] -&gt; [TxCollateral])
+-&gt; [TxCollateral] -&gt; [TxCollateral]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[TxCollateral] -&gt; TxId -&gt; Map TxId [TxCollateral] -&gt; [TxCollateral]
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxCollateral]
+</span><a href="#local-6989586621682457436"><span class="hs-identifier hs-var">collaterals</span></a></span><span>
+</span><span id="line-166"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">$sel:outs:TxRelationF :: [(TxOut, [TxOutToken])]
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#%24sel%3Aouts%3ATxRelationF"><span class="hs-identifier hs-var">outs</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((TxOut, [TxOutToken]) -&gt; (TxOut, [TxOutToken]))
+-&gt; [(TxOut, [TxOutToken])] -&gt; [(TxOut, [TxOutToken])]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">([TxOutToken] -&gt; [TxOutToken])
+-&gt; (TxOut, [TxOutToken]) -&gt; (TxOut, [TxOutToken])
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">(([TxOutToken] -&gt; [TxOutToken])
+ -&gt; (TxOut, [TxOutToken]) -&gt; (TxOut, [TxOutToken]))
+-&gt; ([TxOutToken] -&gt; [TxOutToken])
+-&gt; (TxOut, [TxOutToken])
+-&gt; (TxOut, [TxOutToken])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(TxOutToken -&gt; (TokenPolicyId, TokenName))
+-&gt; [TxOutToken] -&gt; [TxOutToken]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="annot"><span class="annottext">TxOutToken -&gt; (TokenPolicyId, TokenName)
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#tokenOutOrd"><span class="hs-identifier hs-var">tokenOutOrd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-167"></span><span>                      </span><span class="annot"><span class="annottext">([(TxOut, [TxOutToken])] -&gt; [(TxOut, [TxOutToken])])
+-&gt; [(TxOut, [TxOutToken])] -&gt; [(TxOut, [TxOutToken])]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((TxOut, [TxOutToken]) -&gt; Word32)
+-&gt; [(TxOut, [TxOutToken])] -&gt; [(TxOut, [TxOutToken])]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TxOut -&gt; Word32
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txOutputIndex"><span class="hs-identifier hs-var hs-var">txOutputIndex</span></a></span><span> </span><span class="annot"><span class="annottext">(TxOut -&gt; Word32)
+-&gt; ((TxOut, [TxOutToken]) -&gt; TxOut)
+-&gt; (TxOut, [TxOutToken])
+-&gt; Word32
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(TxOut, [TxOutToken]) -&gt; TxOut
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-168"></span><span>                      </span><span class="annot"><span class="annottext">([(TxOut, [TxOutToken])] -&gt; [(TxOut, [TxOutToken])])
+-&gt; [(TxOut, [TxOutToken])] -&gt; [(TxOut, [TxOutToken])]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TxOut -&gt; TxOut
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">(TxOut -&gt; TxOut)
+-&gt; (TxOut -&gt; [TxOutToken]) -&gt; TxOut -&gt; (TxOut, [TxOutToken])
+forall (a :: * -&gt; * -&gt; *) b c c'.
+Arrow a =&gt;
+a b c -&gt; a b c' -&gt; a b (c, c')
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&amp;&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">TxId -&gt; TxOut -&gt; [TxOutToken]
+</span><a href="#local-6989586621682457422"><span class="hs-identifier hs-var">selectOutTokens</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-169"></span><span>                      </span><span class="annot"><span class="annottext">(TxOut -&gt; (TxOut, [TxOutToken]))
+-&gt; [TxOut] -&gt; [(TxOut, [TxOutToken])]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[TxOut] -&gt; TxId -&gt; Map TxId [TxOut] -&gt; [TxOut]
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxOut]
+</span><a href="#local-6989586621682457434"><span class="hs-identifier hs-var">outputs</span></a></span><span>
+</span><span id="line-170"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">$sel:collateralOuts:TxRelationF :: Maybe (TxCollateralOut, [TxCollateralOutToken])
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#%24sel%3AcollateralOuts%3ATxRelationF"><span class="hs-identifier hs-var">collateralOuts</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((TxCollateralOut, [TxCollateralOutToken])
+ -&gt; (TxCollateralOut, [TxCollateralOutToken]))
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">([TxCollateralOutToken] -&gt; [TxCollateralOutToken])
+-&gt; (TxCollateralOut, [TxCollateralOutToken])
+-&gt; (TxCollateralOut, [TxCollateralOutToken])
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">(([TxCollateralOutToken] -&gt; [TxCollateralOutToken])
+ -&gt; (TxCollateralOut, [TxCollateralOutToken])
+ -&gt; (TxCollateralOut, [TxCollateralOutToken]))
+-&gt; ([TxCollateralOutToken] -&gt; [TxCollateralOutToken])
+-&gt; (TxCollateralOut, [TxCollateralOutToken])
+-&gt; (TxCollateralOut, [TxCollateralOutToken])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(TxCollateralOutToken -&gt; (TokenPolicyId, TokenName))
+-&gt; [TxCollateralOutToken] -&gt; [TxCollateralOutToken]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="annot"><span class="annottext">TxCollateralOutToken -&gt; (TokenPolicyId, TokenName)
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#tokenCollateralOrd"><span class="hs-identifier hs-var">tokenCollateralOrd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-171"></span><span>                      </span><span class="annot"><span class="annottext">(Maybe (TxCollateralOut, [TxCollateralOutToken])
+ -&gt; Maybe (TxCollateralOut, [TxCollateralOutToken]))
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TxCollateralOut -&gt; TxCollateralOut
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">(TxCollateralOut -&gt; TxCollateralOut)
+-&gt; (TxCollateralOut -&gt; [TxCollateralOutToken])
+-&gt; TxCollateralOut
+-&gt; (TxCollateralOut, [TxCollateralOutToken])
+forall (a :: * -&gt; * -&gt; *) b c c'.
+Arrow a =&gt;
+a b c -&gt; a b c' -&gt; a b (c, c')
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&amp;&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">TxId -&gt; TxCollateralOut -&gt; [TxCollateralOutToken]
+</span><a href="#local-6989586621682457415"><span class="hs-identifier hs-var">selectCollateralTokens</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-172"></span><span>                      </span><span class="annot"><span class="annottext">(TxCollateralOut -&gt; (TxCollateralOut, [TxCollateralOutToken]))
+-&gt; Maybe TxCollateralOut
+-&gt; Maybe (TxCollateralOut, [TxCollateralOutToken])
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TxCollateralOut
+-&gt; TxId
+-&gt; Map TxId (Maybe TxCollateralOut)
+-&gt; Maybe TxCollateralOut
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TxCollateralOut
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId (Maybe TxCollateralOut)
+</span><a href="#local-6989586621682457432"><span class="hs-identifier hs-var">collateralOutputs</span></a></span><span>
+</span><span id="line-173"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">$sel:withdrawals:TxRelationF :: [TxWithdrawal]
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Model.html#%24sel%3Awithdrawals%3ATxRelationF"><span class="hs-identifier hs-var">withdrawals</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(TxWithdrawal -&gt; RewardAccount) -&gt; [TxWithdrawal] -&gt; [TxWithdrawal]
+forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">sortOn</span></a></span><span> </span><span class="annot"><span class="annottext">TxWithdrawal -&gt; RewardAccount
+</span><a href="Cardano.Wallet.DB.Sqlite.Schema.html#txWithdrawalAccount"><span class="hs-identifier hs-var hs-var">txWithdrawalAccount</span></a></span><span>
+</span><span id="line-174"></span><span>                      </span><span class="annot"><span class="annottext">([TxWithdrawal] -&gt; [TxWithdrawal])
+-&gt; [TxWithdrawal] -&gt; [TxWithdrawal]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[TxWithdrawal] -&gt; TxId -&gt; Map TxId [TxWithdrawal] -&gt; [TxWithdrawal]
+forall k a. Ord k =&gt; a -&gt; k -&gt; Map k a -&gt; a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.findWithDefault</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TxId
+</span><a href="#local-6989586621682457413"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Map TxId [TxWithdrawal]
+</span><a href="#local-6989586621682457430"><span class="hs-identifier hs-var">withdrawals</span></a></span><span>
+</span><span id="line-175"></span><span>                </span><span class="hs-special">}</span><span>
+</span><span id="line-176"></span><span>
+</span><span id="line-177"></span><span id="local-6989586621682457543"><span id="local-6989586621682457544"><span id="local-6989586621682457545"><span id="local-6989586621682457546"><span class="annot"><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-type">mkMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457546"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Functor</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457545"><span class="hs-identifier hs-type">f</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Applicative</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457544"><span class="hs-identifier hs-type">g</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Semigroup</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682457544"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457543"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-178"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682457543"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682457546"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-179"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682457545"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">Entity</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457543"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-180"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621682457545"><span class="hs-identifier hs-type">f</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457546"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621682457544"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="annot"><a href="#local-6989586621682457543"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-181"></span><span id="mkMap"><span class="annot"><span class="annottext">mkMap :: (b -&gt; k) -&gt; f [Entity b] -&gt; f (Map k (g b))
+</span><a href="Cardano.Wallet.DB.Store.Transactions.Store.html#mkMap"><span class="hs-identifier hs-var hs-var">mkMap</span></a></span></span><span> </span><span id="local-6989586621682457406"><span class="annot"><span class="annottext">b -&gt; k
+</span><a href="#local-6989586621682457406"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621682457405"><span class="annot"><span class="annottext">f [Entity b]
+</span><a href="#local-6989586621682457405"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-182"></span><span>    </span><span class="annot"><span class="annottext">(g b -&gt; g b -&gt; g b) -&gt; [(k, g b)] -&gt; Map k (g b)
+forall k a. Ord k =&gt; (a -&gt; a -&gt; a) -&gt; [(k, a)] -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.fromListWith</span></a></span><span> </span><span class="annot"><span class="annottext">g b -&gt; g b -&gt; g b
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">(&lt;&gt;)</span></a></span><span>
+</span><span id="line-183"></span><span>    </span><span class="annot"><span class="annottext">([(k, g b)] -&gt; Map k (g b))
+-&gt; ([Entity b] -&gt; [(k, g b)]) -&gt; [Entity b] -&gt; Map k (g b)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Entity b -&gt; (k, g b)) -&gt; [Entity b] -&gt; [(k, g b)]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">b -&gt; k
+</span><a href="#local-6989586621682457406"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">(b -&gt; k) -&gt; (b -&gt; g b) -&gt; b -&gt; (k, g b)
+forall (a :: * -&gt; * -&gt; *) b c c'.
+Arrow a =&gt;
+a b c -&gt; a b c' -&gt; a b (c, c')
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&amp;&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; g b
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(b -&gt; (k, g b)) -&gt; (Entity b -&gt; b) -&gt; Entity b -&gt; (k, g b)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Entity b -&gt; b
+forall record. Entity record -&gt; record
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var hs-var">entityVal</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-184"></span><span>    </span><span class="annot"><span class="annottext">([Entity b] -&gt; Map k (g b)) -&gt; f [Entity b] -&gt; f (Map k (g b))
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">f [Entity b]
+</span><a href="#local-6989586621682457405"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-185"></span></pre></body></html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LINE 1 &quot;Data/Digest/CRC32.hsc&quot; #-}</span><span>
+</span><span id="line-1"></span><span class="hs-pragma">{-# LANGUAGE ForeignFunctionInterface, FlexibleInstances #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">------------------------------------------------------------</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Copyright    :   (c) 2008 Eugene Kirpichov</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- License      :   BSD-style</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Maintainer   :   ekirpichov@gmail.com</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Stability    :   experimental</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Portability  :   portable (H98 + FFI)</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- CRC32 wrapper</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">------------------------------------------------------------</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.Digest.CRC32</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-identifier">CRC32</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">crc32</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">crc32Update</span><span>
+</span><span id="line-17"></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Data.ByteString.Unsafe</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">unsafeUseAsCStringLen</span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Foreign</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-identifier">Data.ByteString</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="hs-identifier">S</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-identifier">Data.ByteString.Lazy</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="hs-identifier">L</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-identifier">Data.ByteString.Lazy.Internal</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="hs-identifier">LI</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-identifier">System.IO.Unsafe</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="hs-identifier">U</span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- | The class of values for which CRC32 may be computed</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">class</span><span> </span><span class="hs-identifier">CRC32</span><span> </span><span class="hs-identifier">a</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-comment">-- | Compute CRC32 checksum</span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-identifier">crc32</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-identifier">a</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">Word32</span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-identifier">crc32</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">crc32Update</span><span> </span><span class="hs-number">0</span><span>
+</span><span id="line-34"></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-comment">-- | Given the CRC32 checksum of a string, compute CRC32 of its</span><span>
+</span><span id="line-36"></span><span>    </span><span class="hs-comment">-- concatenation with another string (t.i., incrementally update </span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-comment">-- the CRC32 hash value)</span><span>
+</span><span id="line-38"></span><span>    </span><span class="hs-identifier">crc32Update</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-identifier">Word32</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">a</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">Word32</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">instance</span><span> </span><span class="hs-identifier">CRC32</span><span> </span><span class="hs-identifier">S.ByteString</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-identifier">crc32Update</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">crc32_s_update</span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span class="hs-keyword">instance</span><span> </span><span class="hs-identifier">CRC32</span><span> </span><span class="hs-identifier">L.ByteString</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-44"></span><span>    </span><span class="hs-identifier">crc32Update</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">crc32_l_update</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-keyword">instance</span><span> </span><span class="hs-identifier">CRC32</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">Word8</span><span class="hs-special">]</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-identifier">crc32Update</span><span> </span><span class="hs-identifier">n</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">crc32Update</span><span> </span><span class="hs-identifier">n</span><span class="hs-special">)</span><span> </span><span class="hs-operator">.</span><span> </span><span class="hs-identifier">L.pack</span><span>
+</span><span id="line-48"></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="hs-identifier">crc32_s_update</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-identifier">Word32</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">S.ByteString</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">Word32</span><span>
+</span><span id="line-51"></span><span class="hs-identifier">crc32_s_update</span><span> </span><span class="hs-identifier">seed</span><span> </span><span class="hs-identifier">str</span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="hs-identifier">S.null</span><span> </span><span class="hs-identifier">str</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">seed</span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="hs-identifier">otherwise</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-54"></span><span>        </span><span class="hs-identifier">U.unsafePerformIO</span><span> </span><span class="hs-operator">$</span><span>
+</span><span id="line-55"></span><span>        </span><span class="hs-identifier">unsafeUseAsCStringLen</span><span> </span><span class="hs-identifier">str</span><span> </span><span class="hs-operator">$</span><span>
+</span><span id="line-56"></span><span>        </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="hs-identifier">buf</span><span class="hs-special">,</span><span> </span><span class="hs-identifier">len</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">fmap</span><span> </span><span class="hs-identifier">fromIntegral</span><span> </span><span class="hs-operator">$</span><span>
+</span><span id="line-57"></span><span>            </span><span class="hs-identifier">crc32_c</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">fromIntegral</span><span> </span><span class="hs-identifier">seed</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">castPtr</span><span> </span><span class="hs-identifier">buf</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">fromIntegral</span><span> </span><span class="hs-identifier">len</span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-identifier">crc32_l_update</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-identifier">Word32</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">L.ByteString</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">Word32</span><span>
+</span><span id="line-60"></span><span class="hs-identifier">crc32_l_update</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">LI.foldlChunks</span><span> </span><span class="hs-identifier">crc32_s_update</span><span>
+</span><span id="line-61"></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-keyword">foreign</span><span> </span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">ccall</span><span> </span><span class="hs-keyword">unsafe</span><span> </span><span class="hs-string">&quot;zlib.h crc32&quot;</span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-identifier">crc32_c</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-identifier">Word64</span><span>
+</span><span id="line-65"></span><span class="hs-pragma">{-# LINE 65 &quot;Data/Digest/CRC32.hsc&quot; #-}</span><span>
+</span><span id="line-65"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">Ptr</span><span> </span><span class="hs-identifier">Word8</span><span>
+</span><span id="line-66"></span><span class="hs-pragma">{-# LINE 66 &quot;Data/Digest/CRC32.hsc&quot; #-}</span><span>
+</span><span id="line-66"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">Word32</span><span>
+</span><span id="line-67"></span><span class="hs-pragma">{-# LINE 67 &quot;Data/Digest/CRC32.hsc&quot; #-}</span><span>
+</span><span id="line-67"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">IO</span><span> </span><span class="hs-identifier">Word64</span><span>
+</span><span id="line-68"></span><span class="hs-pragma">{-# LINE 68 &quot;Data/Digest/CRC32.hsc&quot; #-}</span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span></pre></body></html>

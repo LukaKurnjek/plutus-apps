@@ -1,0 +1,308 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- | Stream utilities for working with concurrent channels.</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE BangPatterns #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE CPP          #-}</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">System.IO.Streams.Concurrent</span><span>
+</span><span id="line-7"></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Channel conversions</span></span><span>
+</span><span id="line-8"></span><span>   </span><span class="annot"><a href="System.IO.Streams.Concurrent.html#inputToChan"><span class="hs-identifier">inputToChan</span></a></span><span>
+</span><span id="line-9"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Concurrent.html#chanToInput"><span class="hs-identifier">chanToInput</span></a></span><span>
+</span><span id="line-10"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Concurrent.html#chanToOutput"><span class="hs-identifier">chanToOutput</span></a></span><span>
+</span><span id="line-11"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Concurrent.html#concurrentMerge"><span class="hs-identifier">concurrentMerge</span></a></span><span>
+</span><span id="line-12"></span><span> </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Concurrent.html#makeChanPipe"><span class="hs-identifier">makeChanPipe</span></a></span><span>
+</span><span id="line-13"></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span class="hs-cpp">
+#if !MIN_VERSION_base(4,8,0)
+</span><span class="hs-keyword">import</span><span>           </span><span class="hs-identifier">Control.Applicative</span><span>        </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="hs-operator">&lt;$&gt;</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-operator">&lt;*&gt;</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Concurrent</span></a></span><span>         </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forkIO</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Concurrent.Chan</span></a></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Chan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">newChan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">readChan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">writeChan</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Concurrent.MVar</span></a></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">modifyMVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">newEmptyMVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">newMVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">putMVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">takeMVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">SomeException</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">mask</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">throwIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">try</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>              </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forM_</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>                    </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">read</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="System.IO.Streams.Internal.html"><span class="hs-identifier">System.IO.Streams.Internal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier">InputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier">OutputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#makeInputStream"><span class="hs-identifier">makeInputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#makeOutputStream"><span class="hs-identifier">makeOutputStream</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#nullInput"><span class="hs-identifier">nullInput</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier">read</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- | Writes the contents of an input stream to a channel until the input stream</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- yields end-of-stream.</span><span>
+</span><span id="line-32"></span><span id="local-6989586621679081553"><span class="annot"><a href="System.IO.Streams.Concurrent.html#inputToChan"><span class="hs-identifier hs-type">inputToChan</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081553"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Chan</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081553"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-33"></span><span id="inputToChan"><span class="annot"><span class="annottext">inputToChan :: InputStream a -&gt; Chan (Maybe a) -&gt; IO ()
+</span><a href="System.IO.Streams.Concurrent.html#inputToChan"><span class="hs-identifier hs-var hs-var">inputToChan</span></a></span></span><span> </span><span id="local-6989586621679081552"><span class="annot"><span class="annottext">InputStream a
+</span><a href="#local-6989586621679081552"><span class="hs-identifier hs-var">is</span></a></span></span><span> </span><span id="local-6989586621679081551"><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081551"><span class="hs-identifier hs-var">ch</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679081550"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-35"></span><span>    </span><span id="local-6989586621679081550"><span class="annot"><span class="annottext">go :: IO ()
+</span><a href="#local-6989586621679081550"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-36"></span><span>        </span><span id="local-6989586621679081549"><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081549"><span class="hs-identifier hs-var">mb</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">InputStream a -&gt; IO (Maybe a)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream a
+</span><a href="#local-6989586621679081552"><span class="hs-identifier hs-var">is</span></a></span><span>
+</span><span id="line-37"></span><span>        </span><span class="annot"><span class="annottext">Chan (Maybe a) -&gt; Maybe a -&gt; IO ()
+forall a. Chan a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeChan</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081551"><span class="hs-identifier hs-var">ch</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081549"><span class="hs-identifier hs-var">mb</span></a></span><span>
+</span><span id="line-38"></span><span>        </span><span class="annot"><span class="annottext">IO () -&gt; (a -&gt; IO ()) -&gt; Maybe a -&gt; IO ()
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(() -&gt; IO ()) -&gt; () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; a -&gt; IO ()
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679081550"><span class="hs-identifier hs-var">go</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081549"><span class="hs-identifier hs-var">mb</span></a></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- | Turns a 'Chan' into an input stream.</span><span>
+</span><span id="line-43"></span><span class="hs-comment">--</span><span>
+</span><span id="line-44"></span><span id="local-6989586621679081581"><span class="annot"><a href="System.IO.Streams.Concurrent.html#chanToInput"><span class="hs-identifier hs-type">chanToInput</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Chan</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081581"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081581"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-45"></span><span id="chanToInput"><span class="annot"><span class="annottext">chanToInput :: Chan (Maybe a) -&gt; IO (InputStream a)
+</span><a href="System.IO.Streams.Concurrent.html#chanToInput"><span class="hs-identifier hs-var hs-var">chanToInput</span></a></span></span><span> </span><span id="local-6989586621679081545"><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081545"><span class="hs-identifier hs-var">ch</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe a) -&gt; IO (InputStream a)
+forall a. IO (Maybe a) -&gt; IO (InputStream a)
+</span><a href="System.IO.Streams.Internal.html#makeInputStream"><span class="hs-identifier hs-var">makeInputStream</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe a) -&gt; IO (InputStream a))
+-&gt; IO (Maybe a) -&gt; IO (InputStream a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a) -&gt; IO (Maybe a)
+forall a. Chan a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">readChan</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081545"><span class="hs-identifier hs-var">ch</span></a></span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- | Turns a 'Chan' into an output stream.</span><span>
+</span><span id="line-50"></span><span class="hs-comment">--</span><span>
+</span><span id="line-51"></span><span id="local-6989586621679081577"><span class="annot"><a href="System.IO.Streams.Concurrent.html#chanToOutput"><span class="hs-identifier hs-type">chanToOutput</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Chan</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081577"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081577"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-52"></span><span id="chanToOutput"><span class="annot"><span class="annottext">chanToOutput :: Chan (Maybe a) -&gt; IO (OutputStream a)
+</span><a href="System.IO.Streams.Concurrent.html#chanToOutput"><span class="hs-identifier hs-var hs-var">chanToOutput</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Maybe a -&gt; IO ()) -&gt; IO (OutputStream a)
+forall a. (Maybe a -&gt; IO ()) -&gt; IO (OutputStream a)
+</span><a href="System.IO.Streams.Internal.html#makeOutputStream"><span class="hs-identifier hs-var">makeOutputStream</span></a></span><span> </span><span class="annot"><span class="annottext">((Maybe a -&gt; IO ()) -&gt; IO (OutputStream a))
+-&gt; (Chan (Maybe a) -&gt; Maybe a -&gt; IO ())
+-&gt; Chan (Maybe a)
+-&gt; IO (OutputStream a)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a) -&gt; Maybe a -&gt; IO ()
+forall a. Chan a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeChan</span></a></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="hs-comment">------------------------------------------------------------------------------</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- | Concurrently merges a list of 'InputStream's, combining values in the</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- order they become available.</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- Note: does /not/ forward individual end-of-stream notifications, the</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- produced stream does not yield end-of-stream until all of the input streams</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- have finished.</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- Any exceptions raised in one of the worker threads will be trapped and</span><span>
+</span><span id="line-64"></span><span class="hs-comment">-- re-raised in the current thread.</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--</span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- If the supplied list is empty, `concurrentMerge` will return an empty</span><span>
+</span><span id="line-67"></span><span class="hs-comment">-- stream. (/Since: 1.5.0.1/)</span><span>
+</span><span id="line-68"></span><span class="hs-comment">--</span><span>
+</span><span id="line-69"></span><span id="local-6989586621679081543"><span class="annot"><a href="System.IO.Streams.Concurrent.html#concurrentMerge"><span class="hs-identifier hs-type">concurrentMerge</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081543"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081543"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-70"></span><span id="concurrentMerge"><span class="annot"><span class="annottext">concurrentMerge :: [InputStream a] -&gt; IO (InputStream a)
+</span><a href="System.IO.Streams.Concurrent.html#concurrentMerge"><span class="hs-identifier hs-var hs-var">concurrentMerge</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (InputStream a)
+forall a. IO (InputStream a)
+</span><a href="System.IO.Streams.Internal.html#nullInput"><span class="hs-identifier hs-var">nullInput</span></a></span><span>
+</span><span id="line-71"></span><span class="annot"><a href="System.IO.Streams.Concurrent.html#concurrentMerge"><span class="hs-identifier hs-var">concurrentMerge</span></a></span><span> </span><span id="local-6989586621679081542"><span class="annot"><span class="annottext">[InputStream a]
+</span><a href="#local-6989586621679081542"><span class="hs-identifier hs-var">iss</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-72"></span><span>    </span><span id="local-6989586621679081541"><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+</span><a href="#local-6989586621679081541"><span class="hs-identifier hs-var">mv</span></a></span></span><span>    </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (MVar (Either SomeException (Maybe a)))
+forall a. IO (MVar a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">newEmptyMVar</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621679081540"><span class="annot"><span class="annottext">MVar Int
+</span><a href="#local-6989586621679081540"><span class="hs-identifier hs-var">nleft</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO (MVar Int)
+forall a. a -&gt; IO (MVar a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">newMVar</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; IO (MVar Int)) -&gt; Int -&gt; IO (MVar Int)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">[InputStream a] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">[InputStream a]
+</span><a href="#local-6989586621679081542"><span class="hs-identifier hs-var">iss</span></a></span><span>
+</span><span id="line-74"></span><span>    </span><span class="annot"><span class="annottext">((forall a. IO a -&gt; IO a) -&gt; IO ()) -&gt; IO ()
+forall b. ((forall a. IO a -&gt; IO a) -&gt; IO b) -&gt; IO b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mask</span></a></span><span> </span><span class="annot"><span class="annottext">(((forall a. IO a -&gt; IO a) -&gt; IO ()) -&gt; IO ())
+-&gt; ((forall a. IO a -&gt; IO a) -&gt; IO ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679081538"><span class="annot"><span class="annottext">forall a. IO a -&gt; IO a
+</span><a href="#local-6989586621679081538"><span class="hs-identifier hs-var">restore</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[InputStream a] -&gt; (InputStream a -&gt; IO ThreadId) -&gt; IO ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM_</span></a></span><span> </span><span class="annot"><span class="annottext">[InputStream a]
+</span><a href="#local-6989586621679081542"><span class="hs-identifier hs-var">iss</span></a></span><span> </span><span class="annot"><span class="annottext">((InputStream a -&gt; IO ThreadId) -&gt; IO ())
+-&gt; (InputStream a -&gt; IO ThreadId) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679081537"><span class="annot"><span class="annottext">InputStream a
+</span><a href="#local-6989586621679081537"><span class="hs-identifier hs-var">is</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO ThreadId
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forkIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ThreadId) -&gt; IO () -&gt; IO ThreadId
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-75"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679081536"><span class="annot"><span class="annottext">producer :: IO ()
+</span><a href="#local-6989586621679081536"><span class="hs-identifier hs-var hs-var">producer</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-76"></span><span>              </span><span id="local-6989586621679081535"><span class="annot"><span class="annottext">Either SomeException (Maybe a)
+</span><a href="#local-6989586621679081535"><span class="hs-identifier hs-var">emb</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Maybe a) -&gt; IO (Either SomeException (Maybe a))
+forall e a. Exception e =&gt; IO a -&gt; IO (Either e a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">try</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe a) -&gt; IO (Either SomeException (Maybe a)))
+-&gt; IO (Maybe a) -&gt; IO (Either SomeException (Maybe a))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IO (Maybe a) -&gt; IO (Maybe a)
+forall a. IO a -&gt; IO a
+</span><a href="#local-6989586621679081538"><span class="hs-identifier hs-var">restore</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe a) -&gt; IO (Maybe a)) -&gt; IO (Maybe a) -&gt; IO (Maybe a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream a -&gt; IO (Maybe a)
+forall a. InputStream a -&gt; IO (Maybe a)
+</span><a href="System.IO.Streams.Internal.html#read"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">InputStream a
+</span><a href="#local-6989586621679081537"><span class="hs-identifier hs-var">is</span></a></span><span>
+</span><span id="line-77"></span><span>              </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either SomeException (Maybe a)
+</span><a href="#local-6989586621679081535"><span class="hs-identifier hs-var">emb</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-78"></span><span>                  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679081534"><span class="annot"><span class="annottext">SomeException
+</span><a href="#local-6989586621679081534"><span class="hs-identifier hs-var">exc</span></a></span></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+-&gt; Either SomeException (Maybe a) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">putMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+</span><a href="#local-6989586621679081541"><span class="hs-identifier hs-var">mv</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SomeException -&gt; Either SomeException (Maybe a)
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SomeException
+</span><a href="#local-6989586621679081534"><span class="hs-identifier hs-var">exc</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">SomeException</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>                                      </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679081536"><span class="hs-identifier hs-var">producer</span></a></span><span>
+</span><span id="line-80"></span><span>                  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+-&gt; Either SomeException (Maybe a) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">putMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+</span><a href="#local-6989586621679081541"><span class="hs-identifier hs-var">mv</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Maybe a) -&gt; IO ())
+-&gt; Either SomeException (Maybe a) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; Either SomeException (Maybe a)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-81"></span><span>                  </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679081533"><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081533"><span class="hs-identifier hs-var">x</span></a></span></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+-&gt; Either SomeException (Maybe a) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">putMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+</span><a href="#local-6989586621679081541"><span class="hs-identifier hs-var">mv</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe a -&gt; Either SomeException (Maybe a)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081533"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO () -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679081536"><span class="hs-identifier hs-var">producer</span></a></span><span>
+</span><span id="line-82"></span><span>        </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679081536"><span class="hs-identifier hs-var">producer</span></a></span><span>
+</span><span id="line-83"></span><span>    </span><span class="annot"><span class="annottext">IO (Maybe a) -&gt; IO (InputStream a)
+forall a. IO (Maybe a) -&gt; IO (InputStream a)
+</span><a href="System.IO.Streams.Internal.html#makeInputStream"><span class="hs-identifier hs-var">makeInputStream</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe a) -&gt; IO (InputStream a))
+-&gt; IO (Maybe a) -&gt; IO (InputStream a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a)) -&gt; MVar Int -&gt; IO (Maybe a)
+forall e a a.
+(Exception e, Ord a, Num a) =&gt;
+MVar (Either e (Maybe a)) -&gt; MVar a -&gt; IO (Maybe a)
+</span><a href="#local-6989586621679081532"><span class="hs-identifier hs-var">chunk</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Maybe a))
+</span><a href="#local-6989586621679081541"><span class="hs-identifier hs-var">mv</span></a></span><span> </span><span class="annot"><span class="annottext">MVar Int
+</span><a href="#local-6989586621679081540"><span class="hs-identifier hs-var">nleft</span></a></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-86"></span><span>    </span><span id="local-6989586621679081532"><span class="annot"><span class="annottext">chunk :: MVar (Either e (Maybe a)) -&gt; MVar a -&gt; IO (Maybe a)
+</span><a href="#local-6989586621679081532"><span class="hs-identifier hs-var hs-var">chunk</span></a></span></span><span> </span><span id="local-6989586621679081531"><span class="annot"><span class="annottext">MVar (Either e (Maybe a))
+</span><a href="#local-6989586621679081531"><span class="hs-identifier hs-var">mv</span></a></span></span><span> </span><span id="local-6989586621679081530"><span class="annot"><span class="annottext">MVar a
+</span><a href="#local-6989586621679081530"><span class="hs-identifier hs-var">nleft</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-87"></span><span>        </span><span id="local-6989586621679081529"><span class="annot"><span class="annottext">Either e (Maybe a)
+</span><a href="#local-6989586621679081529"><span class="hs-identifier hs-var">emb</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Maybe a)) -&gt; IO (Either e (Maybe a))
+forall a. MVar a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">takeMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Maybe a))
+</span><a href="#local-6989586621679081531"><span class="hs-identifier hs-var">mv</span></a></span><span>
+</span><span id="line-88"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either e (Maybe a)
+</span><a href="#local-6989586621679081529"><span class="hs-identifier hs-var">emb</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-89"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679081528"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679081528"><span class="hs-identifier hs-var">exc</span></a></span></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">e -&gt; IO (Maybe a)
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throwIO</span></a></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679081528"><span class="hs-identifier hs-var">exc</span></a></span><span>
+</span><span id="line-90"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679081527"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679081527"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MVar a -&gt; (a -&gt; IO (a, a)) -&gt; IO a
+forall a b. MVar a -&gt; (a -&gt; IO (a, b)) -&gt; IO b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">modifyMVar</span></a></span><span> </span><span class="annot"><span class="annottext">MVar a
+</span><a href="#local-6989586621679081530"><span class="hs-identifier hs-var">nleft</span></a></span><span> </span><span class="annot"><span class="annottext">((a -&gt; IO (a, a)) -&gt; IO a) -&gt; (a -&gt; IO (a, a)) -&gt; IO a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679081526"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679081526"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-91"></span><span>                                     </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679081525"><span class="annot"><span class="annottext">n' :: a
+</span><a href="#local-6989586621679081525"><span class="hs-identifier hs-var hs-var">n'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679081526"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-92"></span><span>                                     </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(a, a) -&gt; IO (a, a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">((a, a) -&gt; IO (a, a)) -&gt; (a, a) -&gt; IO (a, a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679081525"><span class="hs-identifier hs-var">n'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679081525"><span class="hs-identifier hs-var">n'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-93"></span><span>                                </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679081527"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-94"></span><span>                                  </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Maybe a)) -&gt; MVar a -&gt; IO (Maybe a)
+</span><a href="#local-6989586621679081532"><span class="hs-identifier hs-var">chunk</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Maybe a))
+</span><a href="#local-6989586621679081531"><span class="hs-identifier hs-var">mv</span></a></span><span> </span><span class="annot"><span class="annottext">MVar a
+</span><a href="#local-6989586621679081530"><span class="hs-identifier hs-var">nleft</span></a></span><span>
+</span><span id="line-95"></span><span>                                  </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; IO (Maybe a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-96"></span><span>            </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679081523"><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081523"><span class="hs-identifier hs-var">x</span></a></span></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; IO (Maybe a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="#local-6989586621679081523"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span class="hs-comment">--------------------------------------------------------------------------------</span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- | Create a new pair of streams using an underlying 'Chan'. Everything written</span><span>
+</span><span id="line-101"></span><span class="hs-comment">-- to the 'OutputStream' will appear as-is on the 'InputStream'.</span><span>
+</span><span id="line-102"></span><span class="hs-comment">--</span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- Since reading from the 'InputStream' and writing to the 'OutputStream' are</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- blocking calls, be sure to do so in different threads.</span><span>
+</span><span id="line-105"></span><span id="local-6989586621679081522"><span class="annot"><a href="System.IO.Streams.Concurrent.html#makeChanPipe"><span class="hs-identifier hs-type">makeChanPipe</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="System.IO.Streams.Internal.html#InputStream"><span class="hs-identifier hs-type">InputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081522"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="System.IO.Streams.Internal.html#OutputStream"><span class="hs-identifier hs-type">OutputStream</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679081522"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-106"></span><span id="makeChanPipe"><span class="annot"><span class="annottext">makeChanPipe :: IO (InputStream a, OutputStream a)
+</span><a href="System.IO.Streams.Concurrent.html#makeChanPipe"><span class="hs-identifier hs-var hs-var">makeChanPipe</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-107"></span><span>    </span><span id="local-6989586621679081521"><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081521"><span class="hs-identifier hs-var">chan</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Chan (Maybe a))
+forall a. IO (Chan a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">newChan</span></a></span><span>
+</span><span id="line-108"></span><span>    </span><span class="hs-special">(</span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(InputStream a
+ -&gt; OutputStream a -&gt; (InputStream a, OutputStream a))
+-&gt; IO (InputStream a)
+-&gt; IO (OutputStream a -&gt; (InputStream a, OutputStream a))
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a) -&gt; IO (InputStream a)
+forall a. Chan (Maybe a) -&gt; IO (InputStream a)
+</span><a href="System.IO.Streams.Concurrent.html#chanToInput"><span class="hs-identifier hs-var">chanToInput</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081521"><span class="hs-identifier hs-var">chan</span></a></span><span> </span><span class="annot"><span class="annottext">IO (OutputStream a -&gt; (InputStream a, OutputStream a))
+-&gt; IO (OutputStream a) -&gt; IO (InputStream a, OutputStream a)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a) -&gt; IO (OutputStream a)
+forall a. Chan (Maybe a) -&gt; IO (OutputStream a)
+</span><a href="System.IO.Streams.Concurrent.html#chanToOutput"><span class="hs-identifier hs-var">chanToOutput</span></a></span><span> </span><span class="annot"><span class="annottext">Chan (Maybe a)
+</span><a href="#local-6989586621679081521"><span class="hs-identifier hs-var">chan</span></a></span><span>
+</span><span id="line-109"></span></pre></body></html>

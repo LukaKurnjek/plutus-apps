@@ -1,0 +1,236 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>System.IO.Streams.Tutorial</title><link href="linuwial.css" rel="stylesheet" type="text/css" title="Linuwial" /><link rel="stylesheet" type="text/css" href="quick-jump.css" /><link rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=PT+Sans:400,400i,700" /><script src="haddock-bundle.min.js" async="async" type="text/javascript"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({ tex2jax: { processClass: "mathjax", ignoreClass: ".*" } });</script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script></head><body><div id="package-header"><span class="caption">io-streams-1.5.2.2: Simple, composable, and easy-to-use stream I/O</span><ul class="links" id="page-menu"><li><a href="src/System.IO.Streams.Tutorial.html">Source</a></li><li><a href="index.html">Contents</a></li><li><a href="doc-index.html">Index</a></li></ul></div><div id="content"><div id="module-header"><table class="info"><tr><th>Safe Haskell</th><td>Safe-Inferred</td></tr><tr><th>Language</th><td>Haskell2010</td></tr></table><p class="caption">System.IO.Streams.Tutorial</p></div><div id="table-of-contents"><div id="contents-list"><p class="caption" onclick="window.scrollTo(0,0)">Contents</p><ul><li><a href="#g:1">Introduction</a></li><li><a href="#g:2">Build Input Streams</a></li><li><a href="#g:3">Build Output Streams</a></li><li><a href="#g:4">Connect Streams</a></li><li><a href="#g:5">Transform Streams</a></li><li><a href="#g:6">Resource and Exception Safety</a></li><li><a href="#g:7">Pushback</a></li><li><a href="#g:8">Thread Safety</a></li><li><a href="#g:9">Examples</a></li></ul></div></div><div id="synopsis"><details id="syn"><summary>Synopsis</summary><ul class="details-toggle" data-details-id="syn"></ul></details></div><div id="interface"><a href="#g:1" id="g:1"><h1>Introduction</h1></a><div class="doc"><p>The <code>io-streams</code> package defines two &quot;smart handles&quot; for stream processing:</p><ul><li><code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>: a read-only smart handle</li><li><code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>: a write-only smart handle</li></ul><p>The <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> type implements all the core operations we
+expect for a read-only handle. We consume values using <code><a href="../../ghc/html/libraries/base-4.14.3.0/Text-Read.html#v:read" title="Text.Read">read</a></code>, which returns a
+<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> when the resource is done:</p><pre><code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> :: <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> c -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#t:Maybe" title="Data.Maybe">Maybe</a></code> c)
+</pre><p>... and we can push back values using <code><a href="System-IO-Streams.html#v:unRead" title="System.IO.Streams">unRead</a></code>:</p><pre><code><a href="System-IO-Streams.html#v:unRead" title="System.IO.Streams">unRead</a></code> :: c -&gt; <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> c -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> ()
+</pre><p>The <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> type implements the
+<code><a href="System-IO-Streams.html#v:write" title="System.IO.Streams">write</a></code> operation which feeds it output, supplying <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code>
+to signal resource exhaustion:</p><pre><code><a href="System-IO-Streams.html#v:write" title="System.IO.Streams">write</a></code> :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#t:Maybe" title="Data.Maybe">Maybe</a></code> c -&gt; <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> c -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> ()
+</pre><p>These streams slightly resemble Haskell <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code>s, but support a
+wider range of sources and sinks. For example, you can convert an ordinary list
+to an <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> source and interact with it using the
+handle-based API:</p><pre>ghci&gt; import qualified System.IO.Streams as S
+ghci&gt; listHandle &lt;- S.<code><a href="System-IO-Streams.html#v:fromList" title="System.IO.Streams">fromList</a></code> [1, 2]
+ghci&gt; S.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> listHandle
+Just 1
+ghci&gt; S.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> listHandle
+Just 2
+ghci&gt; S.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> listHandle
+Nothing
+</pre><p>Additionally, IO streams come with a library of stream transformations that
+preserve their handle-like API. For example, you can map a function over an
+<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>, which generates a new handle to the same
+stream that returns transformed values:</p><pre>ghci&gt; oldHandle &lt;- S.<code><a href="System-IO-Streams-List.html#v:fromList" title="System.IO.Streams.List">fromList</a></code> [1, 2, 3]
+ghci&gt; newHandle &lt;- S.<code><a href="System-IO-Streams-Combinators.html#v:mapM" title="System.IO.Streams.Combinators">mapM</a></code> (\x -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html#v:return" title="Control.Monad">return</a></code> (x * 10)) oldHandle
+ghci&gt; S.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> newHandle
+10
+ghci&gt; -- We can still view the stream through the old handle
+ghci&gt; S.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> oldHandle
+2
+ghci&gt; -- ... and switch back again
+ghci&gt; S.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> newHandle
+30
+</pre><p>IO streams focus on preserving the convention of traditional handles while
+offering a wider library of stream-processing utilities.</p></div><a href="#g:2" id="g:2"><h1>Build Input Streams</h1></a><div class="doc"><p>The <code>io-streams</code> library provides a simple interface for creating your own
+<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>s and <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>s.</p><p>You can build an <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> from any <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> action that
+generates output, as long as it wraps results in <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> and uses <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> to
+signal EOF:</p><pre><code><a href="System-IO-Streams.html#v:makeInputStream" title="System.IO.Streams">makeInputStream</a></code> :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#t:Maybe" title="Data.Maybe">Maybe</a></code> a) -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> a)
+</pre><p>As an example, let's wrap an ordinary read-only <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code> in an
+<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>:</p><pre>import <a href="../../bytestring/html/Data-ByteString.html">Data.ByteString</a> (<code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+import qualified <a href="../../bytestring/html/Data-ByteString.html">Data.ByteString</a> as S
+import <a href="System-IO-Streams.html">System.IO.Streams</a> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>)
+import qualified <a href="System-IO-Streams.html">System.IO.Streams</a> as Streams
+import <a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html">System.IO</a> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code>, <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:hFlush" title="System.IO">hFlush</a></code>)
+
+bUFSIZ = 32752
+
+upgradeReadOnlyHandle :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+upgradeReadOnlyHandle h = Streams.<code><a href="System-IO-Streams.html#v:makeInputStream" title="System.IO.Streams">makeInputStream</a></code> f
+  where
+    f = do
+        x &lt;- S.<code><a href="../../bytestring/html/Data-ByteString.html#v:hGetSome" title="Data.ByteString">hGetSome</a></code> h bUFSIZ
+        <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html#v:return" title="Control.Monad">return</a></code> $! if S.<code><a href="../../bytestring/html/Data-ByteString.html#v:null" title="Data.ByteString">null</a></code> x then <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> else <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> x
+</pre><p>We didn't even really need to write the <code>upgradeReadOnlyHandle</code> function,
+because <a href="System-IO-Streams-Handle.html">System.IO.Streams.Handle</a> already provides one that uses the exact
+same implementation given above:</p><pre><code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+</pre></div><a href="#g:3" id="g:3"><h1>Build Output Streams</h1></a><div class="doc"><p>Similarly, you can build any <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> from an <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code>
+action that accepts input, as long as it interprets <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> as more input and
+<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> as EOF:</p><pre><code><a href="System-IO-Streams.html#v:makeOutputStream" title="System.IO.Streams">makeOutputStream</a></code> :: (<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#t:Maybe" title="Data.Maybe">Maybe</a></code> a -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> ()) -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> a)
+</pre><p>A simple <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> might wrap <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:putStrLn" title="System.IO">putStrLn</a></code> for <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>s:</p><pre>import <a href="../../bytestring/html/Data-ByteString.html">Data.ByteString</a> (<code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+import qualified <a href="../../bytestring/html/Data-ByteString.html">Data.ByteString</a> as S
+import <a href="System-IO-Streams.html">System.IO.Streams</a> (<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>)
+import qualified <a href="System-IO-Streams.html">System.IO.Streams</a> as Streams
+
+writeConsole :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+writeConsole = Streams.<code><a href="System-IO-Streams.html#v:makeOutputStream" title="System.IO.Streams">makeOutputStream</a></code> $ \m -&gt; case m of
+    <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> bs -&gt; S.<code><a href="../../bytestring/html/Data-ByteString.html#v:putStrLn" title="Data.ByteString">putStrLn</a></code> bs
+    <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html#v:return" title="Control.Monad">return</a></code> ()
+</pre><p>The <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> wraps more incoming data, whereas <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> indicates the data is
+exhausted. In principle, you can feed <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>s more
+input after writing a <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> to them, but IO streams only guarantee a
+well-defined behavior up to the first <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code>. After receiving the first
+<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code>, an <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> could respond to additional
+input by:</p><ul><li>Using the input</li><li>Ignoring the input</li><li>Throwing an exception</li></ul><p>Ideally, you should adhere to well-defined behavior and ensure that after you
+write a <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> to an <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>, you don't write
+anything else.</p></div><a href="#g:4" id="g:4"><h1>Connect Streams</h1></a><div class="doc"><p><code>io-streams</code> provides two ways to connect an <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>
+and <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>:</p><pre><code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> :: <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> a -&gt; <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> a -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> ()
+<code><a href="System-IO-Streams.html#v:supply" title="System.IO.Streams">supply</a></code>  :: <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> a -&gt; <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> a -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> ()
+</pre><p><code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> feeds the <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>
+exclusively with the given <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> and passes along the
+end-of-stream notification to the <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>.</p><p><code><a href="System-IO-Streams.html#v:supply" title="System.IO.Streams">supply</a></code> feeds the <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>
+non-exclusively with the given <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> and does not
+pass along the end-of-stream notification to the
+<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>.</p><p>You can combine both <code><a href="System-IO-Streams.html#v:supply" title="System.IO.Streams">supply</a></code> and <code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code>
+to feed multiple <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>s into a single
+<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>:</p><pre>import qualified <a href="System-IO-Streams.html">System.IO.Streams</a> as Streams
+import <a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html">System.IO</a> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:IOMode" title="System.IO">IOMode</a></code>(<code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:WriteMode" title="System.IO">WriteMode</a></code>))
+
+main = do
+   Streams.<code><a href="System-IO-Streams.html#v:withFileAsOutput" title="System.IO.Streams">withFileAsOutput</a></code> &quot;out.txt&quot; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:WriteMode" title="System.IO">WriteMode</a></code> $ \outStream -&gt;
+   Streams.<code><a href="System-IO-Streams.html#v:withFileAsInput" title="System.IO.Streams">withFileAsInput</a></code>  &quot;in1.txt&quot; $ \inStream1 -&gt;
+   Streams.<code><a href="System-IO-Streams.html#v:withFileAsInput" title="System.IO.Streams">withFileAsInput</a></code>  &quot;in2.txt&quot; $ \inStream2 -&gt;
+   Streams.<code><a href="System-IO-Streams.html#v:withFileAsInput" title="System.IO.Streams">withFileAsInput</a></code>  &quot;in3.txt&quot; $ \inStream3 -&gt;
+   Streams.<code><a href="System-IO-Streams.html#v:supply" title="System.IO.Streams">supply</a></code>  inStream1 outStream
+   Streams.<code><a href="System-IO-Streams.html#v:supply" title="System.IO.Streams">supply</a></code>  inStream2 outStream
+   Streams.<code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> inStream3 outStream
+</pre><p>The final <code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> seals the
+<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> when the final <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>
+terminates.</p><p>Keep in mind that you do not need to use <code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> or
+<code><a href="System-IO-Streams.html#v:supply" title="System.IO.Streams">supply</a></code> at all: <code>io-streams</code> mainly provides them for user
+convenience. You can always build your own abstractions on top of the
+<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> and <code><a href="System-IO-Streams.html#v:write" title="System.IO.Streams">write</a></code> operations.</p></div><a href="#g:5" id="g:5"><h1>Transform Streams</h1></a><div class="doc"><p>When we build or use <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> streams we can tap into all the stream-processing
+features the <code>io-streams</code> library provides. For example, we can decompress any
+<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> of <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>s:</p><pre>import <a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html">Control.Monad</a> ((&gt;=&gt;))
+import <a href="../../bytestring/html/Data-ByteString.html">Data.ByteString</a> (<code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+import <a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html">System.IO</a> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code>)
+import <a href="System-IO-Streams.html">System.IO.Streams</a> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>, <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>)
+import qualified <a href="System-IO-Streams.html">System.IO.Streams</a> as Streams
+import qualified <a href="System-IO-Streams-File.html">System.IO.Streams.File</a> as Streams
+
+unzipHandle :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+unzipHandle = Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> &gt;=&gt; Streams.<code><a href="System-IO-Streams.html#v:decompress" title="System.IO.Streams">decompress</a></code>
+</pre><p>... or we can guard it against a denial-of-service attack:</p><pre>protectHandle :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:Handle" title="System.IO">Handle</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code>)
+protectHandle =
+    Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> &gt;=&gt; Streams.<code><a href="System-IO-Streams.html#v:throwIfProducesMoreThan" title="System.IO.Streams">throwIfProducesMoreThan</a></code> 1000000
+</pre><p><code>io-streams</code> provides many useful functions such as these in its standard
+library and you take advantage of them by defining IO streams that wrap your
+resources.</p></div><a href="#g:6" id="g:6"><h1>Resource and Exception Safety</h1></a><div class="doc"><p>IO streams use standard Haskell idioms for resource safety. Since all
+operations occur in the IO monad, you can use <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Exception.html#v:catch" title="Control.Exception">catch</a></code>,
+<code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Exception.html#v:bracket" title="Control.Exception">bracket</a></code>, or various &quot;<code>with...</code>&quot; functions to guard any
+<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> or <code><a href="System-IO-Streams.html#v:write" title="System.IO.Streams">write</a></code> without any special
+considerations:</p><pre>import qualified <a href="../../bytestring/html/Data-ByteString.html">Data.ByteString</a> as S
+import <a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html">System.IO</a>
+import <a href="System-IO-Streams.html">System.IO.Streams</a> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>, <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code>)
+import qualified <a href="System-IO-Streams.html">System.IO.Streams</a> as Streams
+import qualified <a href="System-IO-Streams-File.html">System.IO.Streams.File</a> as Streams
+
+main =
+    <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> &quot;test.txt&quot; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:ReadMode" title="System.IO">ReadMode</a></code> $ \handle -&gt; do
+        stream &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> handle
+        mBytes &lt;- Streams.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> stream
+        case mBytes of
+            <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> bytes -&gt; S.<code><a href="../../bytestring/html/Data-ByteString.html#v:putStrLn" title="Data.ByteString">putStrLn</a></code> bytes
+            <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code>    -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:putStrLn" title="System.IO">putStrLn</a></code> &quot;EOF&quot;
+</pre><p>However, you can also simplify the above example by using the convenience
+function <code><a href="System-IO-Streams-File.html#v:withFileAsInput" title="System.IO.Streams.File">withFileAsInput</a></code> from
+<a href="System-IO-Streams-File.html">System.IO.Streams.File</a>:</p><pre><code><a href="System-IO-Streams.html#v:withFileAsInput" title="System.IO.Streams">withFileAsInput</a></code>
+ :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:FilePath" title="System.IO">FilePath</a></code> -&gt; (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> <code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> a) -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> a
+</pre></div><a href="#g:7" id="g:7"><h1>Pushback</h1></a><div class="doc"><p>All <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>s support pushback, which simplifies many
+types of operations. For example, we can <code><a href="System-IO-Streams.html#v:peek" title="System.IO.Streams">peek</a></code> at an
+<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> by combining <code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> and
+<code><a href="System-IO-Streams.html#v:unRead" title="System.IO.Streams">unRead</a></code>:</p><pre><code><a href="System-IO-Streams.html#v:peek" title="System.IO.Streams">peek</a></code> :: <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> c -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#t:Maybe" title="Data.Maybe">Maybe</a></code> c)
+<code><a href="System-IO-Streams.html#v:peek" title="System.IO.Streams">peek</a></code> s = do
+    x &lt;- Streams.<code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> s
+    case x of
+        <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Nothing" title="Data.Maybe">Nothing</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html#v:return" title="Control.Monad">return</a></code> ()
+        <code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> c  -&gt; Streams.<code><a href="System-IO-Streams.html#v:unRead" title="System.IO.Streams">unRead</a></code> c s
+    <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html#v:return" title="Control.Monad">return</a></code> x
+</pre><p>... although <a href="System-IO-Streams.html">System.IO.Streams</a> already exports the above function.</p><p><code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>s can customize pushback behavior to support
+more sophisticated support for pushback. For example, if you protect a stream
+using <code><a href="System-IO-Streams.html#v:throwIfProducesMoreThan" title="System.IO.Streams">throwIfProducesMoreThan</a></code> and
+<code><a href="System-IO-Streams.html#v:unRead" title="System.IO.Streams">unRead</a></code> input, it will subtract the unread input from the
+total byte count. However, these extra features will not interfere with the
+basic pushback contract, given by the following law:</p><pre><code><a href="System-IO-Streams.html#v:unRead" title="System.IO.Streams">unRead</a></code> c stream &gt;&gt; <code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> stream == <code><a href="../../ghc/html/libraries/base-4.14.3.0/Control-Monad.html#v:return" title="Control.Monad">return</a></code> (<code><a href="../../ghc/html/libraries/base-4.14.3.0/Data-Maybe.html#v:Just" title="Data.Maybe">Just</a></code> c)
+</pre><p>When you build an <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> using
+<code><a href="System-IO-Streams.html#v:makeInputStream" title="System.IO.Streams">makeInputStream</a></code>, it supplies the default pushback behavior
+which just saves the input for the next <code><a href="System-IO-Streams.html#v:read" title="System.IO.Streams">read</a></code> call. More
+advanced users can use <a href="System-IO-Streams-Internal.html">System.IO.Streams.Internal</a> to customize their own
+pushback routines.</p></div><a href="#g:8" id="g:8"><h1>Thread Safety</h1></a><div class="doc"><p>IO stream operations are not thread-safe by default for performance reasons.
+However, you can transform an existing IO stream into a thread-safe one using
+the provided locking functions:</p><pre><code><a href="System-IO-Streams.html#v:lockingInputStream" title="System.IO.Streams">lockingInputStream</a></code>  :: <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>  a -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>  a)
+<code><a href="System-IO-Streams.html#v:lockingOutputStream" title="System.IO.Streams">lockingOutputStream</a></code> :: <code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> a -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:IO" title="System.IO">IO</a></code> (<code><a href="System-IO-Streams.html#v:OutputStream" title="System.IO.Streams">OutputStream</a></code> a)
+</pre><p>These functions do not prevent access to the previous IO stream, so you must
+take care to not save the reference to the previous stream.</p></div><a href="#g:9" id="g:9"><h1>Examples</h1></a><div class="doc"><p>The following examples show how to use the standard library to implement
+ traditional command-line utilities:</p><pre>{-# LANGUAGE OverloadedStrings #-}
+
+import Control.Monad ((&gt;=&gt;), join)
+import qualified Data.ByteString.Char8 as S
+import Data.Int (Int64)
+import Data.Monoid ((&lt;&gt;))
+import <a href="System-IO-Streams.html">System.IO.Streams</a> (<code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code>)
+import qualified <a href="System-IO-Streams.html">System.IO.Streams</a> as Streams
+import System.IO
+import Prelude hiding (head)
+
+cat :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; IO ()
+cat file = <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file ReadMode $ \h -&gt; do
+    is &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> h
+    Streams.<code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> is Streams.<code><a href="System-IO-Streams.html#v:stdout" title="System.IO.Streams">stdout</a></code>
+
+grep :: S.<code><a href="../../bytestring/html/Data-ByteString.html#v:ByteString" title="Data.ByteString">ByteString</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; IO ()
+grep pattern file = <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file ReadMode $ \h -&gt; do
+    is &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> h &gt;&gt;=
+          Streams.<code><a href="System-IO-Streams.html#v:lines" title="System.IO.Streams">lines</a></code>                 &gt;&gt;=
+          Streams.<code><a href="System-IO-Streams.html#v:filter" title="System.IO.Streams">filter</a></code> (S.isInfixOf pattern)
+    os &lt;- Streams.<code><a href="System-IO-Streams.html#v:unlines" title="System.IO.Streams">unlines</a></code> Streams.<code><a href="System-IO-Streams.html#v:stdout" title="System.IO.Streams">stdout</a></code>
+    Streams.<code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> is os
+
+data Option = Bytes | Words | Lines
+
+len :: <code><a href="System-IO-Streams.html#v:InputStream" title="System.IO.Streams">InputStream</a></code> a -&gt; IO Int64
+len = Streams.<code><a href="System-IO-Streams.html#v:fold" title="System.IO.Streams">fold</a></code> (\n _ -&gt; n + 1) 0
+
+wc :: Option -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; IO ()
+wc opt file = <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file ReadMode $
+    Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> &gt;=&gt; count &gt;=&gt; print
+  where
+    count = case opt of
+        Bytes -&gt; \is -&gt; do
+            (is', cnt) &lt;- Streams.<code><a href="System-IO-Streams.html#v:countInput" title="System.IO.Streams">countInput</a></code> is
+            Streams.<code><a href="System-IO-Streams.html#v:skipToEof" title="System.IO.Streams">skipToEof</a></code> is'
+            cnt
+        Words -&gt; Streams.<code><a href="System-IO-Streams.html#v:words" title="System.IO.Streams">words</a></code> &gt;=&gt; len
+        Lines -&gt; Streams.<code><a href="System-IO-STreams.html#v:lines" title="System.IO.STreams">lines</a></code> &gt;=&gt; len
+
+nl :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; IO ()
+nl file = <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file ReadMode $ \h -&gt; do
+    nats &lt;- Streams.<code><a href="System-IO-Streams.html#v:fromList" title="System.IO.Streams">fromList</a></code> [1..]
+    ls   &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> h &gt;&gt;= Streams.<code><a href="System-IO-Streams.html#v:lines" title="System.IO.Streams">lines</a></code>
+    is   &lt;- Streams.<code><a href="System-IO-Streams.html#v:zipWith" title="System.IO.Streams">zipWith</a></code>
+                (\n bs -&gt; S.pack (show n) &lt;&gt; &quot; &quot; &lt;&gt; bs)
+                nats
+                ls
+    os   &lt;- Streams.<code><a href="System-IO-Streams.html#v:unlines" title="System.IO.Streams">unlines</a></code> Streams.<code><a href="System-IO-Streams.html#v:stdout" title="System.IO.Streams">stdout</a></code>
+    Streams.<code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> is os
+
+head :: Int64 -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; IO ()
+head n file = <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file ReadMode $ \h -&gt; do
+    is &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> h &gt;&gt;= Streams.<code><a href="System-IO-Streams.html#v:lines" title="System.IO.Streams">lines</a></code> &gt;&gt;= Streams.<code><a href="System-IO-Streams.html#v:take" title="System.IO.Streams">take</a></code> n
+    os &lt;- Streams.<code><a href="System-IO-Streams.html#v:unlines" title="System.IO.Streams">unlines</a></code> Streams.<code><a href="System-IO-Streams.html#v:stdout" title="System.IO.Streams">stdout</a></code>
+    Streams.<code><a href="System-IO-Streams.html#v:connect" title="System.IO.Streams">connect</a></code> is os
+
+paste :: <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#t:FilePath" title="System.IO">FilePath</a></code> -&gt; IO ()
+paste file1 file2 =
+    <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file1 ReadMode $ \h1 -&gt;
+    <code><a href="../../ghc/html/libraries/base-4.14.3.0/System-IO.html#v:withFile" title="System.IO">withFile</a></code> file2 ReadMode $ \h2 -&gt; do
+    is1 &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> h1 &gt;&gt;= Streams.<code><a href="System-IO-Streams.html#v:lines" title="System.IO.Streams">lines</a></code>
+    is2 &lt;- Streams.<code><a href="System-IO-Streams.html#v:handleToInputStream" title="System.IO.Streams">handleToInputStream</a></code> h2 &gt;&gt;= Streams.<code><a href="System-IO-Streams.html#v:lines" title="System.IO.Streams">lines</a></code>
+    isT &lt;- Streams.<code><a href="System-IO-Streams.html#v:zipWith" title="System.IO.Streams">zipWith</a></code> (\l1 l2 -&gt; l1 &lt;&gt; &quot;\t&quot; &lt;&gt; l2) is1 is2
+    os  &lt;- Streams.<code><a href="System-IO-Streams.html#v:unlines" title="System.IO.Streams">unlines</a></code> Streams.<code><a href="System-IO-Streams.html#v:stdout" title="System.IO.Streams">stdout</a></code>
+    Streams.connect isT os
+
+yes :: IO ()
+yes = do
+    is &lt;- Streams.fromList (repeat &quot;y&quot;)
+    os &lt;- Streams.unlines Streams.stdout
+    Streams.connect is os
+ </pre></div></div></div><div id="footer"><p>Produced by <a href="http://www.haskell.org/haddock/">Haddock</a> version 2.24.2</p></div></body></html>

@@ -1,0 +1,641 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE AllowAmbiguousTypes #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE InstanceSigs #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE TypeOperators #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards #-}</span><span>
+</span><span id="line-8"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts #-}</span><span>
+</span><span id="line-9"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-10"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-11"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-12"></span><span class="hs-pragma">{-# LANGUAGE TypeSynonymInstances #-}</span><span>
+</span><span id="line-13"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses #-}</span><span>
+</span><span id="line-14"></span><span class="hs-pragma">{-# LANGUAGE StandaloneDeriving #-}</span><span>
+</span><span id="line-15"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-16"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- | @multipart/form-data@ client-side support for servant.</span><span>
+</span><span id="line-18"></span><span class="hs-comment">--   See servant-multipart-api for the API definitions.</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Servant.Multipart.Client</span><span>
+</span><span id="line-20"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Servant.Multipart.Client.html#genBoundary"><span class="hs-identifier">genBoundary</span></a></span><span>
+</span><span id="line-21"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier">ToMultipart</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Servant.Multipart.Client.html#multipartToBody"><span class="hs-identifier">multipartToBody</span></a></span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier">Servant.Multipart.API</span></a></span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">replicateM</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/array-0.5.4.0/src"><span class="hs-identifier">Data.Array</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">listArray</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">!</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">foldl'</span></a></span><span class="hs-special">)</span><span class="hs-cpp">
+#if !MIN_VERSION_base(4,11,0)
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Data.Monoid</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="hs-operator">&lt;&gt;</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text.Encoding</span></a></span><span>           </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">encodeUtf8</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Typeable</span></a></span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../http-media/html/src"><span class="hs-identifier">Network.HTTP.Media.MediaType</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../http-media/html/src"><span class="hs-operator">(//)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../http-media/html/src"><span class="hs-operator">(/:)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier">Servant.API</span></a></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier">Servant.Client.Core</span></a></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier">HasClient</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier">RequestBody</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier">RequestBodySource</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-38"></span><span>                                     </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier">setRequestBody</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier">Servant.Types.SourceT</span></a></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier">SourceT</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier">StepT</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier">fromActionStep</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier">source</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.IO</span></a></span><span>                    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">IOMode</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">ReadMode</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">withFile</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">System.Random</span></a></span><span>                </span><span class="hs-special">(</span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">getStdRandom</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../random/html/src"><span class="hs-identifier">randomR</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier">Data.ByteString.Lazy</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">LBS</span></span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- | Upon seeing @MultipartForm a :&gt; ...@ in an API type,</span><span>
+</span><span id="line-46"></span><span class="hs-comment">--   servant-client will take a parameter of type @(LBS.ByteString, a)@,</span><span>
+</span><span id="line-47"></span><span class="hs-comment">--   where the bytestring is the boundary to use (see 'genBoundary'), and</span><span>
+</span><span id="line-48"></span><span class="hs-comment">--   replace the request body with the contents of the form.</span><span>
+</span><span id="line-49"></span><span id="local-6989586621679093539"><span id="local-6989586621679093540"><span id="local-6989586621679093541"><span id="local-6989586621679093542"><span id="local-6989586621679093543"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">ToMultipart</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093543"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093542"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-type">HasClient</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093541"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093540"><span class="hs-identifier hs-type">api</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Servant.Multipart.Client.html#MultipartClient"><span class="hs-identifier hs-type">MultipartClient</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093543"><span class="hs-identifier hs-type">tag</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span>      </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-type">HasClient</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093541"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">MultipartForm'</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093539"><span class="hs-identifier hs-type">mods</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093543"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093542"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-operator hs-type">:&gt;</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093540"><span class="hs-identifier hs-type">api</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="Client"><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var">Client</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679093541"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">MultipartForm'</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093539"><span class="hs-identifier hs-type">mods</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093543"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093542"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-operator hs-type">:&gt;</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093540"><span class="hs-identifier hs-type">api</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-53"></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">LBS.ByteString</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679093542"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-type">Client</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093541"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093540"><span class="hs-identifier hs-type">api</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span>  </span><span id="local-6989586621679093534"><span class="annot"><span class="annottext">clientWithRoute :: Proxy m
+-&gt; Proxy (MultipartForm' mods tag a :&gt; api)
+-&gt; Request
+-&gt; Client m (MultipartForm' mods tag a :&gt; api)
+</span><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">clientWithRoute</span></a></span></span><span> </span><span id="local-6989586621679093532"><span class="annot"><span class="annottext">Proxy m
+</span><a href="#local-6989586621679093532"><span class="hs-identifier hs-var">pm</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy (MultipartForm' mods tag a :&gt; api)
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679093531"><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679093531"><span class="hs-identifier hs-var">req</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679093530"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093530"><span class="hs-identifier hs-var">boundary</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679093529"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679093529"><span class="hs-identifier hs-var">param</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-56"></span><span>      </span><span class="annot"><span class="annottext">Proxy m -&gt; Proxy api -&gt; Request -&gt; Client m api
+forall (m :: * -&gt; *) api.
+HasClient m api =&gt;
+Proxy m -&gt; Proxy api -&gt; Request -&gt; Client m api
+</span><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var">clientWithRoute</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy m
+</span><a href="#local-6989586621679093532"><span class="hs-identifier hs-var">pm</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy api
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679093540"><span class="hs-identifier hs-type">api</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Request -&gt; Client m api) -&gt; Request -&gt; Client m api
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">RequestBody -&gt; MediaType -&gt; Request -&gt; Request
+</span><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var">setRequestBody</span></a></span><span> </span><span class="annot"><span class="annottext">RequestBody
+</span><a href="#local-6989586621679093527"><span class="hs-identifier hs-var">newBody</span></a></span><span> </span><span class="annot"><span class="annottext">MediaType
+</span><a href="#local-6989586621679093526"><span class="hs-identifier hs-var">newMedia</span></a></span><span> </span><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679093531"><span class="hs-identifier hs-var">req</span></a></span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-58"></span><span>      </span><span id="local-6989586621679093527"><span class="annot"><span class="annottext">newBody :: RequestBody
+</span><a href="#local-6989586621679093527"><span class="hs-identifier hs-var hs-var">newBody</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; MultipartData tag -&gt; RequestBody
+forall tag.
+MultipartClient tag =&gt;
+ByteString -&gt; MultipartData tag -&gt; RequestBody
+</span><a href="Servant.Multipart.Client.html#multipartToBody"><span class="hs-identifier hs-var">multipartToBody</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093530"><span class="hs-identifier hs-var">boundary</span></a></span><span> </span><span class="annot"><span class="annottext">(MultipartData tag -&gt; RequestBody)
+-&gt; MultipartData tag -&gt; RequestBody
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; MultipartData tag
+forall tag a. ToMultipart tag a =&gt; a -&gt; MultipartData tag
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var">toMultipart</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679093543"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679093529"><span class="hs-identifier hs-var">param</span></a></span><span>
+</span><span id="line-59"></span><span>      </span><span id="local-6989586621679093526"><span class="annot"><span class="annottext">newMedia :: MediaType
+</span><a href="#local-6989586621679093526"><span class="hs-identifier hs-var hs-var">newMedia</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;multipart&quot;</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; MediaType
+</span><a href="../../../../http-media/html/src"><span class="hs-operator hs-var">//</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;form-data&quot;</span></span><span> </span><span class="annot"><span class="annottext">MediaType -&gt; (ByteString, ByteString) -&gt; MediaType
+</span><a href="../../../../http-media/html/src"><span class="hs-operator hs-var">/:</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;boundary&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">LBS.toStrict</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093530"><span class="hs-identifier hs-var">boundary</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span>  </span><span id="local-6989586621679093523"><span class="annot"><span class="annottext">hoistClientMonad :: Proxy m
+-&gt; Proxy (MultipartForm' mods tag a :&gt; api)
+-&gt; (forall x. mon x -&gt; mon' x)
+-&gt; Client mon (MultipartForm' mods tag a :&gt; api)
+-&gt; Client mon' (MultipartForm' mods tag a :&gt; api)
+</span><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">hoistClientMonad</span></a></span></span><span> </span><span id="local-6989586621679093521"><span class="annot"><span class="annottext">Proxy m
+</span><a href="#local-6989586621679093521"><span class="hs-identifier hs-var">pm</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy (MultipartForm' mods tag a :&gt; api)
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679093520"><span class="annot"><span class="annottext">forall x. mon x -&gt; mon' x
+</span><a href="#local-6989586621679093520"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679093519"><span class="annot"><span class="annottext">Client mon (MultipartForm' mods tag a :&gt; api)
+</span><a href="#local-6989586621679093519"><span class="hs-identifier hs-var">cl</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679093518"><span class="annot"><span class="annottext">(ByteString, a)
+</span><a href="#local-6989586621679093518"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-62"></span><span>      </span><span class="annot"><span class="annottext">Proxy m
+-&gt; Proxy api
+-&gt; (forall x. mon x -&gt; mon' x)
+-&gt; Client mon api
+-&gt; Client mon' api
+forall (m :: * -&gt; *) api (mon :: * -&gt; *) (mon' :: * -&gt; *).
+HasClient m api =&gt;
+Proxy m
+-&gt; Proxy api
+-&gt; (forall x. mon x -&gt; mon' x)
+-&gt; Client mon api
+-&gt; Client mon' api
+</span><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var">hoistClientMonad</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy m
+</span><a href="#local-6989586621679093521"><span class="hs-identifier hs-var">pm</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy api
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679093540"><span class="hs-identifier hs-type">api</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">forall x. mon x -&gt; mon' x
+</span><a href="#local-6989586621679093520"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Client mon (MultipartForm' mods tag a :&gt; api)
+(ByteString, a) -&gt; Client mon api
+</span><a href="#local-6989586621679093519"><span class="hs-identifier hs-var">cl</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString, a)
+</span><a href="#local-6989586621679093518"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span></span></span></span></span></span><span>
+</span><span id="line-63"></span><span>
+</span><span id="line-64"></span><span class="hs-keyword">class</span><span> </span><span id="MultipartClient"><span class="annot"><a href="Servant.Multipart.Client.html#MultipartClient"><span class="hs-identifier hs-var">MultipartClient</span></a></span></span><span> </span><span id="local-6989586621679093627"><span class="annot"><a href="#local-6989586621679093627"><span class="hs-identifier hs-type">tag</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-65"></span><span>    </span><span id="loadFile"><span class="annot"><a href="Servant.Multipart.Client.html#loadFile"><span class="hs-identifier hs-type">loadFile</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Proxy</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093627"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">MultipartResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093627"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">SourceIO</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">LBS.ByteString</span></a></span><span>
+</span><span id="line-66"></span><span>
+</span><span id="line-67"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Servant.Multipart.Client.html#MultipartClient"><span class="hs-identifier hs-type">MultipartClient</span></a></span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">Tmp</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-comment">-- streams the file from disk</span><span>
+</span><span id="line-69"></span><span>    </span><span id="local-6989586621679093514"><span class="annot"><span class="annottext">loadFile :: Proxy Tmp -&gt; MultipartResult Tmp -&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093514"><span class="hs-identifier hs-var hs-var hs-var hs-var">loadFile</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy Tmp
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679093513"><span class="annot"><span class="annottext">MultipartResult Tmp
+</span><a href="#local-6989586621679093513"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-70"></span><span>        </span><span class="annot"><span class="annottext">(forall b. (StepT IO ByteString -&gt; IO b) -&gt; IO b)
+-&gt; SourceIO ByteString
+forall (m :: * -&gt; *) a.
+(forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">SourceT</span></a></span><span> </span><span class="annot"><span class="annottext">((forall b. (StepT IO ByteString -&gt; IO b) -&gt; IO b)
+ -&gt; SourceIO ByteString)
+-&gt; (forall b. (StepT IO ByteString -&gt; IO b) -&gt; IO b)
+-&gt; SourceIO ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679093511"><span class="annot"><span class="annottext">StepT IO ByteString -&gt; IO b
+</span><a href="#local-6989586621679093511"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-71"></span><span>        </span><span class="annot"><span class="annottext">FilePath -&gt; IOMode -&gt; (Handle -&gt; IO b) -&gt; IO b
+forall r. FilePath -&gt; IOMode -&gt; (Handle -&gt; IO r) -&gt; IO r
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">withFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+MultipartResult Tmp
+</span><a href="#local-6989586621679093513"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="annot"><span class="annottext">IOMode
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">ReadMode</span></a></span><span> </span><span class="annot"><span class="annottext">((Handle -&gt; IO b) -&gt; IO b) -&gt; (Handle -&gt; IO b) -&gt; IO b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679093510"><span class="annot"><span class="annottext">Handle
+</span><a href="#local-6989586621679093510"><span class="hs-identifier hs-var">hdl</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-72"></span><span>        </span><span class="annot"><span class="annottext">StepT IO ByteString -&gt; IO b
+</span><a href="#local-6989586621679093511"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Handle -&gt; StepT IO ByteString
+</span><a href="#local-6989586621679093509"><span class="hs-identifier hs-var">readHandle</span></a></span><span> </span><span class="annot"><span class="annottext">Handle
+</span><a href="#local-6989586621679093510"><span class="hs-identifier hs-var">hdl</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-74"></span><span>        </span><span id="local-6989586621679093509"><span class="annot"><span class="annottext">readHandle :: Handle -&gt; StepT IO ByteString
+</span><a href="#local-6989586621679093509"><span class="hs-identifier hs-var hs-var">readHandle</span></a></span></span><span> </span><span id="local-6989586621679093508"><span class="annot"><span class="annottext">Handle
+</span><a href="#local-6989586621679093508"><span class="hs-identifier hs-var">hdl</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Bool) -&gt; IO ByteString -&gt; StepT IO ByteString
+forall (m :: * -&gt; *) a.
+Functor m =&gt;
+(a -&gt; Bool) -&gt; m a -&gt; StepT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">fromActionStep</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Bool
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">LBS.null</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Handle -&gt; Int -&gt; IO ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">LBS.hGet</span></a></span><span> </span><span class="annot"><span class="annottext">Handle
+</span><a href="#local-6989586621679093508"><span class="hs-identifier hs-var">hdl</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">4096</span></span><span class="hs-special">)</span><span>
+</span><span id="line-75"></span><span>
+</span><span id="line-76"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Servant.Multipart.Client.html#MultipartClient"><span class="hs-identifier hs-type">MultipartClient</span></a></span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">Mem</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-77"></span><span>    </span><span id="local-6989586621679093504"><span class="annot"><span class="annottext">loadFile :: Proxy Mem -&gt; MultipartResult Mem -&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093504"><span class="hs-identifier hs-var hs-var hs-var hs-var">loadFile</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy Mem
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[ByteString] -&gt; SourceIO ByteString
+forall a (m :: * -&gt; *). [a] -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">source</span></a></span><span> </span><span class="annot"><span class="annottext">([ByteString] -&gt; SourceIO ByteString)
+-&gt; (ByteString -&gt; [ByteString])
+-&gt; ByteString
+-&gt; SourceIO ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; [ByteString]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- | Generates a boundary to be used to separate parts of the multipart.</span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- Requires 'IO' because it is randomized.</span><span>
+</span><span id="line-81"></span><span class="annot"><a href="Servant.Multipart.Client.html#genBoundary"><span class="hs-identifier hs-type">genBoundary</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">LBS.ByteString</span></a></span><span>
+</span><span id="line-82"></span><span id="genBoundary"><span class="annot"><span class="annottext">genBoundary :: IO ByteString
+</span><a href="Servant.Multipart.Client.html#genBoundary"><span class="hs-identifier hs-var hs-var">genBoundary</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Word8] -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">LBS.pack</span></a></span><span>
+</span><span id="line-83"></span><span>            </span><span class="annot"><span class="annottext">([Word8] -&gt; ByteString)
+-&gt; ([Int] -&gt; [Word8]) -&gt; [Int] -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Word8) -&gt; [Int] -&gt; [Word8]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Array Int Word8
+</span><a href="#local-6989586621679093501"><span class="hs-identifier hs-var">validChars</span></a></span><span> </span><span class="annot"><span class="annottext">Array Int Word8 -&gt; Int -&gt; Word8
+forall i e. Ix i =&gt; Array i e -&gt; i -&gt; e
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">!</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-84"></span><span>            </span><span class="annot"><span class="annottext">([Int] -&gt; ByteString) -&gt; IO [Int] -&gt; IO ByteString
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO [Int]
+</span><a href="#local-6989586621679093499"><span class="hs-identifier hs-var">indices</span></a></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-comment">-- the standard allows up to 70 chars, but most implementations seem to be</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-comment">-- in the range of 40-60, so we pick 55</span><span>
+</span><span id="line-88"></span><span>    </span><span id="local-6989586621679093499"><span class="annot"><span class="annottext">indices :: IO [Int]
+</span><a href="#local-6989586621679093499"><span class="hs-identifier hs-var hs-var">indices</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO Int -&gt; IO [Int]
+forall (m :: * -&gt; *) a. Applicative m =&gt; Int -&gt; m a -&gt; m [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">replicateM</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">55</span></span><span> </span><span class="annot"><span class="annottext">(IO Int -&gt; IO [Int])
+-&gt; ((StdGen -&gt; (Int, StdGen)) -&gt; IO Int)
+-&gt; (StdGen -&gt; (Int, StdGen))
+-&gt; IO [Int]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(StdGen -&gt; (Int, StdGen)) -&gt; IO Int
+forall (m :: * -&gt; *) a. MonadIO m =&gt; (StdGen -&gt; (a, StdGen)) -&gt; m a
+</span><a href="../../../../random/html/src"><span class="hs-identifier hs-var">getStdRandom</span></a></span><span> </span><span class="annot"><span class="annottext">((StdGen -&gt; (Int, StdGen)) -&gt; IO [Int])
+-&gt; (StdGen -&gt; (Int, StdGen)) -&gt; IO [Int]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; StdGen -&gt; (Int, StdGen)
+forall a g. (Random a, RandomGen g) =&gt; (a, a) -&gt; g -&gt; (a, g)
+</span><a href="../../../../random/html/src"><span class="hs-identifier hs-var">randomR</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">61</span></span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-comment">-- Following Chromium on this one:</span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-comment">-- &gt; The RFC 2046 spec says the alphanumeric characters plus the</span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-comment">-- &gt; following characters are legal for boundaries:  '()+_,-./:=?</span><span>
+</span><span id="line-92"></span><span>    </span><span class="hs-comment">-- &gt; However the following characters, though legal, cause some sites</span><span>
+</span><span id="line-93"></span><span>    </span><span class="hs-comment">-- &gt; to fail: (),./:=+</span><span>
+</span><span id="line-94"></span><span>    </span><span class="hs-comment">-- https://github.com/chromium/chromium/blob/6efa1184771ace08f3e2162b0255c93526d1750d/net/base/mime_util.cc#L662-L670</span><span>
+</span><span id="line-95"></span><span>    </span><span id="local-6989586621679093501"><span class="annot"><span class="annottext">validChars :: Array Int Word8
+</span><a href="#local-6989586621679093501"><span class="hs-identifier hs-var hs-var">validChars</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; [Word8] -&gt; Array Int Word8
+forall i e. Ix i =&gt; (i, i) -&gt; [e] -&gt; Array i e
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">listArray</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">61</span></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>                           </span><span class="hs-comment">-- 0-9</span><span>
+</span><span id="line-97"></span><span>                           </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x30</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x31</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x32</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x33</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x34</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x35</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x36</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x37</span></span><span>
+</span><span id="line-98"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x38</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x39</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x41</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x42</span></span><span>
+</span><span id="line-99"></span><span>                           </span><span class="hs-comment">-- A-Z, a-z</span><span>
+</span><span id="line-100"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x43</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x44</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x45</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x46</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x47</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x48</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x49</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x4a</span></span><span>
+</span><span id="line-101"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x4b</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x4c</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x4d</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x4e</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x4f</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x50</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x51</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x52</span></span><span>
+</span><span id="line-102"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x53</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x54</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x55</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x56</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x57</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x58</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x59</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x5a</span></span><span>
+</span><span id="line-103"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x61</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x62</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x63</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x64</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x65</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x66</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x67</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x68</span></span><span>
+</span><span id="line-104"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x69</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x6a</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x6b</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x6c</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x6d</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x6e</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x6f</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x70</span></span><span>
+</span><span id="line-105"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x71</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x72</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x73</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x74</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x75</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x76</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x77</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x78</span></span><span>
+</span><span id="line-106"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x79</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7a</span></span><span>
+</span><span id="line-107"></span><span>                           </span><span class="hs-special">]</span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="hs-comment">-- | Given a bytestring for the boundary, turns a `MultipartData` into</span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- a 'RequestBody'</span><span>
+</span><span id="line-111"></span><span class="annot"><a href="Servant.Multipart.Client.html#multipartToBody"><span class="hs-identifier hs-type">multipartToBody</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679093636"><span class="annot"><a href="#local-6989586621679093636"><span class="hs-identifier hs-type">tag</span></a></span></span><span>
+</span><span id="line-112"></span><span>                </span><span class="hs-operator">.</span><span>  </span><span class="annot"><a href="Servant.Multipart.Client.html#MultipartClient"><span class="hs-identifier hs-type">MultipartClient</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093636"><span class="hs-identifier hs-type">tag</span></a></span><span>
+</span><span id="line-113"></span><span>                </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">LBS.ByteString</span></a></span><span>
+</span><span id="line-114"></span><span>                </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">MultipartData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093636"><span class="hs-identifier hs-type">tag</span></a></span><span>
+</span><span id="line-115"></span><span>                </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-type">RequestBody</span></a></span><span>
+</span><span id="line-116"></span><span id="multipartToBody"><span class="annot"><span class="annottext">multipartToBody :: ByteString -&gt; MultipartData tag -&gt; RequestBody
+</span><a href="Servant.Multipart.Client.html#multipartToBody"><span class="hs-identifier hs-var hs-var">multipartToBody</span></a></span></span><span> </span><span id="local-6989586621679093498"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093498"><span class="hs-identifier hs-var">boundary</span></a></span></span><span> </span><span id="local-6989586621679093497"><span class="annot"><span class="annottext">MultipartData tag
+</span><a href="#local-6989586621679093497"><span class="hs-identifier hs-var">mp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString -&gt; RequestBody
+</span><a href="../../../../servant-client-core/html/src"><span class="hs-identifier hs-var">RequestBodySource</span></a></span><span> </span><span class="annot"><span class="annottext">(SourceIO ByteString -&gt; RequestBody)
+-&gt; SourceIO ByteString -&gt; RequestBody
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093496"><span class="hs-identifier hs-var">files'</span></a></span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString -&gt; SourceIO ByteString -&gt; SourceIO ByteString
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[ByteString] -&gt; SourceIO ByteString
+forall a (m :: * -&gt; *). [a] -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">source</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;--&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093498"><span class="hs-identifier hs-var">boundary</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;--&quot;</span></span><span class="hs-special">]</span><span>
+</span><span id="line-117"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-118"></span><span>    </span><span class="hs-comment">-- at time of writing no Semigroup or Monoid instance exists for SourceT and StepT</span><span>
+</span><span id="line-119"></span><span>    </span><span class="hs-comment">-- in releases of Servant; they are in master though</span><span>
+</span><span id="line-120"></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">SourceT</span></a></span><span> </span><span id="local-6989586621679093495"><span class="annot"><span class="annottext">forall b. (StepT m a -&gt; m b) -&gt; m b
+</span><a href="#local-6989586621679093495"><span class="hs-identifier hs-var">l</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679093494"><span class="annot"><span class="annottext">mappend' :: SourceT m a -&gt; SourceT m a -&gt; SourceT m a
+</span><a href="#local-6989586621679093494"><span class="hs-operator hs-var hs-var">`mappend'`</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">SourceT</span></a></span><span> </span><span id="local-6989586621679093493"><span class="annot"><span class="annottext">forall b. (StepT m a -&gt; m b) -&gt; m b
+</span><a href="#local-6989586621679093493"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a
+forall (m :: * -&gt; *) a.
+(forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">SourceT</span></a></span><span> </span><span class="annot"><span class="annottext">((forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a)
+-&gt; (forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679093492"><span class="annot"><span class="annottext">StepT m a -&gt; m b
+</span><a href="#local-6989586621679093492"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-121"></span><span>                                                   </span><span class="annot"><span class="annottext">(StepT m a -&gt; m b) -&gt; m b
+forall b. (StepT m a -&gt; m b) -&gt; m b
+</span><a href="#local-6989586621679093495"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">((StepT m a -&gt; m b) -&gt; m b) -&gt; (StepT m a -&gt; m b) -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679093491"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093491"><span class="hs-identifier hs-var">lstep</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-122"></span><span>                                                   </span><span class="annot"><span class="annottext">(StepT m a -&gt; m b) -&gt; m b
+forall b. (StepT m a -&gt; m b) -&gt; m b
+</span><a href="#local-6989586621679093493"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">((StepT m a -&gt; m b) -&gt; m b) -&gt; (StepT m a -&gt; m b) -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679093490"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093490"><span class="hs-identifier hs-var">rstep</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-123"></span><span>                                                   </span><span class="annot"><span class="annottext">StepT m a -&gt; m b
+</span><a href="#local-6989586621679093492"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StepT m a -&gt; StepT m a -&gt; StepT m a
+forall (m :: * -&gt; *) a.
+Functor m =&gt;
+StepT m a -&gt; StepT m a -&gt; StepT m a
+</span><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093491"><span class="hs-identifier hs-var">lstep</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093490"><span class="hs-identifier hs-var">rstep</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>    </span><span id="local-6989586621679093489"><span class="annot"><span class="annottext">appendStep :: StepT m a -&gt; StepT m a -&gt; StepT m a
+</span><a href="#local-6989586621679093489"><span class="hs-identifier hs-var hs-var">appendStep</span></a></span></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">Stop</span></a></span><span>        </span><span id="local-6989586621679093487"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093487"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093487"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-125"></span><span>    </span><span class="annot"><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">Error</span></a></span><span> </span><span id="local-6989586621679093485"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679093485"><span class="hs-identifier hs-var">err</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; StepT m a
+forall (m :: * -&gt; *) a. FilePath -&gt; StepT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">Error</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679093485"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-126"></span><span>    </span><span class="annot"><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">Skip</span></a></span><span> </span><span id="local-6989586621679093483"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093483"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-special">)</span><span>    </span><span id="local-6989586621679093482"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093482"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">StepT m a -&gt; StepT m a -&gt; StepT m a
+</span><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093483"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093482"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-127"></span><span>    </span><span class="annot"><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">Yield</span></a></span><span> </span><span id="local-6989586621679093480"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679093480"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679093479"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093479"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679093478"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093478"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; StepT m a -&gt; StepT m a
+forall (m :: * -&gt; *) a. a -&gt; StepT m a -&gt; StepT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">Yield</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679093480"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StepT m a -&gt; StepT m a -&gt; StepT m a
+</span><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093479"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093478"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-128"></span><span>    </span><span class="annot"><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">Effect</span></a></span><span> </span><span id="local-6989586621679093476"><span class="annot"><span class="annottext">m (StepT m a)
+</span><a href="#local-6989586621679093476"><span class="hs-identifier hs-var">ms</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679093475"><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093475"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m (StepT m a) -&gt; StepT m a
+forall (m :: * -&gt; *) a. m (StepT m a) -&gt; StepT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">Effect</span></a></span><span> </span><span class="annot"><span class="annottext">(m (StepT m a) -&gt; StepT m a) -&gt; m (StepT m a) -&gt; StepT m a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(StepT m a -&gt; StepT m a -&gt; StepT m a)
+-&gt; StepT m a -&gt; StepT m a -&gt; StepT m a
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a -&gt; StepT m a -&gt; StepT m a
+</span><a href="#local-6989586621679093489"><span class="hs-identifier hs-var">appendStep</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+</span><a href="#local-6989586621679093475"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">(StepT m a -&gt; StepT m a) -&gt; m (StepT m a) -&gt; m (StepT m a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m (StepT m a)
+</span><a href="#local-6989586621679093476"><span class="hs-identifier hs-var">ms</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-129"></span><span>    </span><span id="local-6989586621679093473"><span class="annot"><span class="annottext">mempty' :: SourceT m a
+</span><a href="#local-6989586621679093473"><span class="hs-identifier hs-var hs-var">mempty'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a
+forall (m :: * -&gt; *) a.
+(forall b. (StepT m a -&gt; m b) -&gt; m b) -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">SourceT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(StepT m a -&gt; m b) -&gt; StepT m a -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StepT m a
+forall (m :: * -&gt; *) a. StepT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">Stop</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span>    </span><span id="local-6989586621679093472"><span class="annot"><span class="annottext">crlf :: ByteString
+</span><a href="#local-6989586621679093472"><span class="hs-identifier hs-var hs-var">crlf</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;\r\n&quot;</span></span><span>
+</span><span id="line-131"></span><span>    </span><span id="local-6989586621679093471"><span class="annot"><span class="annottext">lencode :: Text -&gt; ByteString
+</span><a href="#local-6989586621679093471"><span class="hs-identifier hs-var hs-var">lencode</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-var">LBS.fromStrict</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString)
+-&gt; (Text -&gt; ByteString) -&gt; Text -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">encodeUtf8</span></a></span><span>
+</span><span id="line-132"></span><span>    </span><span id="local-6989586621679093469"><span class="annot"><span class="annottext">renderInput :: Input -&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093469"><span class="hs-identifier hs-var hs-var">renderInput</span></a></span></span><span> </span><span id="local-6989586621679093468"><span class="annot"><span class="annottext">Input
+</span><a href="#local-6989586621679093468"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+-&gt; ByteString
+-&gt; ByteString
+-&gt; SourceIO ByteString
+-&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093467"><span class="hs-identifier hs-var">renderPart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="#local-6989586621679093471"><span class="hs-identifier hs-var">lencode</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; ByteString) -&gt; (Input -&gt; Text) -&gt; Input -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Input -&gt; Text
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">iName</span></a></span><span> </span><span class="annot"><span class="annottext">(Input -&gt; ByteString) -&gt; Input -&gt; ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Input
+</span><a href="#local-6989586621679093468"><span class="hs-identifier hs-var">input</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span>                                   </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;text/plain&quot;</span></span><span>
+</span><span id="line-134"></span><span>                                   </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-135"></span><span>                                   </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[ByteString] -&gt; SourceIO ByteString
+forall a (m :: * -&gt; *). [a] -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">source</span></a></span><span> </span><span class="annot"><span class="annottext">([ByteString] -&gt; SourceIO ByteString)
+-&gt; (Input -&gt; [ByteString]) -&gt; Input -&gt; SourceIO ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; [ByteString]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; [ByteString])
+-&gt; (Input -&gt; ByteString) -&gt; Input -&gt; [ByteString]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="#local-6989586621679093471"><span class="hs-identifier hs-var">lencode</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; ByteString) -&gt; (Input -&gt; Text) -&gt; Input -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Input -&gt; Text
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">iValue</span></a></span><span> </span><span class="annot"><span class="annottext">(Input -&gt; SourceIO ByteString) -&gt; Input -&gt; SourceIO ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Input
+</span><a href="#local-6989586621679093468"><span class="hs-identifier hs-var">input</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-136"></span><span>    </span><span id="local-6989586621679093464"><span class="annot"><span class="annottext">inputs' :: SourceIO ByteString
+</span><a href="#local-6989586621679093464"><span class="hs-identifier hs-var hs-var">inputs'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceIO ByteString -&gt; Input -&gt; SourceIO ByteString)
+-&gt; SourceIO ByteString -&gt; [Input] -&gt; SourceIO ByteString
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679093463"><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093463"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span id="local-6989586621679093462"><span class="annot"><span class="annottext">Input
+</span><a href="#local-6989586621679093462"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093463"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString -&gt; SourceIO ByteString -&gt; SourceIO ByteString
+forall (m :: * -&gt; *) a.
+Functor m =&gt;
+SourceT m a -&gt; SourceT m a -&gt; SourceT m a
+</span><a href="#local-6989586621679093494"><span class="hs-operator hs-var">`mappend'`</span></a></span><span> </span><span class="annot"><span class="annottext">Input -&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093469"><span class="hs-identifier hs-var">renderInput</span></a></span><span> </span><span class="annot"><span class="annottext">Input
+</span><a href="#local-6989586621679093462"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString
+forall (m :: * -&gt; *) a. SourceT m a
+</span><a href="#local-6989586621679093473"><span class="hs-identifier hs-var">mempty'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MultipartData tag -&gt; [Input]
+forall tag. MultipartData tag -&gt; [Input]
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">inputs</span></a></span><span> </span><span class="annot"><span class="annottext">MultipartData tag
+</span><a href="#local-6989586621679093497"><span class="hs-identifier hs-var">mp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-137"></span><span>    </span><span class="annot"><a href="#local-6989586621679093460"><span class="hs-identifier hs-type">renderFile</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-type">FileData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679093636"><span class="hs-identifier hs-type">tag</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../servant/html/src"><span class="hs-identifier hs-type">SourceIO</span></a></span><span> </span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">LBS.ByteString</span></a></span><span>
+</span><span id="line-138"></span><span>    </span><span id="local-6989586621679093460"><span class="annot"><span class="annottext">renderFile :: FileData tag -&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093460"><span class="hs-identifier hs-var hs-var">renderFile</span></a></span></span><span> </span><span id="local-6989586621679093459"><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093459"><span class="hs-identifier hs-var">file</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString
+-&gt; ByteString
+-&gt; ByteString
+-&gt; SourceIO ByteString
+-&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093467"><span class="hs-identifier hs-var">renderPart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="#local-6989586621679093471"><span class="hs-identifier hs-var">lencode</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; ByteString)
+-&gt; (FileData tag -&gt; Text) -&gt; FileData tag -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag -&gt; Text
+forall tag. FileData tag -&gt; Text
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">fdInputName</span></a></span><span> </span><span class="annot"><span class="annottext">(FileData tag -&gt; ByteString) -&gt; FileData tag -&gt; ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093459"><span class="hs-identifier hs-var">file</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-139"></span><span>                                 </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="#local-6989586621679093471"><span class="hs-identifier hs-var">lencode</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; ByteString)
+-&gt; (FileData tag -&gt; Text) -&gt; FileData tag -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag -&gt; Text
+forall tag. FileData tag -&gt; Text
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">fdFileCType</span></a></span><span> </span><span class="annot"><span class="annottext">(FileData tag -&gt; ByteString) -&gt; FileData tag -&gt; ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093459"><span class="hs-identifier hs-var">file</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span><span>                                 </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString -&gt; ByteString)
+-&gt; ByteString -&gt; ByteString -&gt; ByteString
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mappend</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;\&quot;&quot;</span></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString)
+-&gt; (FileData tag -&gt; ByteString) -&gt; FileData tag -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString -&gt; ByteString
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mappend</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;; filename=\&quot;&quot;</span></span><span>
+</span><span id="line-141"></span><span>                                                      </span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString)
+-&gt; (FileData tag -&gt; ByteString) -&gt; FileData tag -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><a href="#local-6989586621679093471"><span class="hs-identifier hs-var">lencode</span></a></span><span>
+</span><span id="line-142"></span><span>                                                      </span><span class="annot"><span class="annottext">(Text -&gt; ByteString)
+-&gt; (FileData tag -&gt; Text) -&gt; FileData tag -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag -&gt; Text
+forall tag. FileData tag -&gt; Text
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">fdFileName</span></a></span><span> </span><span class="annot"><span class="annottext">(FileData tag -&gt; ByteString) -&gt; FileData tag -&gt; ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093459"><span class="hs-identifier hs-var">file</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-143"></span><span>                                 </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy tag -&gt; MultipartResult tag -&gt; SourceIO ByteString
+forall tag.
+MultipartClient tag =&gt;
+Proxy tag -&gt; MultipartResult tag -&gt; SourceIO ByteString
+</span><a href="Servant.Multipart.Client.html#loadFile"><span class="hs-identifier hs-var">loadFile</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy tag
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="#local-6989586621679093636"><span class="hs-identifier hs-type">tag</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(MultipartResult tag -&gt; SourceIO ByteString)
+-&gt; (FileData tag -&gt; MultipartResult tag)
+-&gt; FileData tag
+-&gt; SourceIO ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag -&gt; MultipartResult tag
+forall tag. FileData tag -&gt; MultipartResult tag
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">fdPayload</span></a></span><span> </span><span class="annot"><span class="annottext">(FileData tag -&gt; SourceIO ByteString)
+-&gt; FileData tag -&gt; SourceIO ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093459"><span class="hs-identifier hs-var">file</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-144"></span><span>    </span><span id="local-6989586621679093496"><span class="annot"><span class="annottext">files' :: SourceIO ByteString
+</span><a href="#local-6989586621679093496"><span class="hs-identifier hs-var hs-var">files'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceIO ByteString -&gt; FileData tag -&gt; SourceIO ByteString)
+-&gt; SourceIO ByteString -&gt; [FileData tag] -&gt; SourceIO ByteString
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679093454"><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093454"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span id="local-6989586621679093453"><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093453"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093454"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString -&gt; SourceIO ByteString -&gt; SourceIO ByteString
+forall (m :: * -&gt; *) a.
+Functor m =&gt;
+SourceT m a -&gt; SourceT m a -&gt; SourceT m a
+</span><a href="#local-6989586621679093494"><span class="hs-operator hs-var">`mappend'`</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag -&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093460"><span class="hs-identifier hs-var">renderFile</span></a></span><span> </span><span class="annot"><span class="annottext">FileData tag
+</span><a href="#local-6989586621679093453"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093464"><span class="hs-identifier hs-var">inputs'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MultipartData tag -&gt; [FileData tag]
+forall tag. MultipartData tag -&gt; [FileData tag]
+</span><a href="../../../../servant-multipart-api/html/src"><span class="hs-identifier hs-var hs-var">files</span></a></span><span> </span><span class="annot"><span class="annottext">MultipartData tag
+</span><a href="#local-6989586621679093497"><span class="hs-identifier hs-var">mp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-145"></span><span>    </span><span id="local-6989586621679093467"><span class="annot"><span class="annottext">renderPart :: ByteString
+-&gt; ByteString
+-&gt; ByteString
+-&gt; SourceIO ByteString
+-&gt; SourceIO ByteString
+</span><a href="#local-6989586621679093467"><span class="hs-identifier hs-var hs-var">renderPart</span></a></span></span><span> </span><span id="local-6989586621679093451"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093451"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679093450"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093450"><span class="hs-identifier hs-var">contentType</span></a></span></span><span> </span><span id="local-6989586621679093449"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093449"><span class="hs-identifier hs-var">extraParams</span></a></span></span><span> </span><span id="local-6989586621679093448"><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093448"><span class="hs-identifier hs-var">payload</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-146"></span><span>      </span><span class="annot"><span class="annottext">[ByteString] -&gt; SourceIO ByteString
+forall a (m :: * -&gt; *). [a] -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">source</span></a></span><span> </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;--&quot;</span></span><span>
+</span><span id="line-147"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093498"><span class="hs-identifier hs-var">boundary</span></a></span><span>
+</span><span id="line-148"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093472"><span class="hs-identifier hs-var">crlf</span></a></span><span>
+</span><span id="line-149"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;Content-Disposition: form-data; name=\&quot;&quot;</span></span><span>
+</span><span id="line-150"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093451"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-151"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;\&quot;&quot;</span></span><span>
+</span><span id="line-152"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093449"><span class="hs-identifier hs-var">extraParams</span></a></span><span>
+</span><span id="line-153"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093472"><span class="hs-identifier hs-var">crlf</span></a></span><span>
+</span><span id="line-154"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-string">&quot;Content-Type: &quot;</span></span><span>
+</span><span id="line-155"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093450"><span class="hs-identifier hs-var">contentType</span></a></span><span>
+</span><span id="line-156"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093472"><span class="hs-identifier hs-var">crlf</span></a></span><span>
+</span><span id="line-157"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093472"><span class="hs-identifier hs-var">crlf</span></a></span><span>
+</span><span id="line-158"></span><span>             </span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString -&gt; SourceIO ByteString -&gt; SourceIO ByteString
+forall (m :: * -&gt; *) a.
+Functor m =&gt;
+SourceT m a -&gt; SourceT m a -&gt; SourceT m a
+</span><a href="#local-6989586621679093494"><span class="hs-operator hs-var">`mappend'`</span></a></span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString
+</span><a href="#local-6989586621679093448"><span class="hs-identifier hs-var">payload</span></a></span><span> </span><span class="annot"><span class="annottext">SourceIO ByteString -&gt; SourceIO ByteString -&gt; SourceIO ByteString
+forall (m :: * -&gt; *) a.
+Functor m =&gt;
+SourceT m a -&gt; SourceT m a -&gt; SourceT m a
+</span><a href="#local-6989586621679093494"><span class="hs-operator hs-var">`mappend'`</span></a></span><span> </span><span class="annot"><span class="annottext">[ByteString] -&gt; SourceIO ByteString
+forall a (m :: * -&gt; *). [a] -&gt; SourceT m a
+</span><a href="../../../../servant/html/src"><span class="hs-identifier hs-var">source</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679093472"><span class="hs-identifier hs-var">crlf</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-159"></span></pre></body></html>

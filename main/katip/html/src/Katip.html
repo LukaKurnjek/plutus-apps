@@ -1,0 +1,310 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- | Includes all of the APIs youll need to use Katip. Be sure to</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- check out the included @examples@ directory for an example of</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- usage.</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Here's a basic example:</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- {-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- {-# LANGUAGE TemplateHaskell #-}</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- import Control.Exception</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- import Katip</span><span>
+</span><span id="line-13"></span><span class="hs-comment">--</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- main :: IO ()</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- main = do</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--   handleScribe &lt;- mkHandleScribe ColorIfTerminal stdout (permitItem InfoS) V2</span><span>
+</span><span id="line-17"></span><span class="hs-comment">--   let makeLogEnv = registerScribe &quot;stdout&quot; handleScribe defaultScribeSettings =&lt;&lt; initLogEnv \&quot;MyApp\&quot; \&quot;production\&quot;</span><span>
+</span><span id="line-18"></span><span class="hs-comment">--   -- closeScribes will stop accepting new logs, flush existing ones and clean up resources</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--   bracket makeLogEnv closeScribes $ \\le -&gt; do</span><span>
+</span><span id="line-20"></span><span class="hs-comment">--     let initialContext = () -- this context will be attached to every log in your app and merged w/ subsequent contexts</span><span>
+</span><span id="line-21"></span><span class="hs-comment">--     let initialNamespace = &quot;main&quot;</span><span>
+</span><span id="line-22"></span><span class="hs-comment">--     runKatipContextT le initialContext initialNamespace $ do</span><span>
+</span><span id="line-23"></span><span class="hs-comment">--       $(logTM) InfoS &quot;Hello Katip&quot;</span><span>
+</span><span id="line-24"></span><span class="hs-comment">--       -- This adds a namespace to the current namespace and merges a piece of contextual data into your context</span><span>
+</span><span id="line-25"></span><span class="hs-comment">--       katipAddNamespace &quot;additional_namespace&quot; $ katipAddContext (sl &quot;some_context&quot; True) $ do</span><span>
+</span><span id="line-26"></span><span class="hs-comment">--         $(logTM) WarningS &quot;Now we're getting fancy&quot;</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--       katipNoLogging $ do</span><span>
+</span><span id="line-28"></span><span class="hs-comment">--         $(logTM) DebugS &quot;You will never see this!&quot;</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-31"></span><span class="hs-comment">--</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- And here is the output:</span><span>
+</span><span id="line-33"></span><span class="hs-comment">--</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- [2021-06-14 20:24:24][MyApp.main][Info][yourhostname][PID 14420][ThreadId 27][main:Main app/Main.hs:26:9] Hello Katip</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- [2021-06-14 20:24:24][MyApp.main.additional_namespace][Warning][yourhostname][PID 14420][ThreadId 27][some_context:True][main:Main app/Main.hs:29:11] Now we're getting fancy</span><span>
+</span><span id="line-37"></span><span class="hs-comment">--</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-39"></span><span class="hs-comment">--</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- Another common case that you have some sort of App monad that's</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- based on ReaderT with some Config state. This is a perfect place to</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- insert read-only katip state:</span><span>
+</span><span id="line-43"></span><span class="hs-comment">--</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-45"></span><span class="hs-comment">--</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- import Katip as K</span><span>
+</span><span id="line-47"></span><span class="hs-comment">--</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- data Config = Config {</span><span>
+</span><span id="line-49"></span><span class="hs-comment">--   logNamespace :: K.Namespace</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- , logContext :: K.LogContexts</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- , logEnv :: K.LogEnv</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- -- whatever other read-only config you need</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- }</span><span>
+</span><span id="line-54"></span><span class="hs-comment">--</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- newtype App m a = App {</span><span>
+</span><span id="line-56"></span><span class="hs-comment">--   unApp :: ReaderT Config m a</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- } deriving (Functor, Applicative, Monad, MonadIO, MonadReader Config) -- these are necessary</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--</span><span>
+</span><span id="line-59"></span><span class="hs-comment">--</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- -- These instances get even easier with lenses!</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- instance (MonadIO m) =&gt; K.Katip (App m) where</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--   getLogEnv = asks logEnv</span><span>
+</span><span id="line-63"></span><span class="hs-comment">--   -- with lens:</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--   -- getLogEnv = view logEnv</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--   localLogEnv f (App m) = App (local (\\s -&gt; s { logEnv = f (logEnv s)}) m)</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--   -- with lens:</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--   -- localLogEnv f (App m) = App (local (over logEnv f) m)</span><span>
+</span><span id="line-68"></span><span class="hs-comment">--</span><span>
+</span><span id="line-69"></span><span class="hs-comment">--</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- instance (MonadIO m) =&gt; K.KatipContext (App m) where</span><span>
+</span><span id="line-71"></span><span class="hs-comment">--   getKatipContext = asks logContext</span><span>
+</span><span id="line-72"></span><span class="hs-comment">--   -- with lens:</span><span>
+</span><span id="line-73"></span><span class="hs-comment">--   -- getKatipContext = view logContext</span><span>
+</span><span id="line-74"></span><span class="hs-comment">--   localKatipContext f (App m) = App (local (\\s -&gt; s { logContext = f (logContext s)}) m)</span><span>
+</span><span id="line-75"></span><span class="hs-comment">--   -- with lens:</span><span>
+</span><span id="line-76"></span><span class="hs-comment">--   -- localKatipContext f (App m) = App (local (over logContext f) m)</span><span>
+</span><span id="line-77"></span><span class="hs-comment">--   getKatipNamespace = asks logNamespace</span><span>
+</span><span id="line-78"></span><span class="hs-comment">--   -- with lens:</span><span>
+</span><span id="line-79"></span><span class="hs-comment">--   -- getKatipNamespace = view logNamespace</span><span>
+</span><span id="line-80"></span><span class="hs-comment">--   localKatipNamespace f (App m) = App (local (\\s -&gt; s { logNamespace = f (logNamespace s)}) m)</span><span>
+</span><span id="line-81"></span><span class="hs-comment">--   -- with lens:</span><span>
+</span><span id="line-82"></span><span class="hs-comment">--   -- localKatipNamespace f (App m) = App (local (over logNamespace f) m)</span><span>
+</span><span id="line-83"></span><span class="hs-comment">--</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-85"></span><span class="hs-comment">--</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- To get up and running, the workflow is generally:</span><span>
+</span><span id="line-87"></span><span class="hs-comment">--</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- * Set up a 'LogEnv' using 'initLogEnv'.</span><span>
+</span><span id="line-89"></span><span class="hs-comment">--</span><span>
+</span><span id="line-90"></span><span class="hs-comment">-- * Add 'Scribe's using 'registerScribe'.</span><span>
+</span><span id="line-91"></span><span class="hs-comment">--</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- * Either use 'KatipT' or 'KatipContextT' for a pre-built</span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- transformer stack or add 'Katip' and 'KatipContext' instances to</span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- your own transformer stack. If you do the latter, you may want to</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- look in the @examples@ dir for some tips on composing contexts and</span><span>
+</span><span id="line-96"></span><span class="hs-comment">-- namespaces.</span><span>
+</span><span id="line-97"></span><span class="hs-comment">--</span><span>
+</span><span id="line-98"></span><span class="hs-comment">-- * Define some structured log data throughout your application and</span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- implement 'ToObject' and 'LogItem' for them.</span><span>
+</span><span id="line-100"></span><span class="hs-comment">--</span><span>
+</span><span id="line-101"></span><span class="hs-comment">-- * Begin logging with 'logT', 'logTM', etc.</span><span>
+</span><span id="line-102"></span><span class="hs-comment">--</span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- * Define your own 'Scribe' if you need to output to some as-yet</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- unsupported format or service. If you think it would be useful to</span><span>
+</span><span id="line-105"></span><span class="hs-comment">-- others, consider releasing your own package.</span><span>
+</span><span id="line-106"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Katip</span><span>
+</span><span id="line-107"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Framework Types</span></span><span>
+</span><span id="line-108"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Namespace"><span class="hs-identifier">Namespace</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-109"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Environment"><span class="hs-identifier">Environment</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-110"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Severity"><span class="hs-identifier">Severity</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-111"></span><span>    </span><span class="annot"><a href="Katip.Core.html#renderSeverity"><span class="hs-identifier">renderSeverity</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-112"></span><span>    </span><span class="annot"><a href="Katip.Core.html#textToSeverity"><span class="hs-identifier">textToSeverity</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-113"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Verbosity"><span class="hs-identifier">Verbosity</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-114"></span><span>    </span><span class="annot"><a href="Katip.Core.html#ToObject"><span class="hs-identifier">ToObject</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-115"></span><span>    </span><span class="annot"><a href="Katip.Core.html#LogItem"><span class="hs-identifier">LogItem</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-116"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Item"><span class="hs-identifier">Item</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-117"></span><span>    </span><span class="annot"><a href="Katip.Core.html#ThreadIdText"><span class="hs-identifier">ThreadIdText</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-118"></span><span>    </span><span class="annot"><a href="Katip.Core.html#PayloadSelection"><span class="hs-identifier">PayloadSelection</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-119"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Scribe"><span class="hs-identifier">Scribe</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-120"></span><span>    </span><span class="annot"><a href="Katip.Core.html#LogEnv"><span class="hs-identifier">LogEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-121"></span><span>    </span><span class="annot"><a href="Katip.Core.html#SimpleLogPayload"><span class="hs-identifier">SimpleLogPayload</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-122"></span><span>    </span><span class="annot"><a href="Katip.Core.html#sl"><span class="hs-identifier">sl</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-123"></span><span>    </span><span class="annot"><a href="Katip.Core.html#defaultScribeSettings"><span class="hs-identifier">defaultScribeSettings</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-124"></span><span>    </span><span class="annot"><a href="Katip.Core.html#ScribeSettings"><span class="hs-identifier">ScribeSettings</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-125"></span><span>    </span><span class="annot"><a href="Katip.Core.html#scribeBufferSize"><span class="hs-identifier">scribeBufferSize</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-126"></span><span>    </span><span class="annot"><a href="Katip.Core.html#_scribeBufferSize"><span class="hs-identifier">_scribeBufferSize</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-127"></span><span>
+</span><span id="line-128"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** @lens@-compatible Lenses</span></span><span>
+</span><span id="line-129"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemApp"><span class="hs-identifier">itemApp</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-130"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemEnv"><span class="hs-identifier">itemEnv</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-131"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemSeverity"><span class="hs-identifier">itemSeverity</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-132"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemThread"><span class="hs-identifier">itemThread</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-133"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemHost"><span class="hs-identifier">itemHost</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-134"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemProcess"><span class="hs-identifier">itemProcess</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-135"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemPayload"><span class="hs-identifier">itemPayload</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-136"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemMessage"><span class="hs-identifier">itemMessage</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-137"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemTime"><span class="hs-identifier">itemTime</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-138"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemNamespace"><span class="hs-identifier">itemNamespace</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-139"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemLoc"><span class="hs-identifier">itemLoc</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-140"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logEnvHost"><span class="hs-identifier">logEnvHost</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-141"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logEnvPid"><span class="hs-identifier">logEnvPid</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-142"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logEnvApp"><span class="hs-identifier">logEnvApp</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-143"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logEnvEnv"><span class="hs-identifier">logEnvEnv</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-144"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logEnvTimer"><span class="hs-identifier">logEnvTimer</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-145"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logEnvScribes"><span class="hs-identifier">logEnvScribes</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span>    </span><span class="annot"><span class="hs-comment">-- * A Built-in Monad For Simple Logging</span></span><span>
+</span><span id="line-148"></span><span>    </span><span class="annot"><a href="Katip.Core.html#KatipT"><span class="hs-identifier">KatipT</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-149"></span><span>    </span><span class="annot"><a href="Katip.Core.html#runKatipT"><span class="hs-identifier">runKatipT</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-150"></span><span>
+</span><span id="line-151"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Initializing Loggers</span></span><span>
+</span><span id="line-152"></span><span>    </span><span class="annot"><a href="Katip.Core.html#initLogEnv"><span class="hs-identifier">initLogEnv</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-153"></span><span>    </span><span class="annot"><a href="Katip.Core.html#registerScribe"><span class="hs-identifier">registerScribe</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-154"></span><span>
+</span><span id="line-155"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Dropping scribes temporarily</span></span><span>
+</span><span id="line-156"></span><span>    </span><span class="annot"><a href="Katip.Core.html#unregisterScribe"><span class="hs-identifier">unregisterScribe</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-157"></span><span>    </span><span class="annot"><a href="Katip.Core.html#clearScribes"><span class="hs-identifier">clearScribes</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Finalizing scribes at shutdown</span></span><span>
+</span><span id="line-160"></span><span>    </span><span class="annot"><a href="Katip.Core.html#closeScribes"><span class="hs-identifier">closeScribes</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-161"></span><span>    </span><span class="annot"><a href="Katip.Core.html#closeScribe"><span class="hs-identifier">closeScribe</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-162"></span><span>
+</span><span id="line-163"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Logging Functions</span></span><span>
+</span><span id="line-164"></span><span>    </span><span class="annot"><a href="Katip.Core.html#LogStr"><span class="hs-identifier">LogStr</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-165"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logStr"><span class="hs-identifier">logStr</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-166"></span><span>    </span><span class="annot"><a href="Katip.Core.html#ls"><span class="hs-identifier">ls</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-167"></span><span>    </span><span class="annot"><a href="Katip.Core.html#showLS"><span class="hs-identifier">showLS</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-168"></span><span>
+</span><span id="line-169"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** 'Katip' Logging Functions</span></span><span>
+</span><span id="line-170"></span><span>    </span><span class="annot"><span class="hs-comment">-- $katiplogging</span></span><span>
+</span><span id="line-171"></span><span>    </span><span class="annot"><a href="Katip.Core.html#Katip"><span class="hs-identifier">Katip</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-172"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logF"><span class="hs-identifier">logF</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-173"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logMsg"><span class="hs-identifier">logMsg</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-174"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logT"><span class="hs-identifier">logT</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-175"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logLoc"><span class="hs-identifier">logLoc</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-176"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logItem"><span class="hs-identifier">logItem</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-177"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logKatipItem"><span class="hs-identifier">logKatipItem</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-178"></span><span>    </span><span class="annot"><a href="Katip.Core.html#logException"><span class="hs-identifier">logException</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span>    </span><span class="annot"><span class="hs-comment">-- ** 'KatipContext': Logging With Context</span></span><span>
+</span><span id="line-181"></span><span>    </span><span class="annot"><span class="hs-comment">-- $katipcontextlogging</span></span><span>
+</span><span id="line-182"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#KatipContext"><span class="hs-identifier">KatipContext</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-183"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#logFM"><span class="hs-identifier">logFM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-184"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#logTM"><span class="hs-identifier">logTM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-185"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#logLocM"><span class="hs-identifier">logLocM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-186"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#logItemM"><span class="hs-identifier">logItemM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-187"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#logExceptionM"><span class="hs-identifier">logExceptionM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-188"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#AnyLogContext"><span class="hs-identifier">AnyLogContext</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-189"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#LogContexts"><span class="hs-identifier">LogContexts</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-190"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#liftPayload"><span class="hs-identifier">liftPayload</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-191"></span><span>
+</span><span id="line-192"></span><span>    </span><span class="annot"><span class="hs-comment">-- *** Temporarily Changing Logging Behavior</span></span><span>
+</span><span id="line-193"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#katipAddNamespace"><span class="hs-identifier">katipAddNamespace</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-194"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#katipAddContext"><span class="hs-identifier">katipAddContext</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-195"></span><span>    </span><span class="annot"><a href="Katip.Core.html#katipNoLogging"><span class="hs-identifier">katipNoLogging</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-196"></span><span>
+</span><span id="line-197"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Included Scribes</span></span><span>
+</span><span id="line-198"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#mkHandleScribe"><span class="hs-identifier">mkHandleScribe</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-199"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#mkHandleScribeWithFormatter"><span class="hs-identifier">mkHandleScribeWithFormatter</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-200"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#mkFileScribe"><span class="hs-identifier">mkFileScribe</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-201"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#ColorStrategy"><span class="hs-identifier">ColorStrategy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-202"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#ItemFormatter"><span class="hs-identifier">ItemFormatter</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-203"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#bracketFormat"><span class="hs-identifier">bracketFormat</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-204"></span><span>    </span><span class="annot"><a href="Katip.Scribes.Handle.html#jsonFormat"><span class="hs-identifier">jsonFormat</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-205"></span><span>
+</span><span id="line-206"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Tools for implementing Scribes</span></span><span>
+</span><span id="line-207"></span><span>    </span><span class="annot"><a href="Katip.Core.html#PermitFunc"><span class="hs-identifier">PermitFunc</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-208"></span><span>    </span><span class="annot"><a href="Katip.Core.html#permitAND"><span class="hs-identifier">permitAND</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-209"></span><span>    </span><span class="annot"><a href="Katip.Core.html#permitOR"><span class="hs-identifier">permitOR</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-210"></span><span>    </span><span class="annot"><a href="Katip.Core.html#permitItem"><span class="hs-identifier">permitItem</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-211"></span><span>    </span><span class="annot"><a href="Katip.Core.html#payloadObject"><span class="hs-identifier">payloadObject</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-212"></span><span>    </span><span class="annot"><a href="Katip.Core.html#itemJson"><span class="hs-identifier">itemJson</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-213"></span><span>
+</span><span id="line-214"></span><span>    </span><span class="annot"><span class="hs-comment">-- * KatipContextT - Utility transformer that provides Katip and KatipContext instances</span></span><span>
+</span><span id="line-215"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#KatipContextT"><span class="hs-identifier">KatipContextT</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-216"></span><span>    </span><span class="annot"><a href="Katip.Monadic.html#runKatipContextT"><span class="hs-identifier">runKatipContextT</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-217"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-218"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-219"></span><span>
+</span><span id="line-220"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-221"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Katip.Core.html"><span class="hs-identifier">Katip.Core</span></a></span><span>
+</span><span id="line-222"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Katip.Monadic.html"><span class="hs-identifier">Katip.Monadic</span></a></span><span>
+</span><span id="line-223"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Katip.Scribes.Handle.html"><span class="hs-identifier">Katip.Scribes.Handle</span></a></span><span>
+</span><span id="line-224"></span><span>
+</span><span id="line-225"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-226"></span><span>
+</span><span id="line-227"></span><span class="hs-comment">-- $katiplogging</span><span>
+</span><span id="line-228"></span><span class="hs-comment">--</span><span>
+</span><span id="line-229"></span><span class="hs-comment">--   These logging functions use the basic 'Katip' constraint and thus</span><span>
+</span><span id="line-230"></span><span class="hs-comment">-- will require varying degrees of explicit detail such as 'Namespace'</span><span>
+</span><span id="line-231"></span><span class="hs-comment">-- and individual log items to be passed in. These can be described as</span><span>
+</span><span id="line-232"></span><span class="hs-comment">-- the primitives of Katip logging. If you find yourself making multiple</span><span>
+</span><span id="line-233"></span><span class="hs-comment">-- log statements within a logical logging context for your app, you may</span><span>
+</span><span id="line-234"></span><span class="hs-comment">-- want to look into the 'KatipContext' family of logging functions like</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- 'logFM' and 'logTM'. 'KatipContext' in most applications should be</span><span>
+</span><span id="line-236"></span><span class="hs-comment">-- considered the default. Here's an example of the pain point:</span><span>
+</span><span id="line-237"></span><span class="hs-comment">--</span><span>
+</span><span id="line-238"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-239"></span><span class="hs-comment">-- doDatabaseThings = do</span><span>
+</span><span id="line-240"></span><span class="hs-comment">--  connId &lt;- getConnectionId</span><span>
+</span><span id="line-241"></span><span class="hs-comment">--  logF (ConnectionIDContext connId) &quot;database&quot; InfoS &quot;Doing database stuff&quot;</span><span>
+</span><span id="line-242"></span><span class="hs-comment">--  \-\- ...</span><span>
+</span><span id="line-243"></span><span class="hs-comment">--  logF (ConnectionIDContext connId) &quot;database&quot; InfoS &quot;Wow, passing in the same context is getting tedious&quot;</span><span>
+</span><span id="line-244"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-245"></span><span class="hs-comment">--</span><span>
+</span><span id="line-246"></span><span class="hs-comment">-- Another pain point to look out for is nesting actions that log in</span><span>
+</span><span id="line-247"></span><span class="hs-comment">-- each other. Let's say you were writing a web app. You want to capture</span><span>
+</span><span id="line-248"></span><span class="hs-comment">-- some detail such as the user's ID in the logs, but you also want that</span><span>
+</span><span id="line-249"></span><span class="hs-comment">-- info to show up in doDatabaseThings' logs so you can associate those</span><span>
+</span><span id="line-250"></span><span class="hs-comment">-- two pieces of information:</span><span>
+</span><span id="line-251"></span><span class="hs-comment">--</span><span>
+</span><span id="line-252"></span><span class="hs-comment">--</span><span>
+</span><span id="line-253"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-254"></span><span class="hs-comment">-- webRequestHandler = do</span><span>
+</span><span id="line-255"></span><span class="hs-comment">--  uid &lt;- getUserId</span><span>
+</span><span id="line-256"></span><span class="hs-comment">--  logF (UserIDContext uid) &quot;web&quot; InfoS &quot;Starting web request&quot;</span><span>
+</span><span id="line-257"></span><span class="hs-comment">--  doDatabaseThings</span><span>
+</span><span id="line-258"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-259"></span><span class="hs-comment">--</span><span>
+</span><span id="line-260"></span><span class="hs-comment">-- In the above example, doDatabaseThings would overwrite that</span><span>
+</span><span id="line-261"></span><span class="hs-comment">-- UserIDContext with its own context and namespace. Sometimes this is</span><span>
+</span><span id="line-262"></span><span class="hs-comment">-- what you want and that's why 'logF' and other functions which only</span><span>
+</span><span id="line-263"></span><span class="hs-comment">-- require 'Katip' exist. If you are interested in combining log</span><span>
+</span><span id="line-264"></span><span class="hs-comment">-- contexts and namespaces, see 'KatipContext'.</span><span>
+</span><span id="line-265"></span><span>
+</span><span id="line-266"></span><span class="hs-comment">-- $katipcontextlogging</span><span>
+</span><span id="line-267"></span><span class="hs-comment">--</span><span>
+</span><span id="line-268"></span><span class="hs-comment">--  These logging functions use the 'KatipContext' constraint which is a</span><span>
+</span><span id="line-269"></span><span class="hs-comment">-- superclass of 'Katip' that also has a mechanism for keeping track of</span><span>
+</span><span id="line-270"></span><span class="hs-comment">-- the current context and namespace. This means a few things:</span><span>
+</span><span id="line-271"></span><span class="hs-comment">--</span><span>
+</span><span id="line-272"></span><span class="hs-comment">-- 1. Functions that use 'KatipContext' like 'logFM' and 'logTM' do not</span><span>
+</span><span id="line-273"></span><span class="hs-comment">-- require you to pass in 'LogItem's or 'Namespaces', they pull them from</span><span>
+</span><span id="line-274"></span><span class="hs-comment">-- the monadic environment.</span><span>
+</span><span id="line-275"></span><span class="hs-comment">--</span><span>
+</span><span id="line-276"></span><span class="hs-comment">-- 2. It becomes easy to add functions which add namespaces and/or</span><span>
+</span><span id="line-277"></span><span class="hs-comment">-- contexts to the current stack of them. You can (and should) make that</span><span>
+</span><span id="line-278"></span><span class="hs-comment">-- action scoped to a monadic action so that when it finishes, the</span><span>
+</span><span id="line-279"></span><span class="hs-comment">-- previous context and namespace will be automatically restored.</span><span>
+</span><span id="line-280"></span><span class="hs-comment">--</span><span>
+</span><span id="line-281"></span><span class="hs-comment">--</span><span>
+</span><span id="line-282"></span><span class="hs-comment">-- 'KatipContextT' provides a simple, 'ReaderT'-based implementation of</span><span>
+</span><span id="line-283"></span><span class="hs-comment">-- the 'KatipContext' typeclass, and provides 'katipAddContext' and</span><span>
+</span><span id="line-284"></span><span class="hs-comment">-- 'katipAddNamespace' functions to append to the context for the</span><span>
+</span><span id="line-285"></span><span class="hs-comment">-- duration of a block:</span><span>
+</span><span id="line-286"></span><span class="hs-comment">--</span><span>
+</span><span id="line-287"></span><span class="hs-comment">--</span><span>
+</span><span id="line-288"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-289"></span><span class="hs-comment">-- main = do</span><span>
+</span><span id="line-290"></span><span class="hs-comment">--  le &lt;- initLogEnv &quot;MyApp&quot; &quot;production&quot;</span><span>
+</span><span id="line-291"></span><span class="hs-comment">--  \-\- set up scribes here</span><span>
+</span><span id="line-292"></span><span class="hs-comment">--  runKatipContext le () &quot;main&quot; $ do</span><span>
+</span><span id="line-293"></span><span class="hs-comment">--    katipAddNamespace &quot;nextlevel&quot; $ do</span><span>
+</span><span id="line-294"></span><span class="hs-comment">--      $(logTM) InfoS &quot;Logs here will have namespace MyApp.main.nextlevel&quot;</span><span>
+</span><span id="line-295"></span><span class="hs-comment">--</span><span>
+</span><span id="line-296"></span><span class="hs-comment">--    katipAddContext TrivialContext $ do</span><span>
+</span><span id="line-297"></span><span class="hs-comment">--      $(logTM) InfoS &quot;Logs here will have context from TrivialContext&quot;</span><span>
+</span><span id="line-298"></span><span class="hs-comment">--</span><span>
+</span><span id="line-299"></span><span class="hs-comment">--      katipAddContext AnotherContext $ do</span><span>
+</span><span id="line-300"></span><span class="hs-comment">--        $(logTM) InfoS &quot;Logs here will have context from TrivialContext *merged with* context from AnotherContext!&quot;</span><span>
+</span><span id="line-301"></span><span class="hs-comment">--</span><span>
+</span><span id="line-302"></span><span class="hs-comment">--    $(logTM) InfoS &quot;Log context restored to () and namespace to MyApp.main&quot;</span><span>
+</span><span id="line-303"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-304"></span><span class="hs-comment">--</span><span>
+</span><span id="line-305"></span><span class="hs-comment">-- 'katipAddNamespace' and 'katipAddContext' are one-liners, implemented</span><span>
+</span><span id="line-306"></span><span class="hs-comment">-- in terms of 'local' from 'MonadReader'. If you have a custom monad</span><span>
+</span><span id="line-307"></span><span class="hs-comment">-- transformer stack and want to add your own version of these, check out</span><span>
+</span><span id="line-308"></span><span class="hs-comment">-- &lt;https://github.com/Soostone/katip/tree/master/katip/examples these</span><span>
+</span><span id="line-309"></span><span class="hs-comment">-- examples&gt;.</span><span>
+</span><span id="line-310"></span></pre></body></html>

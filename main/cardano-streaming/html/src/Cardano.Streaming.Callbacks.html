@@ -1,0 +1,698 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE GADTs     #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Streaming.Callbacks</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">throw</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Word</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Word32</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">C</span></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">Cardano.Slotting.Slot</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">WithOrigin</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">At</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier">Origin</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier">Network.TypedProtocol.Pipelined</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier">N</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier">Z</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier">Nat</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier">Succ</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier">Zero</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Ouroboros.Network.Protocol.ChainSync.Client</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CS</span></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Ouroboros.Network.Protocol.ChainSync.ClientPipelined</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">CSP</span></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Ouroboros.Network.Protocol.ChainSync.PipelineDecision</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">PipelineDecision</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">Collect</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier">pipelineDecisionMax</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Cardano.Streaming.Helpers.html"><span class="hs-identifier">Cardano.Streaming.Helpers</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">H</span></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- * Raw chain-sync clients using callback</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="annot"><a href="Cardano.Streaming.Callbacks.html#blocksCallbackPipelined"><span class="hs-identifier hs-type">blocksCallbackPipelined</span></a></span><span>
+</span><span id="line-21"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word32</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeConnectInfo</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Streaming.Helpers.html#ChainSyncEvent"><span class="hs-identifier hs-type">H.ChainSyncEvent</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span id="blocksCallbackPipelined"><span class="annot"><span class="annottext">blocksCallbackPipelined :: Word32
+-&gt; LocalNodeConnectInfo CardanoMode
+-&gt; ChainPoint
+-&gt; (ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ())
+-&gt; IO ()
+</span><a href="Cardano.Streaming.Callbacks.html#blocksCallbackPipelined"><span class="hs-identifier hs-var hs-var">blocksCallbackPipelined</span></a></span></span><span> </span><span id="local-6989586621679291290"><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679291290"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679291289"><span class="annot"><span class="annottext">LocalNodeConnectInfo CardanoMode
+</span><a href="#local-6989586621679291289"><span class="hs-identifier hs-var">con</span></a></span></span><span> </span><span id="local-6989586621679291288"><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291288"><span class="hs-identifier hs-var">point</span></a></span></span><span> </span><span id="local-6989586621679291287"><span class="annot"><span class="annottext">ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+</span><a href="#local-6989586621679291287"><span class="hs-identifier hs-var">callback</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-25"></span><span>  </span><span class="annot"><span class="annottext">LocalNodeConnectInfo CardanoMode
+-&gt; LocalNodeClientProtocolsInMode CardanoMode -&gt; IO ()
+forall mode.
+LocalNodeConnectInfo mode
+-&gt; LocalNodeClientProtocolsInMode mode -&gt; IO ()
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.connectToLocalNode</span></a></span><span> </span><span class="annot"><span class="annottext">LocalNodeConnectInfo CardanoMode
+</span><a href="#local-6989586621679291289"><span class="hs-identifier hs-var">con</span></a></span><span> </span><span class="annot"><span class="annottext">(LocalNodeClientProtocolsInMode CardanoMode -&gt; IO ())
+-&gt; LocalNodeClientProtocolsInMode CardanoMode -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">LocalNodeClientProtocols :: forall block point tip slot tx txid txerr (query :: * -&gt; *)
+       (m :: * -&gt; *).
+LocalChainSyncClient block point tip m
+-&gt; Maybe (LocalTxSubmissionClient tx txerr m ())
+-&gt; Maybe (LocalStateQueryClient block point query m ())
+-&gt; Maybe (LocalTxMonitorClient txid tx slot m ())
+-&gt; LocalNodeClientProtocols
+     block point tip slot tx txid txerr query m
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeClientProtocols</span></a></span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">localChainSyncClient :: LocalChainSyncClient
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localChainSyncClient</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ChainSyncClientPipelined
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; LocalChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO
+forall block point tip (m :: * -&gt; *).
+ChainSyncClientPipelined block point tip m ()
+-&gt; LocalChainSyncClient block point tip m
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.LocalChainSyncClientPipelined</span></a></span><span> </span><span class="annot"><span class="annottext">(ChainSyncClientPipelined
+   (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; LocalChainSyncClient
+      (BlockInMode CardanoMode) ChainPoint ChainTip IO)
+-&gt; ChainSyncClientPipelined
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; LocalChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IO
+  (ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClientPipelined
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall header point tip (m :: * -&gt; *) a.
+m (ClientPipelinedStIdle 'Z header point tip m a)
+-&gt; ChainSyncClientPipelined header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CSP.ChainSyncClientPipelined</span></a></span><span> </span><span class="annot"><span class="annottext">(IO
+   (ClientPipelinedStIdle
+      'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+ -&gt; ChainSyncClientPipelined
+      (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClientPipelined
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ClientPipelinedStIdle
+  'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(ClientPipelinedStIdle
+   'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; IO
+      (ClientPipelinedStIdle
+         'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[ChainPoint]
+-&gt; ClientPipelinedStIntersect
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall point header tip (m :: * -&gt; *) a.
+[point]
+-&gt; ClientPipelinedStIntersect header point tip m a
+-&gt; ClientPipelinedStIdle 'Z header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CSP.SendMsgFindIntersect</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291288"><span class="hs-identifier hs-var">point</span></a></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">ClientPipelinedStIntersect
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291280"><span class="hs-identifier hs-var">onIntersect</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localTxSubmissionClient :: Maybe
+  (LocalTxSubmissionClient
+     (TxInMode CardanoMode) (TxValidationErrorInMode CardanoMode) IO ())
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localTxSubmissionClient</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (LocalTxSubmissionClient
+     (TxInMode CardanoMode) (TxValidationErrorInMode CardanoMode) IO ())
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localStateQueryClient :: Maybe
+  (LocalStateQueryClient
+     (BlockInMode CardanoMode)
+     ChainPoint
+     (QueryInMode CardanoMode)
+     IO
+     ())
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localStateQueryClient</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (LocalStateQueryClient
+     (BlockInMode CardanoMode)
+     ChainPoint
+     (QueryInMode CardanoMode)
+     IO
+     ())
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localTxMonitoringClient :: Maybe
+  (LocalTxMonitorClient
+     (TxIdInMode CardanoMode) (TxInMode CardanoMode) SlotNo IO ())
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localTxMonitoringClient</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (LocalTxMonitorClient
+     (TxIdInMode CardanoMode) (TxInMode CardanoMode) SlotNo IO ())
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-32"></span><span>    </span><span id="local-6989586621679291280"><span class="annot"><span class="annottext">onIntersect :: ClientPipelinedStIntersect
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291280"><span class="hs-identifier hs-var hs-var">onIntersect</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-33"></span><span>      </span><span class="annot"><span class="annottext">ClientPipelinedStIntersect :: forall header point tip (m :: * -&gt; *) a.
+(point -&gt; tip -&gt; m (ClientPipelinedStIdle 'Z header point tip m a))
+-&gt; (tip -&gt; m (ClientPipelinedStIdle 'Z header point tip m a))
+-&gt; ClientPipelinedStIntersect header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CSP.ClientPipelinedStIntersect</span></a></span><span>
+</span><span id="line-34"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">recvMsgIntersectFound :: ChainPoint
+-&gt; ChainTip
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291275"><span class="hs-identifier hs-var">CSP.recvMsgIntersectFound</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">ChainPoint
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ClientPipelinedStIdle
+  'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(ClientPipelinedStIdle
+   'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; IO
+      (ClientPipelinedStIdle
+         'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+-&gt; ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291274"><span class="hs-identifier hs-var">work</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679291290"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-35"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">recvMsgIntersectNotFound :: ChainTip
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291273"><span class="hs-identifier hs-var">CSP.recvMsgIntersectNotFound</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ChainSyncEventException
+-&gt; ChainTip
+-&gt; IO
+     (ClientPipelinedStIdle
+        'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a e. Exception e =&gt; e -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throw</span></a></span><span> </span><span class="annot"><span class="annottext">ChainSyncEventException
+</span><a href="Cardano.Streaming.Helpers.html#NoIntersectionFound"><span class="hs-identifier hs-var">H.NoIntersectionFound</span></a></span><span>
+</span><span id="line-36"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span>    </span><span class="annot"><a href="#local-6989586621679291274"><span class="hs-identifier hs-type">work</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word32</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CSP.ClientPipelinedStIdle</span></a></span><span> </span><span class="hs-special">'</span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier hs-type">Z</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>    </span><span id="local-6989586621679291274"><span class="annot"><span class="annottext">work :: Word32
+-&gt; ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291274"><span class="hs-identifier hs-var hs-var">work</span></a></span></span><span> </span><span id="local-6989586621679291271"><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679291271"><span class="hs-identifier hs-var">pipelineSize</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat 'Z
+-&gt; ClientPipelinedStIdle
+     'Z (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (n :: N).
+WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291270"><span class="hs-identifier hs-var">requestMore</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+forall t. WithOrigin t
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">Origin</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+forall t. WithOrigin t
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">Origin</span></a></span><span> </span><span class="annot"><span class="annottext">Nat 'Z
+forall (n :: N). ('Z ~ n) =&gt; Nat n
+</span><a href="../../../../typed-protocols/html/src"><span class="hs-identifier hs-var">Zero</span></a></span><span>
+</span><span id="line-40"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-41"></span><span>          </span><span id="local-6989586621679291346"><span class="annot"><a href="#local-6989586621679291270"><span class="hs-identifier hs-type">requestMore</span></a></span><span> </span><span class="hs-comment">-- was clientIdle_RequestMoreN</span><span>
+</span><span id="line-42"></span><span>            </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">WithOrigin</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">C.BlockNo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">WithOrigin</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">C.BlockNo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier hs-type">Nat</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679291346"><span class="hs-identifier hs-type">n</span></a></span><span>
+</span><span id="line-43"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CSP.ClientPipelinedStIdle</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679291346"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-44"></span><span>          </span><span id="local-6989586621679291270"><span class="annot"><span class="annottext">requestMore :: WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291270"><span class="hs-identifier hs-var hs-var">requestMore</span></a></span></span><span> </span><span id="local-6989586621679291269"><span class="annot"><span class="annottext">WithOrigin BlockNo
+</span><a href="#local-6989586621679291269"><span class="hs-identifier hs-var">clientTip</span></a></span></span><span> </span><span id="local-6989586621679291268"><span class="annot"><span class="annottext">WithOrigin BlockNo
+</span><a href="#local-6989586621679291268"><span class="hs-identifier hs-var">serverTip</span></a></span></span><span> </span><span id="local-6989586621679291267"><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291267"><span class="hs-identifier hs-var">rqsInFlight</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span>
+</span><span id="line-45"></span><span>            </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Word32
+-&gt; Nat n
+-&gt; WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; PipelineDecision n
+forall (n :: N).
+Word32
+-&gt; Nat n
+-&gt; WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; PipelineDecision n
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">pipelineDecisionMax</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679291271"><span class="hs-identifier hs-var">pipelineSize</span></a></span><span> </span><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291267"><span class="hs-identifier hs-var">rqsInFlight</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+</span><a href="#local-6989586621679291269"><span class="hs-identifier hs-var">clientTip</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+</span><a href="#local-6989586621679291268"><span class="hs-identifier hs-var">serverTip</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-46"></span><span>                </span><span class="hs-comment">-- handle a response</span><span>
+</span><span id="line-47"></span><span>                </span><span class="annot"><span class="annottext">PipelineDecision n
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">Collect</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291267"><span class="hs-identifier hs-var">rqsInFlight</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-48"></span><span>                  </span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier hs-type">Succ</span></a></span><span> </span><span id="local-6989586621679291266"><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291266"><span class="hs-identifier hs-var">predN</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (IO
+     (ClientPipelinedStIdle
+        ('S n) (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientStNext
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; ClientPipelinedStIdle
+     ('S n) (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (m :: * -&gt; *) (n1 :: N) header point tip a.
+Maybe (m (ClientPipelinedStIdle ('S n1) header point tip m a))
+-&gt; ClientStNext n1 header point tip m a
+-&gt; ClientPipelinedStIdle ('S n1) header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CSP.CollectResponse</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe
+  (IO
+     (ClientPipelinedStIdle
+        ('S n) (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Nat n
+-&gt; ClientStNext
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (n :: N).
+Nat n
+-&gt; ClientStNext
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291264"><span class="hs-identifier hs-var">clientNextN</span></a></span><span> </span><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291266"><span class="hs-identifier hs-var">predN</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span>                </span><span class="hs-comment">-- fire more requests</span><span>
+</span><span id="line-50"></span><span>                </span><span class="annot"><span class="annottext">PipelineDecision n
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ClientPipelinedStIdle
+  ('S n) (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (n :: N) header point tip (m :: * -&gt; *) a.
+ClientPipelinedStIdle ('S n) header point tip m a
+-&gt; ClientPipelinedStIdle n header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CSP.SendMsgRequestNextPipelined</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat ('S n)
+-&gt; ClientPipelinedStIdle
+     ('S n) (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (n :: N).
+WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291270"><span class="hs-identifier hs-var">requestMore</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+</span><a href="#local-6989586621679291269"><span class="hs-identifier hs-var">clientTip</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+</span><a href="#local-6989586621679291268"><span class="hs-identifier hs-var">serverTip</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Nat n -&gt; Nat ('S n)
+forall (m :: N) (n :: N). (m ~ 'S n) =&gt; Nat n -&gt; Nat m
+</span><a href="../../../../typed-protocols/html/src"><span class="hs-identifier hs-var">Succ</span></a></span><span> </span><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291267"><span class="hs-identifier hs-var">rqsInFlight</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span>          </span><span id="local-6989586621679291336"><span class="annot"><a href="#local-6989586621679291264"><span class="hs-identifier hs-type">clientNextN</span></a></span><span>
+</span><span id="line-53"></span><span>            </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../typed-protocols/html/src"><span class="hs-identifier hs-type">Nat</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679291336"><span class="hs-identifier hs-type">n</span></a></span><span>
+</span><span id="line-54"></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CSP.ClientStNext</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679291336"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainTip</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-55"></span><span>          </span><span id="local-6989586621679291264"><span class="annot"><span class="annottext">clientNextN :: Nat n
+-&gt; ClientStNext
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291264"><span class="hs-identifier hs-var hs-var">clientNextN</span></a></span></span><span> </span><span id="local-6989586621679291262"><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291262"><span class="hs-identifier hs-var">rqsInFlight</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ClientStNext :: forall (n :: N) header point tip (m :: * -&gt; *) a.
+(header -&gt; tip -&gt; m (ClientPipelinedStIdle n header point tip m a))
+-&gt; (point
+    -&gt; tip -&gt; m (ClientPipelinedStIdle n header point tip m a))
+-&gt; ClientStNext n header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CSP.ClientStNext</span></a></span><span>
+</span><span id="line-56"></span><span>            </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">recvMsgRollForward :: BlockInMode CardanoMode
+-&gt; ChainTip
+-&gt; IO
+     (ClientPipelinedStIdle
+        n (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CSP.recvMsgRollForward</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679291259"><span class="annot"><span class="annottext">BlockInMode CardanoMode
+</span><a href="#local-6989586621679291259"><span class="hs-identifier hs-var">bim</span></a></span></span><span> </span><span id="local-6989586621679291258"><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291258"><span class="hs-identifier hs-var">ct</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-57"></span><span>                </span><span class="annot"><span class="annottext">ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+</span><a href="#local-6989586621679291287"><span class="hs-identifier hs-var">callback</span></a></span><span> </span><span class="annot"><span class="annottext">(ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ())
+-&gt; ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">BlockInMode CardanoMode
+-&gt; ChainTip -&gt; ChainSyncEvent (BlockInMode CardanoMode)
+forall a. a -&gt; ChainTip -&gt; ChainSyncEvent a
+</span><a href="Cardano.Streaming.Helpers.html#RollForward"><span class="hs-identifier hs-var">H.RollForward</span></a></span><span> </span><span class="annot"><span class="annottext">BlockInMode CardanoMode
+</span><a href="#local-6989586621679291259"><span class="hs-identifier hs-var">bim</span></a></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291258"><span class="hs-identifier hs-var">ct</span></a></span><span>
+</span><span id="line-58"></span><span>                </span><span class="annot"><span class="annottext">ClientPipelinedStIdle
+  n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        n (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(ClientPipelinedStIdle
+   n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; IO
+      (ClientPipelinedStIdle
+         n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        n (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (n :: N).
+WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291270"><span class="hs-identifier hs-var">requestMore</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">BlockNo -&gt; WithOrigin BlockNo
+forall t. t -&gt; WithOrigin t
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">At</span></a></span><span> </span><span class="annot"><span class="annottext">(BlockNo -&gt; WithOrigin BlockNo) -&gt; BlockNo -&gt; WithOrigin BlockNo
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">BlockInMode CardanoMode -&gt; BlockNo
+</span><a href="Cardano.Streaming.Helpers.html#bimBlockNo"><span class="hs-identifier hs-var">H.bimBlockNo</span></a></span><span> </span><span class="annot"><span class="annottext">BlockInMode CardanoMode
+</span><a href="#local-6989586621679291259"><span class="hs-identifier hs-var">bim</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ChainTip -&gt; WithOrigin BlockNo
+</span><a href="Cardano.Streaming.Helpers.html#fromChainTip"><span class="hs-identifier hs-var">H.fromChainTip</span></a></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291258"><span class="hs-identifier hs-var">ct</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291262"><span class="hs-identifier hs-var">rqsInFlight</span></a></span><span>
+</span><span id="line-59"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">recvMsgRollBackward :: ChainPoint
+-&gt; ChainTip
+-&gt; IO
+     (ClientPipelinedStIdle
+        n (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291254"><span class="hs-identifier hs-var">CSP.recvMsgRollBackward</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679291253"><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291253"><span class="hs-identifier hs-var">cp</span></a></span></span><span> </span><span id="local-6989586621679291252"><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291252"><span class="hs-identifier hs-var">ct</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-60"></span><span>                </span><span class="annot"><span class="annottext">ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+</span><a href="#local-6989586621679291287"><span class="hs-identifier hs-var">callback</span></a></span><span> </span><span class="annot"><span class="annottext">(ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ())
+-&gt; ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint -&gt; ChainTip -&gt; ChainSyncEvent (BlockInMode CardanoMode)
+forall a. ChainPoint -&gt; ChainTip -&gt; ChainSyncEvent a
+</span><a href="Cardano.Streaming.Helpers.html#RollBackward"><span class="hs-identifier hs-var">H.RollBackward</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291253"><span class="hs-identifier hs-var">cp</span></a></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291252"><span class="hs-identifier hs-var">ct</span></a></span><span>
+</span><span id="line-61"></span><span>                </span><span class="annot"><span class="annottext">ClientPipelinedStIdle
+  n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        n (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(ClientPipelinedStIdle
+   n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; IO
+      (ClientPipelinedStIdle
+         n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientPipelinedStIdle
+        n (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall (n :: N).
+WithOrigin BlockNo
+-&gt; WithOrigin BlockNo
+-&gt; Nat n
+-&gt; ClientPipelinedStIdle
+     n (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291270"><span class="hs-identifier hs-var">requestMore</span></a></span><span> </span><span class="annot"><span class="annottext">WithOrigin BlockNo
+forall t. WithOrigin t
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">Origin</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ChainTip -&gt; WithOrigin BlockNo
+</span><a href="Cardano.Streaming.Helpers.html#fromChainTip"><span class="hs-identifier hs-var">H.fromChainTip</span></a></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291252"><span class="hs-identifier hs-var">ct</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Nat n
+</span><a href="#local-6989586621679291262"><span class="hs-identifier hs-var">rqsInFlight</span></a></span><span>
+</span><span id="line-62"></span><span>            </span><span class="hs-special">}</span><span>
+</span><span id="line-63"></span><span>
+</span><span id="line-64"></span><span class="annot"><a href="Cardano.Streaming.Callbacks.html#blocksCallback"><span class="hs-identifier hs-type">blocksCallback</span></a></span><span>
+</span><span id="line-65"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeConnectInfo</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ChainPoint</span></a></span><span>
+</span><span id="line-66"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Cardano.Streaming.Helpers.html#ChainSyncEvent"><span class="hs-identifier hs-type">H.ChainSyncEvent</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.BlockInMode</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.CardanoMode</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span id="blocksCallback"><span class="annot"><span class="annottext">blocksCallback :: LocalNodeConnectInfo CardanoMode
+-&gt; ChainPoint
+-&gt; (ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ())
+-&gt; IO ()
+</span><a href="Cardano.Streaming.Callbacks.html#blocksCallback"><span class="hs-identifier hs-var hs-var">blocksCallback</span></a></span></span><span> </span><span id="local-6989586621679291249"><span class="annot"><span class="annottext">LocalNodeConnectInfo CardanoMode
+</span><a href="#local-6989586621679291249"><span class="hs-identifier hs-var">con</span></a></span></span><span> </span><span id="local-6989586621679291248"><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291248"><span class="hs-identifier hs-var">point</span></a></span></span><span> </span><span id="local-6989586621679291247"><span class="annot"><span class="annottext">ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+</span><a href="#local-6989586621679291247"><span class="hs-identifier hs-var">callback</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-69"></span><span>  </span><span class="annot"><span class="annottext">LocalNodeConnectInfo CardanoMode
+-&gt; LocalNodeClientProtocolsInMode CardanoMode -&gt; IO ()
+forall mode.
+LocalNodeConnectInfo mode
+-&gt; LocalNodeClientProtocolsInMode mode -&gt; IO ()
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.connectToLocalNode</span></a></span><span> </span><span class="annot"><span class="annottext">LocalNodeConnectInfo CardanoMode
+</span><a href="#local-6989586621679291249"><span class="hs-identifier hs-var">con</span></a></span><span> </span><span class="annot"><span class="annottext">(LocalNodeClientProtocolsInMode CardanoMode -&gt; IO ())
+-&gt; LocalNodeClientProtocolsInMode CardanoMode -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">LocalNodeClientProtocols :: forall block point tip slot tx txid txerr (query :: * -&gt; *)
+       (m :: * -&gt; *).
+LocalChainSyncClient block point tip m
+-&gt; Maybe (LocalTxSubmissionClient tx txerr m ())
+-&gt; Maybe (LocalStateQueryClient block point query m ())
+-&gt; Maybe (LocalTxMonitorClient txid tx slot m ())
+-&gt; LocalNodeClientProtocols
+     block point tip slot tx txid txerr query m
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.LocalNodeClientProtocols</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">localChainSyncClient :: LocalChainSyncClient
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localChainSyncClient</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ChainSyncClient (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; LocalChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO
+forall block point tip (m :: * -&gt; *).
+ChainSyncClient block point tip m ()
+-&gt; LocalChainSyncClient block point tip m
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.LocalChainSyncClient</span></a></span><span> </span><span class="annot"><span class="annottext">(ChainSyncClient
+   (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; LocalChainSyncClient
+      (BlockInMode CardanoMode) ChainPoint ChainTip IO)
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; LocalChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall header point tip (m :: * -&gt; *) a.
+m (ClientStIdle header point tip m a)
+-&gt; ChainSyncClient header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.ChainSyncClient</span></a></span><span> </span><span class="annot"><span class="annottext">(IO
+   (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+ -&gt; ChainSyncClient
+      (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; IO
+      (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[ChainPoint]
+-&gt; ClientStIntersect
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall point header tip (m :: * -&gt; *) a.
+[point]
+-&gt; ClientStIntersect header point tip m a
+-&gt; ClientStIdle header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.SendMsgFindIntersect</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291248"><span class="hs-identifier hs-var">point</span></a></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">ClientStIntersect
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291243"><span class="hs-identifier hs-var">onIntersect</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localTxSubmissionClient :: Maybe
+  (LocalTxSubmissionClient
+     (TxInMode CardanoMode) (TxValidationErrorInMode CardanoMode) IO ())
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localTxSubmissionClient</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (LocalTxSubmissionClient
+     (TxInMode CardanoMode) (TxValidationErrorInMode CardanoMode) IO ())
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-72"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localStateQueryClient :: Maybe
+  (LocalStateQueryClient
+     (BlockInMode CardanoMode)
+     ChainPoint
+     (QueryInMode CardanoMode)
+     IO
+     ())
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localStateQueryClient</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (LocalStateQueryClient
+     (BlockInMode CardanoMode)
+     ChainPoint
+     (QueryInMode CardanoMode)
+     IO
+     ())
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">localTxMonitoringClient :: Maybe
+  (LocalTxMonitorClient
+     (TxIdInMode CardanoMode) (TxInMode CardanoMode) SlotNo IO ())
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.localTxMonitoringClient</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe
+  (LocalTxMonitorClient
+     (TxIdInMode CardanoMode) (TxInMode CardanoMode) SlotNo IO ())
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-74"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-75"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-76"></span><span>    </span><span id="local-6989586621679291243"><span class="annot"><span class="annottext">onIntersect :: ClientStIntersect
+  (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291243"><span class="hs-identifier hs-var hs-var">onIntersect</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-77"></span><span>      </span><span class="annot"><span class="annottext">ClientStIntersect :: forall header point tip (m :: * -&gt; *) a.
+(point -&gt; tip -&gt; ChainSyncClient header point tip m a)
+-&gt; (tip -&gt; ChainSyncClient header point tip m a)
+-&gt; ClientStIntersect header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CS.ClientStIntersect</span></a></span><span>
+</span><span id="line-78"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">recvMsgIntersectFound :: ChainPoint
+-&gt; ChainTip
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.recvMsgIntersectFound</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">ChainPoint
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall header point tip (m :: * -&gt; *) a.
+m (ClientStIdle header point tip m a)
+-&gt; ChainSyncClient header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.ChainSyncClient</span></a></span><span> </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291240"><span class="hs-identifier hs-var">sendRequestNext</span></a></span><span>
+</span><span id="line-79"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">recvMsgIntersectNotFound :: ChainTip
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.recvMsgIntersectNotFound</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ChainSyncEventException
+-&gt; ChainTip
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall a e. Exception e =&gt; e -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">throw</span></a></span><span> </span><span class="annot"><span class="annottext">ChainSyncEventException
+</span><a href="Cardano.Streaming.Helpers.html#NoIntersectionFound"><span class="hs-identifier hs-var">H.NoIntersectionFound</span></a></span><span>
+</span><span id="line-80"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-81"></span><span>    </span><span id="local-6989586621679291240"><span class="annot"><span class="annottext">sendRequestNext :: IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291240"><span class="hs-identifier hs-var hs-var">sendRequestNext</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+ -&gt; IO
+      (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()))
+-&gt; ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall header point tip (m :: * -&gt; *) a.
+ClientStNext header point tip m a
+-&gt; m (ClientStNext header point tip m a)
+-&gt; ClientStIdle header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.SendMsgRequestNext</span></a></span><span> </span><span class="annot"><span class="annottext">ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291237"><span class="hs-identifier hs-var">onNext</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+-&gt; IO
+     (ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291237"><span class="hs-identifier hs-var">onNext</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-83"></span><span>        </span><span id="local-6989586621679291237"><span class="annot"><span class="annottext">onNext :: ClientStNext (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="#local-6989586621679291237"><span class="hs-identifier hs-var hs-var">onNext</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ClientStNext :: forall header point tip (m :: * -&gt; *) a.
+(header -&gt; tip -&gt; ChainSyncClient header point tip m a)
+-&gt; (point -&gt; tip -&gt; ChainSyncClient header point tip m a)
+-&gt; ClientStNext header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-type">CS.ClientStNext</span></a></span><span>
+</span><span id="line-84"></span><span>            </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">recvMsgRollForward :: BlockInMode CardanoMode
+-&gt; ChainTip
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.recvMsgRollForward</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679291234"><span class="annot"><span class="annottext">BlockInMode CardanoMode
+</span><a href="#local-6989586621679291234"><span class="hs-identifier hs-var">bim</span></a></span></span><span> </span><span id="local-6989586621679291233"><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291233"><span class="hs-identifier hs-var">ct</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall header point tip (m :: * -&gt; *) a.
+m (ClientStIdle header point tip m a)
+-&gt; ChainSyncClient header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.ChainSyncClient</span></a></span><span> </span><span class="annot"><span class="annottext">(IO
+   (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+ -&gt; ChainSyncClient
+      (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-85"></span><span>                </span><span class="annot"><span class="annottext">ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+</span><a href="#local-6989586621679291247"><span class="hs-identifier hs-var">callback</span></a></span><span> </span><span class="annot"><span class="annottext">(ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ())
+-&gt; ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">BlockInMode CardanoMode
+-&gt; ChainTip -&gt; ChainSyncEvent (BlockInMode CardanoMode)
+forall a. a -&gt; ChainTip -&gt; ChainSyncEvent a
+</span><a href="Cardano.Streaming.Helpers.html#RollForward"><span class="hs-identifier hs-var">H.RollForward</span></a></span><span> </span><span class="annot"><span class="annottext">BlockInMode CardanoMode
+</span><a href="#local-6989586621679291234"><span class="hs-identifier hs-var">bim</span></a></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291233"><span class="hs-identifier hs-var">ct</span></a></span><span>
+</span><span id="line-86"></span><span>                </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291240"><span class="hs-identifier hs-var">sendRequestNext</span></a></span><span>
+</span><span id="line-87"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">recvMsgRollBackward :: ChainPoint
+-&gt; ChainTip
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.recvMsgRollBackward</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679291231"><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291231"><span class="hs-identifier hs-var">cp</span></a></span></span><span> </span><span id="local-6989586621679291230"><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291230"><span class="hs-identifier hs-var">ct</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall header point tip (m :: * -&gt; *) a.
+m (ClientStIdle header point tip m a)
+-&gt; ChainSyncClient header point tip m a
+</span><a href="../../../../ouroboros-network/html/src"><span class="hs-identifier hs-var">CS.ChainSyncClient</span></a></span><span> </span><span class="annot"><span class="annottext">(IO
+   (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+ -&gt; ChainSyncClient
+      (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; IO
+     (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+-&gt; ChainSyncClient
+     (BlockInMode CardanoMode) ChainPoint ChainTip IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-88"></span><span>                </span><span class="annot"><span class="annottext">ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+</span><a href="#local-6989586621679291247"><span class="hs-identifier hs-var">callback</span></a></span><span> </span><span class="annot"><span class="annottext">(ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ())
+-&gt; ChainSyncEvent (BlockInMode CardanoMode) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint -&gt; ChainTip -&gt; ChainSyncEvent (BlockInMode CardanoMode)
+forall a. ChainPoint -&gt; ChainTip -&gt; ChainSyncEvent a
+</span><a href="Cardano.Streaming.Helpers.html#RollBackward"><span class="hs-identifier hs-var">H.RollBackward</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679291231"><span class="hs-identifier hs-var">cp</span></a></span><span> </span><span class="annot"><span class="annottext">ChainTip
+</span><a href="#local-6989586621679291230"><span class="hs-identifier hs-var">ct</span></a></span><span>
+</span><span id="line-89"></span><span>                </span><span class="annot"><span class="annottext">IO
+  (ClientStIdle (BlockInMode CardanoMode) ChainPoint ChainTip IO ())
+</span><a href="#local-6989586621679291240"><span class="hs-identifier hs-var">sendRequestNext</span></a></span><span>
+</span><span id="line-90"></span><span>            </span><span class="hs-special">}</span><span>
+</span><span id="line-91"></span></pre></body></html>

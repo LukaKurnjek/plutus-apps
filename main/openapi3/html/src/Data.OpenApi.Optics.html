@@ -1,0 +1,764 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE OverloadedLabels #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE TemplateHaskell #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-8"></span><span class="hs-pragma">{-# OPTIONS_GHC -fno-warn-orphans #-}</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Module:      Data.OpenApi.Optics</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Maintainer:  Andrzej Rybczak &lt;andrzej@rybczak.net&gt;</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- Stability:   experimental</span><span>
+</span><span id="line-13"></span><span class="hs-comment">--</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- Lenses and prisms for the &lt;https://hackage.haskell.org/package/optics optics&gt;</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- library.</span><span>
+</span><span id="line-16"></span><span class="hs-comment">--</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- &gt;&gt;&gt; import Data.Aeson</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- &gt;&gt;&gt; import Optics.Core</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- &gt;&gt;&gt; :set -XOverloadedLabels</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- &gt;&gt;&gt; import qualified Data.ByteString.Lazy.Char8 as BSL</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- &gt;&gt;&gt; import qualified Data.HashMap.Strict.InsOrd as IOHM</span><span>
+</span><span id="line-22"></span><span class="hs-comment">--</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- Example from the &quot;Data.OpenApi&quot; module using @optics@:</span><span>
+</span><span id="line-24"></span><span class="hs-comment">--</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- &gt;&gt;&gt; :{</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- BSL.putStrLn $ encodePretty $ (mempty :: OpenApi)</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--   &amp; #components % #schemas .~ IOHM.fromList [ (&quot;User&quot;, mempty &amp; #type ?~ OpenApiString) ]</span><span>
+</span><span id="line-28"></span><span class="hs-comment">--   &amp; #paths .~</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--     IOHM.fromList [ (&quot;/user&quot;, mempty &amp; #get ?~ (mempty</span><span>
+</span><span id="line-30"></span><span class="hs-comment">--         &amp; at 200 ?~ (&quot;OK&quot; &amp; #_Inline % #content % at &quot;application/json&quot; ?~ (mempty &amp; #schema ?~ Ref (Reference &quot;User&quot;)))</span><span>
+</span><span id="line-31"></span><span class="hs-comment">--         &amp; at 404 ?~ &quot;User info not found&quot;)) ]</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- :}</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- {</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--     &quot;components&quot;: {</span><span>
+</span><span id="line-35"></span><span class="hs-comment">--         &quot;schemas&quot;: {</span><span>
+</span><span id="line-36"></span><span class="hs-comment">--             &quot;User&quot;: {</span><span>
+</span><span id="line-37"></span><span class="hs-comment">--                 &quot;type&quot;: &quot;string&quot;</span><span>
+</span><span id="line-38"></span><span class="hs-comment">--             }</span><span>
+</span><span id="line-39"></span><span class="hs-comment">--         }</span><span>
+</span><span id="line-40"></span><span class="hs-comment">--     },</span><span>
+</span><span id="line-41"></span><span class="hs-comment">--     &quot;info&quot;: {</span><span>
+</span><span id="line-42"></span><span class="hs-comment">--         &quot;title&quot;: &quot;&quot;,</span><span>
+</span><span id="line-43"></span><span class="hs-comment">--         &quot;version&quot;: &quot;&quot;</span><span>
+</span><span id="line-44"></span><span class="hs-comment">--     },</span><span>
+</span><span id="line-45"></span><span class="hs-comment">--     &quot;openapi&quot;: &quot;3.0.0&quot;,</span><span>
+</span><span id="line-46"></span><span class="hs-comment">--     &quot;paths&quot;: {</span><span>
+</span><span id="line-47"></span><span class="hs-comment">--         &quot;/user&quot;: {</span><span>
+</span><span id="line-48"></span><span class="hs-comment">--             &quot;get&quot;: {</span><span>
+</span><span id="line-49"></span><span class="hs-comment">--                 &quot;responses&quot;: {</span><span>
+</span><span id="line-50"></span><span class="hs-comment">--                     &quot;200&quot;: {</span><span>
+</span><span id="line-51"></span><span class="hs-comment">--                         &quot;content&quot;: {</span><span>
+</span><span id="line-52"></span><span class="hs-comment">--                             &quot;application/json&quot;: {</span><span>
+</span><span id="line-53"></span><span class="hs-comment">--                                 &quot;schema&quot;: {</span><span>
+</span><span id="line-54"></span><span class="hs-comment">--                                     &quot;$ref&quot;: &quot;#/components/schemas/User&quot;</span><span>
+</span><span id="line-55"></span><span class="hs-comment">--                                 }</span><span>
+</span><span id="line-56"></span><span class="hs-comment">--                             }</span><span>
+</span><span id="line-57"></span><span class="hs-comment">--                         },</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--                         &quot;description&quot;: &quot;OK&quot;</span><span>
+</span><span id="line-59"></span><span class="hs-comment">--                     },</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--                     &quot;404&quot;: {</span><span>
+</span><span id="line-61"></span><span class="hs-comment">--                         &quot;description&quot;: &quot;User info not found&quot;</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--                     }</span><span>
+</span><span id="line-63"></span><span class="hs-comment">--                 }</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--             }</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--         }</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--     }</span><span>
+</span><span id="line-67"></span><span class="hs-comment">-- }</span><span>
+</span><span id="line-68"></span><span class="hs-comment">--</span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- For convenience optics are defined as /labels/. It means that field accessor</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- names can be overloaded for different types. One such common field is</span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- @#description@. Many components of a Swagger specification can have</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- descriptions, and you can use the same name for them:</span><span>
+</span><span id="line-73"></span><span class="hs-comment">--</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- &gt;&gt;&gt; BSL.putStrLn $ encodePretty $ (mempty :: Response) &amp; #description .~ &quot;No content&quot;</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- {</span><span>
+</span><span id="line-76"></span><span class="hs-comment">--     &quot;description&quot;: &quot;No content&quot;</span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- }</span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- &gt;&gt;&gt; :{</span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- BSL.putStrLn $ encodePretty $ (mempty :: Schema)</span><span>
+</span><span id="line-80"></span><span class="hs-comment">--   &amp; #type        ?~ OpenApiBoolean</span><span>
+</span><span id="line-81"></span><span class="hs-comment">--   &amp; #description ?~ &quot;To be or not to be&quot;</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- :}</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- {</span><span>
+</span><span id="line-84"></span><span class="hs-comment">--     &quot;description&quot;: &quot;To be or not to be&quot;,</span><span>
+</span><span id="line-85"></span><span class="hs-comment">--     &quot;type&quot;: &quot;boolean&quot;</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- }</span><span>
+</span><span id="line-87"></span><span class="hs-comment">--</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- Additionally, to simplify working with @'Response'@, both @'Operation'@ and</span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- @'Responses'@ have direct access to it via @'Optics.Core.At.at'@. Example:</span><span>
+</span><span id="line-90"></span><span class="hs-comment">--</span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- &gt;&gt;&gt; :{</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- BSL.putStrLn $ encodePretty $ (mempty :: Operation)</span><span>
+</span><span id="line-93"></span><span class="hs-comment">--   &amp; at 404 ?~ &quot;Not found&quot;</span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- :}</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- {</span><span>
+</span><span id="line-96"></span><span class="hs-comment">--     &quot;responses&quot;: {</span><span>
+</span><span id="line-97"></span><span class="hs-comment">--         &quot;404&quot;: {</span><span>
+</span><span id="line-98"></span><span class="hs-comment">--             &quot;description&quot;: &quot;Not found&quot;</span><span>
+</span><span id="line-99"></span><span class="hs-comment">--         }</span><span>
+</span><span id="line-100"></span><span class="hs-comment">--     }</span><span>
+</span><span id="line-101"></span><span class="hs-comment">-- }</span><span>
+</span><span id="line-102"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.OpenApi.Optics</span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-103"></span><span>
+</span><span id="line-104"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Data.Aeson</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier">Value</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-105"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier">Data.Scientific</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier">Scientific</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html"><span class="hs-identifier">Data.OpenApi.Internal</span></a></span><span>
+</span><span id="line-107"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.Utils.html"><span class="hs-identifier">Data.OpenApi.Internal.Utils</span></a></span><span>
+</span><span id="line-108"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier">Optics.Core</span></a></span><span>
+</span><span id="line-110"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../optics-th/html/src"><span class="hs-identifier">Optics.TH</span></a></span><span>
+</span><span id="line-111"></span><span>
+</span><span id="line-112"></span><span class="hs-comment">-- Lenses</span><span>
+</span><span id="line-113"></span><span>
+</span><span id="line-114"></span><span id="local-6989586621679802014"><span id="local-6989586621679802016"><span id="local-6989586621679802018"><span id="local-6989586621679802020"><span id="local-6989586621679802022"><span id="local-6989586621679802024"><span id="local-6989586621679802026"><span id="local-6989586621679802028"><span id="local-6989586621679802030"><span id="local-6989586621679802031"><span id="local-6989586621679802032"><span id="local-6989586621679802033"><span id="local-6989586621679802034"><span id="local-6989586621679802035"><span id="local-6989586621679802036"><span id="local-6989586621679802037"><span id="local-6989586621679802038"><span id="local-6989586621679802039"><span id="local-6989586621679802040"><span id="local-6989586621679802041"><span id="local-6989586621679802042"><span id="local-6989586621679802043"><span id="local-6989586621679802044"><span id="local-6989586621679802045"><span id="local-6989586621679802046"><span id="local-6989586621679802047"><span id="local-6989586621679802048"><span id="local-6989586621679802049"><span id="local-6989586621679802050"><span id="local-6989586621679802051"><span id="local-6989586621679802052"><span id="local-6989586621679802053"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OpenApi</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-115"></span><span id="local-6989586621679801967"><span id="local-6989586621679801969"><span id="local-6989586621679801971"><span id="local-6989586621679801973"><span id="local-6989586621679801975"><span id="local-6989586621679801977"><span id="local-6989586621679801979"><span id="local-6989586621679801981"><span id="local-6989586621679801983"><span id="local-6989586621679801985"><span id="local-6989586621679801986"><span id="local-6989586621679801987"><span id="local-6989586621679801988"><span id="local-6989586621679801989"><span id="local-6989586621679801990"><span id="local-6989586621679801991"><span id="local-6989586621679801992"><span id="local-6989586621679801993"><span id="local-6989586621679801994"><span id="local-6989586621679801995"><span id="local-6989586621679801996"><span id="local-6989586621679801997"><span id="local-6989586621679801998"><span id="local-6989586621679801999"><span id="local-6989586621679802000"><span id="local-6989586621679802001"><span id="local-6989586621679802002"><span id="local-6989586621679802003"><span id="local-6989586621679802004"><span id="local-6989586621679802005"><span id="local-6989586621679802006"><span id="local-6989586621679802007"><span id="local-6989586621679802008"><span id="local-6989586621679802009"><span id="local-6989586621679802010"><span id="local-6989586621679802011"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Components</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-116"></span><span id="local-6989586621679801952"><span id="local-6989586621679801954"><span id="local-6989586621679801956"><span id="local-6989586621679801958"><span id="local-6989586621679801959"><span id="local-6989586621679801960"><span id="local-6989586621679801961"><span id="local-6989586621679801962"><span id="local-6989586621679801963"><span id="local-6989586621679801964"><span id="local-6989586621679801965"><span id="local-6989586621679801966"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Server</span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-117"></span><span id="local-6989586621679801937"><span id="local-6989586621679801939"><span id="local-6989586621679801941"><span id="local-6989586621679801943"><span id="local-6989586621679801944"><span id="local-6989586621679801945"><span id="local-6989586621679801946"><span id="local-6989586621679801947"><span id="local-6989586621679801948"><span id="local-6989586621679801949"><span id="local-6989586621679801950"><span id="local-6989586621679801951"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">ServerVariable</span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-118"></span><span id="local-6989586621679801922"><span id="local-6989586621679801924"><span id="local-6989586621679801926"><span id="local-6989586621679801928"><span id="local-6989586621679801929"><span id="local-6989586621679801930"><span id="local-6989586621679801931"><span id="local-6989586621679801932"><span id="local-6989586621679801933"><span id="local-6989586621679801934"><span id="local-6989586621679801935"><span id="local-6989586621679801936"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">RequestBody</span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-119"></span><span id="local-6989586621679801902"><span id="local-6989586621679801904"><span id="local-6989586621679801906"><span id="local-6989586621679801908"><span id="local-6989586621679801910"><span id="local-6989586621679801911"><span id="local-6989586621679801912"><span id="local-6989586621679801913"><span id="local-6989586621679801914"><span id="local-6989586621679801915"><span id="local-6989586621679801916"><span id="local-6989586621679801917"><span id="local-6989586621679801918"><span id="local-6989586621679801919"><span id="local-6989586621679801920"><span id="local-6989586621679801921"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">MediaTypeObject</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-120"></span><span id="local-6989586621679801872"><span id="local-6989586621679801874"><span id="local-6989586621679801876"><span id="local-6989586621679801878"><span id="local-6989586621679801880"><span id="local-6989586621679801882"><span id="local-6989586621679801884"><span id="local-6989586621679801885"><span id="local-6989586621679801886"><span id="local-6989586621679801887"><span id="local-6989586621679801888"><span id="local-6989586621679801889"><span id="local-6989586621679801890"><span id="local-6989586621679801891"><span id="local-6989586621679801892"><span id="local-6989586621679801893"><span id="local-6989586621679801894"><span id="local-6989586621679801895"><span id="local-6989586621679801896"><span id="local-6989586621679801897"><span id="local-6989586621679801898"><span id="local-6989586621679801899"><span id="local-6989586621679801900"><span id="local-6989586621679801901"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Info</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-121"></span><span id="local-6989586621679801857"><span id="local-6989586621679801859"><span id="local-6989586621679801861"><span id="local-6989586621679801863"><span id="local-6989586621679801864"><span id="local-6989586621679801865"><span id="local-6989586621679801866"><span id="local-6989586621679801867"><span id="local-6989586621679801868"><span id="local-6989586621679801869"><span id="local-6989586621679801870"><span id="local-6989586621679801871"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Contact</span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-122"></span><span id="local-6989586621679801847"><span id="local-6989586621679801849"><span id="local-6989586621679801851"><span id="local-6989586621679801852"><span id="local-6989586621679801853"><span id="local-6989586621679801854"><span id="local-6989586621679801855"><span id="local-6989586621679801856"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">License</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-123"></span><span id="local-6989586621679801787"><span id="local-6989586621679801789"><span id="local-6989586621679801791"><span id="local-6989586621679801793"><span id="local-6989586621679801795"><span id="local-6989586621679801797"><span id="local-6989586621679801799"><span id="local-6989586621679801801"><span id="local-6989586621679801803"><span id="local-6989586621679801805"><span id="local-6989586621679801807"><span id="local-6989586621679801809"><span id="local-6989586621679801811"><span id="local-6989586621679801812"><span id="local-6989586621679801813"><span id="local-6989586621679801814"><span id="local-6989586621679801815"><span id="local-6989586621679801816"><span id="local-6989586621679801817"><span id="local-6989586621679801818"><span id="local-6989586621679801819"><span id="local-6989586621679801820"><span id="local-6989586621679801821"><span id="local-6989586621679801822"><span id="local-6989586621679801823"><span id="local-6989586621679801824"><span id="local-6989586621679801825"><span id="local-6989586621679801826"><span id="local-6989586621679801827"><span id="local-6989586621679801828"><span id="local-6989586621679801829"><span id="local-6989586621679801830"><span id="local-6989586621679801831"><span id="local-6989586621679801832"><span id="local-6989586621679801833"><span id="local-6989586621679801834"><span id="local-6989586621679801835"><span id="local-6989586621679801836"><span id="local-6989586621679801837"><span id="local-6989586621679801838"><span id="local-6989586621679801839"><span id="local-6989586621679801840"><span id="local-6989586621679801841"><span id="local-6989586621679801842"><span id="local-6989586621679801843"><span id="local-6989586621679801844"><span id="local-6989586621679801845"><span id="local-6989586621679801846"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">PathItem</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-124"></span><span id="local-6989586621679801772"><span id="local-6989586621679801774"><span id="local-6989586621679801776"><span id="local-6989586621679801778"><span id="local-6989586621679801779"><span id="local-6989586621679801780"><span id="local-6989586621679801781"><span id="local-6989586621679801782"><span id="local-6989586621679801783"><span id="local-6989586621679801784"><span id="local-6989586621679801785"><span id="local-6989586621679801786"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Tag</span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-125"></span><span id="local-6989586621679801712"><span id="local-6989586621679801714"><span id="local-6989586621679801716"><span id="local-6989586621679801718"><span id="local-6989586621679801720"><span id="local-6989586621679801722"><span id="local-6989586621679801724"><span id="local-6989586621679801726"><span id="local-6989586621679801728"><span id="local-6989586621679801730"><span id="local-6989586621679801732"><span id="local-6989586621679801734"><span id="local-6989586621679801736"><span id="local-6989586621679801737"><span id="local-6989586621679801738"><span id="local-6989586621679801739"><span id="local-6989586621679801740"><span id="local-6989586621679801741"><span id="local-6989586621679801742"><span id="local-6989586621679801743"><span id="local-6989586621679801744"><span id="local-6989586621679801745"><span id="local-6989586621679801746"><span id="local-6989586621679801747"><span id="local-6989586621679801748"><span id="local-6989586621679801749"><span id="local-6989586621679801750"><span id="local-6989586621679801751"><span id="local-6989586621679801752"><span id="local-6989586621679801753"><span id="local-6989586621679801754"><span id="local-6989586621679801755"><span id="local-6989586621679801756"><span id="local-6989586621679801757"><span id="local-6989586621679801758"><span id="local-6989586621679801759"><span id="local-6989586621679801760"><span id="local-6989586621679801761"><span id="local-6989586621679801762"><span id="local-6989586621679801763"><span id="local-6989586621679801764"><span id="local-6989586621679801765"><span id="local-6989586621679801766"><span id="local-6989586621679801767"><span id="local-6989586621679801768"><span id="local-6989586621679801769"><span id="local-6989586621679801770"><span id="local-6989586621679801771"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Operation</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-126"></span><span id="local-6989586621679801652"><span id="local-6989586621679801654"><span id="local-6989586621679801656"><span id="local-6989586621679801658"><span id="local-6989586621679801660"><span id="local-6989586621679801662"><span id="local-6989586621679801664"><span id="local-6989586621679801666"><span id="local-6989586621679801668"><span id="local-6989586621679801670"><span id="local-6989586621679801672"><span id="local-6989586621679801674"><span id="local-6989586621679801676"><span id="local-6989586621679801677"><span id="local-6989586621679801678"><span id="local-6989586621679801679"><span id="local-6989586621679801680"><span id="local-6989586621679801681"><span id="local-6989586621679801682"><span id="local-6989586621679801683"><span id="local-6989586621679801684"><span id="local-6989586621679801685"><span id="local-6989586621679801686"><span id="local-6989586621679801687"><span id="local-6989586621679801688"><span id="local-6989586621679801689"><span id="local-6989586621679801690"><span id="local-6989586621679801691"><span id="local-6989586621679801692"><span id="local-6989586621679801693"><span id="local-6989586621679801694"><span id="local-6989586621679801695"><span id="local-6989586621679801696"><span id="local-6989586621679801697"><span id="local-6989586621679801698"><span id="local-6989586621679801699"><span id="local-6989586621679801700"><span id="local-6989586621679801701"><span id="local-6989586621679801702"><span id="local-6989586621679801703"><span id="local-6989586621679801704"><span id="local-6989586621679801705"><span id="local-6989586621679801706"><span id="local-6989586621679801707"><span id="local-6989586621679801708"><span id="local-6989586621679801709"><span id="local-6989586621679801710"><span id="local-6989586621679801711"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Param</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-127"></span><span id="local-6989586621679801612"><span id="local-6989586621679801614"><span id="local-6989586621679801616"><span id="local-6989586621679801618"><span id="local-6989586621679801620"><span id="local-6989586621679801622"><span id="local-6989586621679801624"><span id="local-6989586621679801626"><span id="local-6989586621679801628"><span id="local-6989586621679801629"><span id="local-6989586621679801630"><span id="local-6989586621679801631"><span id="local-6989586621679801632"><span id="local-6989586621679801633"><span id="local-6989586621679801634"><span id="local-6989586621679801635"><span id="local-6989586621679801636"><span id="local-6989586621679801637"><span id="local-6989586621679801638"><span id="local-6989586621679801639"><span id="local-6989586621679801640"><span id="local-6989586621679801641"><span id="local-6989586621679801642"><span id="local-6989586621679801643"><span id="local-6989586621679801644"><span id="local-6989586621679801645"><span id="local-6989586621679801646"><span id="local-6989586621679801647"><span id="local-6989586621679801648"><span id="local-6989586621679801649"><span id="local-6989586621679801650"><span id="local-6989586621679801651"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Header</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-128"></span><span id="local-6989586621679801437"><span id="local-6989586621679801439"><span id="local-6989586621679801441"><span id="local-6989586621679801443"><span id="local-6989586621679801445"><span id="local-6989586621679801447"><span id="local-6989586621679801449"><span id="local-6989586621679801451"><span id="local-6989586621679801453"><span id="local-6989586621679801455"><span id="local-6989586621679801457"><span id="local-6989586621679801459"><span id="local-6989586621679801461"><span id="local-6989586621679801463"><span id="local-6989586621679801465"><span id="local-6989586621679801467"><span id="local-6989586621679801469"><span id="local-6989586621679801471"><span id="local-6989586621679801473"><span id="local-6989586621679801475"><span id="local-6989586621679801477"><span id="local-6989586621679801479"><span id="local-6989586621679801481"><span id="local-6989586621679801483"><span id="local-6989586621679801485"><span id="local-6989586621679801487"><span id="local-6989586621679801489"><span id="local-6989586621679801491"><span id="local-6989586621679801493"><span id="local-6989586621679801495"><span id="local-6989586621679801497"><span id="local-6989586621679801499"><span id="local-6989586621679801501"><span id="local-6989586621679801503"><span id="local-6989586621679801505"><span id="local-6989586621679801507"><span id="local-6989586621679801508"><span id="local-6989586621679801509"><span id="local-6989586621679801510"><span id="local-6989586621679801511"><span id="local-6989586621679801512"><span id="local-6989586621679801513"><span id="local-6989586621679801514"><span id="local-6989586621679801515"><span id="local-6989586621679801516"><span id="local-6989586621679801517"><span id="local-6989586621679801518"><span id="local-6989586621679801519"><span id="local-6989586621679801520"><span id="local-6989586621679801521"><span id="local-6989586621679801522"><span id="local-6989586621679801523"><span id="local-6989586621679801524"><span id="local-6989586621679801525"><span id="local-6989586621679801526"><span id="local-6989586621679801527"><span id="local-6989586621679801528"><span id="local-6989586621679801529"><span id="local-6989586621679801530"><span id="local-6989586621679801531"><span id="local-6989586621679801532"><span id="local-6989586621679801533"><span id="local-6989586621679801534"><span id="local-6989586621679801535"><span id="local-6989586621679801536"><span id="local-6989586621679801537"><span id="local-6989586621679801538"><span id="local-6989586621679801539"><span id="local-6989586621679801540"><span id="local-6989586621679801541"><span id="local-6989586621679801542"><span id="local-6989586621679801543"><span id="local-6989586621679801544"><span id="local-6989586621679801545"><span id="local-6989586621679801546"><span id="local-6989586621679801547"><span id="local-6989586621679801548"><span id="local-6989586621679801549"><span id="local-6989586621679801550"><span id="local-6989586621679801551"><span id="local-6989586621679801552"><span id="local-6989586621679801553"><span id="local-6989586621679801554"><span id="local-6989586621679801555"><span id="local-6989586621679801556"><span id="local-6989586621679801557"><span id="local-6989586621679801558"><span id="local-6989586621679801559"><span id="local-6989586621679801560"><span id="local-6989586621679801561"><span id="local-6989586621679801562"><span id="local-6989586621679801563"><span id="local-6989586621679801564"><span id="local-6989586621679801565"><span id="local-6989586621679801566"><span id="local-6989586621679801567"><span id="local-6989586621679801568"><span id="local-6989586621679801569"><span id="local-6989586621679801570"><span id="local-6989586621679801571"><span id="local-6989586621679801572"><span id="local-6989586621679801573"><span id="local-6989586621679801574"><span id="local-6989586621679801575"><span id="local-6989586621679801576"><span id="local-6989586621679801577"><span id="local-6989586621679801578"><span id="local-6989586621679801579"><span id="local-6989586621679801580"><span id="local-6989586621679801581"><span id="local-6989586621679801582"><span id="local-6989586621679801583"><span id="local-6989586621679801584"><span id="local-6989586621679801585"><span id="local-6989586621679801586"><span id="local-6989586621679801587"><span id="local-6989586621679801588"><span id="local-6989586621679801589"><span id="local-6989586621679801590"><span id="local-6989586621679801591"><span id="local-6989586621679801592"><span id="local-6989586621679801593"><span id="local-6989586621679801594"><span id="local-6989586621679801595"><span id="local-6989586621679801596"><span id="local-6989586621679801597"><span id="local-6989586621679801598"><span id="local-6989586621679801599"><span id="local-6989586621679801600"><span id="local-6989586621679801601"><span id="local-6989586621679801602"><span id="local-6989586621679801603"><span id="local-6989586621679801604"><span id="local-6989586621679801605"><span id="local-6989586621679801606"><span id="local-6989586621679801607"><span id="local-6989586621679801608"><span id="local-6989586621679801609"><span id="local-6989586621679801610"><span id="local-6989586621679801611"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Schema</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-129"></span><span id="local-6989586621679801427"><span id="local-6989586621679801429"><span id="local-6989586621679801431"><span id="local-6989586621679801432"><span id="local-6989586621679801433"><span id="local-6989586621679801434"><span id="local-6989586621679801435"><span id="local-6989586621679801436"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">NamedSchema</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-130"></span><span id="local-6989586621679801402"><span id="local-6989586621679801404"><span id="local-6989586621679801406"><span id="local-6989586621679801408"><span id="local-6989586621679801410"><span id="local-6989586621679801412"><span id="local-6989586621679801413"><span id="local-6989586621679801414"><span id="local-6989586621679801415"><span id="local-6989586621679801416"><span id="local-6989586621679801417"><span id="local-6989586621679801418"><span id="local-6989586621679801419"><span id="local-6989586621679801420"><span id="local-6989586621679801421"><span id="local-6989586621679801422"><span id="local-6989586621679801423"><span id="local-6989586621679801424"><span id="local-6989586621679801425"><span id="local-6989586621679801426"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Xml</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-131"></span><span id="local-6989586621679801392"><span id="local-6989586621679801394"><span id="local-6989586621679801396"><span id="local-6989586621679801397"><span id="local-6989586621679801398"><span id="local-6989586621679801399"><span id="local-6989586621679801400"><span id="local-6989586621679801401"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Responses</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-132"></span><span id="local-6989586621679801372"><span id="local-6989586621679801374"><span id="local-6989586621679801376"><span id="local-6989586621679801378"><span id="local-6989586621679801380"><span id="local-6989586621679801381"><span id="local-6989586621679801382"><span id="local-6989586621679801383"><span id="local-6989586621679801384"><span id="local-6989586621679801385"><span id="local-6989586621679801386"><span id="local-6989586621679801387"><span id="local-6989586621679801388"><span id="local-6989586621679801389"><span id="local-6989586621679801390"><span id="local-6989586621679801391"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Response</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-133"></span><span id="local-6989586621679801362"><span id="local-6989586621679801364"><span id="local-6989586621679801366"><span id="local-6989586621679801367"><span id="local-6989586621679801368"><span id="local-6989586621679801369"><span id="local-6989586621679801370"><span id="local-6989586621679801371"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">SecurityScheme</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-134"></span><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">ApiKeyParams</span><span>
+</span><span id="line-135"></span><span id="local-6989586621679801357"><span id="local-6989586621679801359"><span id="local-6989586621679801360"><span id="local-6989586621679801361"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OAuth2ImplicitFlow</span></span></span></span></span><span>
+</span><span id="line-136"></span><span id="local-6989586621679801352"><span id="local-6989586621679801354"><span id="local-6989586621679801355"><span id="local-6989586621679801356"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OAuth2PasswordFlow</span></span></span></span></span><span>
+</span><span id="line-137"></span><span id="local-6989586621679801347"><span id="local-6989586621679801349"><span id="local-6989586621679801350"><span id="local-6989586621679801351"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OAuth2ClientCredentialsFlow</span></span></span></span></span><span>
+</span><span id="line-138"></span><span id="local-6989586621679801337"><span id="local-6989586621679801339"><span id="local-6989586621679801341"><span id="local-6989586621679801342"><span id="local-6989586621679801343"><span id="local-6989586621679801344"><span id="local-6989586621679801345"><span id="local-6989586621679801346"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OAuth2AuthorizationCodeFlow</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-139"></span><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OAuth2Flow</span><span>
+</span><span id="line-140"></span><span id="local-6989586621679801317"><span id="local-6989586621679801319"><span id="local-6989586621679801321"><span id="local-6989586621679801323"><span id="local-6989586621679801325"><span id="local-6989586621679801326"><span id="local-6989586621679801327"><span id="local-6989586621679801328"><span id="local-6989586621679801329"><span id="local-6989586621679801330"><span id="local-6989586621679801331"><span id="local-6989586621679801332"><span id="local-6989586621679801333"><span id="local-6989586621679801334"><span id="local-6989586621679801335"><span id="local-6989586621679801336"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">OAuth2Flows</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-141"></span><span id="local-6989586621679801307"><span id="local-6989586621679801309"><span id="local-6989586621679801311"><span id="local-6989586621679801312"><span id="local-6989586621679801313"><span id="local-6989586621679801314"><span id="local-6989586621679801315"><span id="local-6989586621679801316"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">ExternalDocs</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-142"></span><span id="local-6989586621679801282"><span id="local-6989586621679801284"><span id="local-6989586621679801286"><span id="local-6989586621679801288"><span id="local-6989586621679801290"><span id="local-6989586621679801292"><span id="local-6989586621679801293"><span id="local-6989586621679801294"><span id="local-6989586621679801295"><span id="local-6989586621679801296"><span id="local-6989586621679801297"><span id="local-6989586621679801298"><span id="local-6989586621679801299"><span id="local-6989586621679801300"><span id="local-6989586621679801301"><span id="local-6989586621679801302"><span id="local-6989586621679801303"><span id="local-6989586621679801304"><span id="local-6989586621679801305"><span id="local-6989586621679801306"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Encoding</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-143"></span><span id="local-6989586621679801262"><span id="local-6989586621679801264"><span id="local-6989586621679801266"><span id="local-6989586621679801268"><span id="local-6989586621679801270"><span id="local-6989586621679801271"><span id="local-6989586621679801272"><span id="local-6989586621679801273"><span id="local-6989586621679801274"><span id="local-6989586621679801275"><span id="local-6989586621679801276"><span id="local-6989586621679801277"><span id="local-6989586621679801278"><span id="local-6989586621679801279"><span id="local-6989586621679801280"><span id="local-6989586621679801281"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Example</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-144"></span><span id="local-6989586621679801252"><span id="local-6989586621679801254"><span id="local-6989586621679801256"><span id="local-6989586621679801257"><span id="local-6989586621679801258"><span id="local-6989586621679801259"><span id="local-6989586621679801260"><span id="local-6989586621679801261"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Discriminator</span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-145"></span><span id="local-6989586621679801222"><span id="local-6989586621679801224"><span id="local-6989586621679801226"><span id="local-6989586621679801228"><span id="local-6989586621679801230"><span id="local-6989586621679801232"><span id="local-6989586621679801234"><span id="local-6989586621679801235"><span id="local-6989586621679801236"><span id="local-6989586621679801237"><span id="local-6989586621679801238"><span id="local-6989586621679801239"><span id="local-6989586621679801240"><span id="local-6989586621679801241"><span id="local-6989586621679801242"><span id="local-6989586621679801243"><span id="local-6989586621679801244"><span id="local-6989586621679801245"><span id="local-6989586621679801246"><span id="local-6989586621679801247"><span id="local-6989586621679801248"><span id="local-6989586621679801249"><span id="local-6989586621679801250"><span id="local-6989586621679801251"><span class="hs-identifier">makeFieldLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Link</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span class="hs-comment">-- Prisms</span><span>
+</span><span id="line-148"></span><span>
+</span><span id="line-149"></span><span id="local-6989586621679801202"><span id="local-6989586621679801204"><span id="local-6989586621679801206"><span id="local-6989586621679801208"><span id="local-6989586621679801210"><span id="local-6989586621679801211"><span id="local-6989586621679801212"><span id="local-6989586621679801213"><span id="local-6989586621679801214"><span id="local-6989586621679801215"><span id="local-6989586621679801216"><span id="local-6989586621679801217"><span id="local-6989586621679801218"><span id="local-6989586621679801219"><span id="local-6989586621679801220"><span id="local-6989586621679801221"><span class="hs-identifier">makePrismLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">SecuritySchemeType</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-150"></span><span id="local-6989586621679801190"><span id="local-6989586621679801192"><span id="local-6989586621679801194"><span id="local-6989586621679801195"><span id="local-6989586621679801196"><span id="local-6989586621679801197"><span id="local-6989586621679801198"><span id="local-6989586621679801199"><span id="local-6989586621679801200"><span id="local-6989586621679801201"><span class="hs-identifier">makePrismLabels</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Referenced</span></span></span></span></span></span></span></span></span></span></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- OpenApiItems prisms</span><span>
+</span><span id="line-153"></span><span>
+</span><span id="line-154"></span><span id="local-6989586621679801188"><span id="local-6989586621679801189"><span class="hs-keyword">instance</span><span>
+</span><span id="line-155"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801189"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.OpenApi.Internal.html#Referenced"><span class="hs-identifier hs-type">Referenced</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Schema"><span class="hs-identifier hs-type">Schema</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-156"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801188"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.OpenApi.Internal.html#Referenced"><span class="hs-identifier hs-type">Referenced</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Schema"><span class="hs-identifier hs-type">Schema</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-157"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_OpenApiItemsArray&quot;</span></span><span>
+</span><span id="line-158"></span><span>         </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Review</span></a></span><span>
+</span><span id="line-159"></span><span>         </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiItems"><span class="hs-identifier hs-type">OpenApiItems</span></a></span><span>
+</span><span id="line-160"></span><span>         </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiItems"><span class="hs-identifier hs-type">OpenApiItems</span></a></span><span>
+</span><span id="line-161"></span><span>         </span><span class="annot"><a href="#local-6989586621679801189"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-162"></span><span>         </span><span class="annot"><a href="#local-6989586621679801188"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-163"></span><span>  </span><span id="local-6989586621679801186"><span class="annot"><span class="annottext">labelOptic :: Optic A_Review NoIx OpenApiItems OpenApiItems a b
+</span><a href="#local-6989586621679801186"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Referenced Schema] -&gt; OpenApiItems)
+-&gt; Review OpenApiItems [Referenced Schema]
+forall (b :: OpticKind) (t :: OpticKind). (b -&gt; t) -&gt; Review t b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">unto</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679801184"><span class="annot"><span class="annottext">[Referenced Schema]
+</span><a href="#local-6989586621679801184"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Referenced Schema] -&gt; OpenApiItems
+</span><a href="Data.OpenApi.Internal.html#OpenApiItemsArray"><span class="hs-identifier hs-var">OpenApiItemsArray</span></a></span><span> </span><span class="annot"><span class="annottext">[Referenced Schema]
+</span><a href="#local-6989586621679801184"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-164"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-165"></span><span>
+</span><span id="line-166"></span><span id="local-6989586621679801181"><span id="local-6989586621679801182"><span class="hs-keyword">instance</span><span>
+</span><span id="line-167"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801182"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Referenced"><span class="hs-identifier hs-type">Referenced</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Schema"><span class="hs-identifier hs-type">Schema</span></a></span><span>
+</span><span id="line-168"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801181"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Referenced"><span class="hs-identifier hs-type">Referenced</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Schema"><span class="hs-identifier hs-type">Schema</span></a></span><span>
+</span><span id="line-169"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;_OpenApiItemsObject&quot;</span></span><span>
+</span><span id="line-170"></span><span>         </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Review</span></a></span><span>
+</span><span id="line-171"></span><span>         </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiItems"><span class="hs-identifier hs-type">OpenApiItems</span></a></span><span>
+</span><span id="line-172"></span><span>         </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiItems"><span class="hs-identifier hs-type">OpenApiItems</span></a></span><span>
+</span><span id="line-173"></span><span>         </span><span class="annot"><a href="#local-6989586621679801182"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-174"></span><span>         </span><span class="annot"><a href="#local-6989586621679801181"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-175"></span><span>  </span><span id="local-6989586621679801179"><span class="annot"><span class="annottext">labelOptic :: Optic A_Review NoIx OpenApiItems OpenApiItems a b
+</span><a href="#local-6989586621679801179"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Referenced Schema -&gt; OpenApiItems)
+-&gt; Review OpenApiItems (Referenced Schema)
+forall (b :: OpticKind) (t :: OpticKind). (b -&gt; t) -&gt; Review t b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">unto</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679801178"><span class="annot"><span class="annottext">Referenced Schema
+</span><a href="#local-6989586621679801178"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Referenced Schema -&gt; OpenApiItems
+</span><a href="Data.OpenApi.Internal.html#OpenApiItemsObject"><span class="hs-identifier hs-var">OpenApiItemsObject</span></a></span><span> </span><span class="annot"><span class="annottext">Referenced Schema
+</span><a href="#local-6989586621679801178"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-176"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-177"></span><span>
+</span><span id="line-178"></span><span class="hs-comment">-- =============================================================</span><span>
+</span><span id="line-179"></span><span class="hs-comment">-- More helpful instances for easier access to schema properties</span><span>
+</span><span id="line-180"></span><span>
+</span><span id="line-181"></span><span class="hs-keyword">type</span><span> </span><span class="hs-keyword">instance</span><span> </span><span id="Index"><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">Index</span></a></span></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Responses"><span class="hs-identifier hs-type">Responses</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#HttpStatusCode"><span class="hs-identifier hs-type">HttpStatusCode</span></a></span><span>
+</span><span id="line-182"></span><span class="hs-keyword">type</span><span> </span><span class="hs-keyword">instance</span><span> </span><span id="Index"><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">Index</span></a></span></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Operation"><span class="hs-identifier hs-type">Operation</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#HttpStatusCode"><span class="hs-identifier hs-type">HttpStatusCode</span></a></span><span>
+</span><span id="line-183"></span><span>
+</span><span id="line-184"></span><span class="hs-keyword">type</span><span> </span><span class="hs-keyword">instance</span><span> </span><span id="IxValue"><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">IxValue</span></a></span></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Responses"><span class="hs-identifier hs-type">Responses</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Referenced"><span class="hs-identifier hs-type">Referenced</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Response"><span class="hs-identifier hs-type">Response</span></a></span><span>
+</span><span id="line-185"></span><span class="hs-keyword">type</span><span> </span><span class="hs-keyword">instance</span><span> </span><span id="IxValue"><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">IxValue</span></a></span></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Operation"><span class="hs-identifier hs-type">Operation</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Referenced"><span class="hs-identifier hs-type">Referenced</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Response"><span class="hs-identifier hs-type">Response</span></a></span><span>
+</span><span id="line-186"></span><span>
+</span><span id="line-187"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Ixed</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Responses"><span class="hs-identifier hs-type">Responses</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-188"></span><span>  </span><span id="local-6989586621679801174"><span class="annot"><span class="annottext">ix :: Index Responses
+-&gt; Optic' (IxKind Responses) NoIx Responses (IxValue Responses)
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">ix</span></a></span></span><span> </span><span id="local-6989586621679801172"><span class="annot"><span class="annottext">Index Responses
+</span><a href="#local-6989586621679801172"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;responses&quot;
+  (Optic
+     A_Lens
+     NoIx
+     Responses
+     Responses
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (InsOrdHashMap HttpStatusCode (Referenced Response)))
+Optic
+  A_Lens
+  NoIx
+  Responses
+  Responses
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+</span><a href="#local-6989586621679801171"><span class="hs-var">#responses</span></a></span><span> </span><span class="annot"><span class="annottext">Optic
+  A_Lens
+  NoIx
+  Responses
+  Responses
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+-&gt; Optic
+     An_AffineTraversal
+     NoIx
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (Referenced Response)
+     (Referenced Response)
+-&gt; Optic
+     An_AffineTraversal
+     NoIx
+     Responses
+     Responses
+     (Referenced Response)
+     (Referenced Response)
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">Index (InsOrdHashMap HttpStatusCode (Referenced Response))
+-&gt; Optic'
+     (IxKind (InsOrdHashMap HttpStatusCode (Referenced Response)))
+     NoIx
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (IxValue (InsOrdHashMap HttpStatusCode (Referenced Response)))
+forall (m :: OpticKind).
+Ixed m =&gt;
+Index m -&gt; Optic' (IxKind m) NoIx m (IxValue m)
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">Index (InsOrdHashMap HttpStatusCode (Referenced Response))
+Index Responses
+</span><a href="#local-6989586621679801172"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-189"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">ix</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-190"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">At</span></a></span><span>   </span><span class="annot"><a href="Data.OpenApi.Internal.html#Responses"><span class="hs-identifier hs-type">Responses</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-191"></span><span>  </span><span id="local-6989586621679801165"><span class="annot"><span class="annottext">at :: Index Responses -&gt; Lens' Responses (Maybe (IxValue Responses))
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">at</span></a></span></span><span> </span><span id="local-6989586621679801163"><span class="annot"><span class="annottext">Index Responses
+</span><a href="#local-6989586621679801163"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;responses&quot;
+  (Optic
+     A_Lens
+     NoIx
+     Responses
+     Responses
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (InsOrdHashMap HttpStatusCode (Referenced Response)))
+Optic
+  A_Lens
+  NoIx
+  Responses
+  Responses
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+</span><a href="#local-6989586621679801162"><span class="hs-var">#responses</span></a></span><span> </span><span class="annot"><span class="annottext">Optic
+  A_Lens
+  NoIx
+  Responses
+  Responses
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+  (InsOrdHashMap HttpStatusCode (Referenced Response))
+-&gt; Optic
+     A_Lens
+     NoIx
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (Maybe (Referenced Response))
+     (Maybe (Referenced Response))
+-&gt; Optic
+     A_Lens
+     NoIx
+     Responses
+     Responses
+     (Maybe (Referenced Response))
+     (Maybe (Referenced Response))
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">Index (InsOrdHashMap HttpStatusCode (Referenced Response))
+-&gt; Lens'
+     (InsOrdHashMap HttpStatusCode (Referenced Response))
+     (Maybe
+        (IxValue (InsOrdHashMap HttpStatusCode (Referenced Response))))
+forall (m :: OpticKind).
+At m =&gt;
+Index m -&gt; Lens' m (Maybe (IxValue m))
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">at</span></a></span><span> </span><span class="annot"><span class="annottext">Index (InsOrdHashMap HttpStatusCode (Referenced Response))
+Index Responses
+</span><a href="#local-6989586621679801163"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-192"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">at</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-193"></span><span>
+</span><span id="line-194"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Ixed</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Operation"><span class="hs-identifier hs-type">Operation</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-195"></span><span>  </span><span id="local-6989586621679801160"><span class="annot"><span class="annottext">ix :: Index Operation
+-&gt; Optic' (IxKind Operation) NoIx Operation (IxValue Operation)
+</span><a href="#local-6989586621679801160"><span class="hs-identifier hs-var hs-var hs-var hs-var">ix</span></a></span></span><span> </span><span id="local-6989586621679801159"><span class="annot"><span class="annottext">Index Operation
+</span><a href="#local-6989586621679801159"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;responses&quot;
+  (Optic A_Lens NoIx Operation Operation Responses Responses)
+Optic A_Lens NoIx Operation Operation Responses Responses
+</span><a href="#local-6989586621679801158"><span class="hs-var">#responses</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx Operation Operation Responses Responses
+-&gt; Optic
+     An_AffineTraversal
+     NoIx
+     Responses
+     Responses
+     (Referenced Response)
+     (Referenced Response)
+-&gt; Optic
+     An_AffineTraversal
+     NoIx
+     Operation
+     Operation
+     (Referenced Response)
+     (Referenced Response)
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">Index Responses
+-&gt; Optic' (IxKind Responses) NoIx Responses (IxValue Responses)
+forall (m :: OpticKind).
+Ixed m =&gt;
+Index m -&gt; Optic' (IxKind m) NoIx m (IxValue m)
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">Index Responses
+Index Operation
+</span><a href="#local-6989586621679801159"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-196"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">ix</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-197"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">At</span></a></span><span>   </span><span class="annot"><a href="Data.OpenApi.Internal.html#Operation"><span class="hs-identifier hs-type">Operation</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-198"></span><span>  </span><span id="local-6989586621679801154"><span class="annot"><span class="annottext">at :: Index Operation -&gt; Lens' Operation (Maybe (IxValue Operation))
+</span><a href="#local-6989586621679801154"><span class="hs-identifier hs-var hs-var hs-var hs-var">at</span></a></span></span><span> </span><span id="local-6989586621679801153"><span class="annot"><span class="annottext">Index Operation
+</span><a href="#local-6989586621679801153"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;responses&quot;
+  (Optic A_Lens NoIx Operation Operation Responses Responses)
+Optic A_Lens NoIx Operation Operation Responses Responses
+</span><a href="#local-6989586621679801152"><span class="hs-var">#responses</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx Operation Operation Responses Responses
+-&gt; Optic
+     A_Lens
+     NoIx
+     Responses
+     Responses
+     (Maybe (Referenced Response))
+     (Maybe (Referenced Response))
+-&gt; Optic
+     A_Lens
+     NoIx
+     Operation
+     Operation
+     (Maybe (Referenced Response))
+     (Maybe (Referenced Response))
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">Index Responses -&gt; Lens' Responses (Maybe (IxValue Responses))
+forall (m :: OpticKind).
+At m =&gt;
+Index m -&gt; Lens' m (Maybe (IxValue m))
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">at</span></a></span><span> </span><span class="annot"><span class="annottext">Index Responses
+Index Operation
+</span><a href="#local-6989586621679801153"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-199"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">at</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-200"></span><span>
+</span><span id="line-201"></span><span class="hs-comment">-- #type</span><span>
+</span><span id="line-202"></span><span>
+</span><span id="line-203"></span><span id="local-6989586621679801150"><span id="local-6989586621679801151"><span class="hs-keyword">instance</span><span>
+</span><span id="line-204"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801151"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiType"><span class="hs-identifier hs-type">OpenApiType</span></a></span><span>
+</span><span id="line-205"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801150"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiType"><span class="hs-identifier hs-type">OpenApiType</span></a></span><span>
+</span><span id="line-206"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;type&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801151"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801150"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-207"></span><span>  </span><span id="local-6989586621679801148"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801148"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801147"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;type&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801146"><span class="hs-var">#type</span></a></span><span>
+</span><span id="line-208"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-209"></span><span>
+</span><span id="line-210"></span><span class="hs-comment">-- #default</span><span>
+</span><span id="line-211"></span><span>
+</span><span id="line-212"></span><span id="local-6989586621679801144"><span id="local-6989586621679801145"><span class="hs-keyword">instance</span><span>
+</span><span id="line-213"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801145"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">Value</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801144"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">Value</span></a></span><span>
+</span><span id="line-214"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;default&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801145"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801144"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-215"></span><span>  </span><span id="local-6989586621679801142"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801142"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801141"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;default&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801140"><span class="hs-var">#default</span></a></span><span>
+</span><span id="line-216"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-217"></span><span>
+</span><span id="line-218"></span><span class="hs-comment">-- #format</span><span>
+</span><span id="line-219"></span><span>
+</span><span id="line-220"></span><span id="local-6989586621679801138"><span id="local-6989586621679801139"><span class="hs-keyword">instance</span><span>
+</span><span id="line-221"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801139"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Format"><span class="hs-identifier hs-type">Format</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801138"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#Format"><span class="hs-identifier hs-type">Format</span></a></span><span>
+</span><span id="line-222"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;format&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801139"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801138"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-223"></span><span>  </span><span id="local-6989586621679801135"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801135"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801134"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;format&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801133"><span class="hs-var">#format</span></a></span><span>
+</span><span id="line-224"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-225"></span><span>
+</span><span id="line-226"></span><span class="hs-comment">-- #items</span><span>
+</span><span id="line-227"></span><span>
+</span><span id="line-228"></span><span id="local-6989586621679801131"><span id="local-6989586621679801132"><span class="hs-keyword">instance</span><span>
+</span><span id="line-229"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801132"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiItems"><span class="hs-identifier hs-type">OpenApiItems</span></a></span><span>
+</span><span id="line-230"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801131"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#OpenApiItems"><span class="hs-identifier hs-type">OpenApiItems</span></a></span><span>
+</span><span id="line-231"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;items&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801132"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801131"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-232"></span><span>  </span><span id="local-6989586621679801129"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801129"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801128"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;items&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801127"><span class="hs-var">#items</span></a></span><span>
+</span><span id="line-233"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-234"></span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- #maximum</span><span>
+</span><span id="line-236"></span><span>
+</span><span id="line-237"></span><span id="local-6989586621679801125"><span id="local-6989586621679801126"><span class="hs-keyword">instance</span><span>
+</span><span id="line-238"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801126"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier hs-type">Scientific</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801125"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier hs-type">Scientific</span></a></span><span>
+</span><span id="line-239"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;maximum&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801126"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801125"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-240"></span><span>  </span><span id="local-6989586621679801123"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801123"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801122"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;maximum&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801121"><span class="hs-var">#maximum</span></a></span><span>
+</span><span id="line-241"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-242"></span><span>
+</span><span id="line-243"></span><span class="hs-comment">-- #exclusiveMaximum</span><span>
+</span><span id="line-244"></span><span>
+</span><span id="line-245"></span><span id="local-6989586621679801119"><span id="local-6989586621679801120"><span class="hs-keyword">instance</span><span>
+</span><span id="line-246"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801120"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801119"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-247"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;exclusiveMaximum&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801120"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801119"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-248"></span><span>  </span><span id="local-6989586621679801117"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801117"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801116"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;exclusiveMaximum&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801115"><span class="hs-var">#exclusiveMaximum</span></a></span><span>
+</span><span id="line-249"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-250"></span><span>
+</span><span id="line-251"></span><span class="hs-comment">-- #minimum</span><span>
+</span><span id="line-252"></span><span>
+</span><span id="line-253"></span><span id="local-6989586621679801113"><span id="local-6989586621679801114"><span class="hs-keyword">instance</span><span>
+</span><span id="line-254"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801114"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier hs-type">Scientific</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801113"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier hs-type">Scientific</span></a></span><span>
+</span><span id="line-255"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;minimum&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801114"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801113"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-256"></span><span>  </span><span id="local-6989586621679801111"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801111"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801110"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;minimum&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801109"><span class="hs-var">#minimum</span></a></span><span>
+</span><span id="line-257"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-258"></span><span>
+</span><span id="line-259"></span><span class="hs-comment">-- #exclusiveMinimum</span><span>
+</span><span id="line-260"></span><span>
+</span><span id="line-261"></span><span id="local-6989586621679801107"><span id="local-6989586621679801108"><span class="hs-keyword">instance</span><span>
+</span><span id="line-262"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801108"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801107"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-263"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;exclusiveMinimum&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801108"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801107"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-264"></span><span>  </span><span id="local-6989586621679801105"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801105"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801104"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;exclusiveMinimum&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801103"><span class="hs-var">#exclusiveMinimum</span></a></span><span>
+</span><span id="line-265"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-266"></span><span>
+</span><span id="line-267"></span><span class="hs-comment">-- #maxLength</span><span>
+</span><span id="line-268"></span><span>
+</span><span id="line-269"></span><span id="local-6989586621679801101"><span id="local-6989586621679801102"><span class="hs-keyword">instance</span><span>
+</span><span id="line-270"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801102"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801101"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span>
+</span><span id="line-271"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;maxLength&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801102"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801101"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-272"></span><span>  </span><span id="local-6989586621679801099"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801099"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801098"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;maxLength&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801097"><span class="hs-var">#maxLength</span></a></span><span>
+</span><span id="line-273"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-274"></span><span>
+</span><span id="line-275"></span><span class="hs-comment">-- #minLength</span><span>
+</span><span id="line-276"></span><span>
+</span><span id="line-277"></span><span id="local-6989586621679801095"><span id="local-6989586621679801096"><span class="hs-keyword">instance</span><span>
+</span><span id="line-278"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801096"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801095"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span>
+</span><span id="line-279"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;minLength&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801096"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801095"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-280"></span><span>  </span><span id="local-6989586621679801093"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801093"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801092"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;minLength&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801091"><span class="hs-var">#minLength</span></a></span><span>
+</span><span id="line-281"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-282"></span><span>
+</span><span id="line-283"></span><span class="hs-comment">-- #pattern</span><span>
+</span><span id="line-284"></span><span>
+</span><span id="line-285"></span><span id="local-6989586621679801089"><span id="local-6989586621679801090"><span class="hs-keyword">instance</span><span>
+</span><span id="line-286"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801090"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801089"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span>
+</span><span id="line-287"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;pattern&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801090"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801089"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-288"></span><span>  </span><span id="local-6989586621679801087"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801087"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801086"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;pattern&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801085"><span class="hs-var">#pattern</span></a></span><span>
+</span><span id="line-289"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-290"></span><span>
+</span><span id="line-291"></span><span class="hs-comment">-- #maxItems</span><span>
+</span><span id="line-292"></span><span>
+</span><span id="line-293"></span><span id="local-6989586621679801083"><span id="local-6989586621679801084"><span class="hs-keyword">instance</span><span>
+</span><span id="line-294"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801084"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801083"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span>
+</span><span id="line-295"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;maxItems&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801084"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801083"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-296"></span><span>  </span><span id="local-6989586621679801081"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801081"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801080"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;maxItems&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801079"><span class="hs-var">#maxItems</span></a></span><span>
+</span><span id="line-297"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-298"></span><span>
+</span><span id="line-299"></span><span class="hs-comment">-- #minItems</span><span>
+</span><span id="line-300"></span><span>
+</span><span id="line-301"></span><span id="local-6989586621679801077"><span id="local-6989586621679801078"><span class="hs-keyword">instance</span><span>
+</span><span id="line-302"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801078"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801077"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span>
+</span><span id="line-303"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;minItems&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801078"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801077"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-304"></span><span>  </span><span id="local-6989586621679801075"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801075"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801074"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;minItems&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801073"><span class="hs-var">#minItems</span></a></span><span>
+</span><span id="line-305"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-306"></span><span>
+</span><span id="line-307"></span><span class="hs-comment">-- #uniqueItems</span><span>
+</span><span id="line-308"></span><span>
+</span><span id="line-309"></span><span id="local-6989586621679801071"><span id="local-6989586621679801072"><span class="hs-keyword">instance</span><span>
+</span><span id="line-310"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801072"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801071"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-311"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;uniqueItems&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801072"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801071"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-312"></span><span>  </span><span id="local-6989586621679801069"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801069"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801068"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;uniqueItems&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801067"><span class="hs-var">#uniqueItems</span></a></span><span>
+</span><span id="line-313"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-314"></span><span>
+</span><span id="line-315"></span><span class="hs-comment">-- #enum</span><span>
+</span><span id="line-316"></span><span>
+</span><span id="line-317"></span><span id="local-6989586621679801065"><span id="local-6989586621679801066"><span class="hs-keyword">instance</span><span>
+</span><span id="line-318"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801066"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">Value</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801065"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../aeson/html/src"><span class="hs-identifier hs-type">Value</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-319"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;enum&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801066"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801065"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-320"></span><span>  </span><span id="local-6989586621679801063"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801063"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801062"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;enum&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801061"><span class="hs-var">#enum</span></a></span><span>
+</span><span id="line-321"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-322"></span><span>
+</span><span id="line-323"></span><span class="hs-comment">-- #multipleOf</span><span>
+</span><span id="line-324"></span><span>
+</span><span id="line-325"></span><span id="local-6989586621679801059"><span id="local-6989586621679801060"><span class="hs-keyword">instance</span><span>
+</span><span id="line-326"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="#local-6989586621679801060"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier hs-type">Scientific</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679801059"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">~</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../scientific/html/src"><span class="hs-identifier hs-type">Scientific</span></a></span><span>
+</span><span id="line-327"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">LabelOptic</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;multipleOf&quot;</span></span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">A_Lens</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="Data.OpenApi.Internal.html#NamedSchema"><span class="hs-identifier hs-type">NamedSchema</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801060"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679801059"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-328"></span><span>  </span><span id="local-6989586621679801057"><span class="annot"><span class="annottext">labelOptic :: Optic A_Lens NoIx NamedSchema NamedSchema a b
+</span><a href="#local-6989586621679801057"><span class="hs-identifier hs-var hs-var hs-var hs-var">labelOptic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IsLabel
+  &quot;schema&quot; (Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema)
+Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+</span><a href="#local-6989586621679801056"><span class="hs-var">#schema</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Lens NoIx NamedSchema NamedSchema Schema Schema
+-&gt; Optic A_Lens NoIx Schema Schema a b
+-&gt; Optic A_Lens NoIx NamedSchema NamedSchema a b
+forall (k :: OpticKind) (l :: OpticKind) (m :: OpticKind)
+       (is :: IxList) (js :: IxList) (ks :: IxList) (s :: OpticKind)
+       (t :: OpticKind) (u :: OpticKind) (v :: OpticKind) (a :: OpticKind)
+       (b :: OpticKind).
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">IsLabel &quot;multipleOf&quot; (Optic A_Lens NoIx Schema Schema a b)
+Optic A_Lens NoIx Schema Schema a b
+</span><a href="#local-6989586621679801055"><span class="hs-var">#multipleOf</span></a></span><span>
+</span><span id="line-329"></span><span>  </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-pragma hs-type">labelOptic</span></a></span><span> </span><span class="hs-pragma">#-}</span></span></span><span>
+</span><span id="line-330"></span></pre></body></html>

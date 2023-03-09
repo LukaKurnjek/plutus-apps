@@ -1,0 +1,465 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- | Utilities to parse 'Expr'.</span><span>
+</span><span id="line-3"></span><span class="hs-comment">--</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- /Note:/ we don't parse diffs.</span><span>
+</span><span id="line-5"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.TreeDiff.Parser</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-6"></span><span>    </span><span class="annot"><a href="Data.TreeDiff.Parser.html#exprParser"><span class="hs-identifier">exprParser</span></a></span><span>
+</span><span id="line-7"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Applicative</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">many</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">optional</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(&lt;|&gt;)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Char</span></a></span><span>           </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">chr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">isAlphaNum</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">isPunctuation</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">isSymbol</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../base-compat-batteries/html/src"><span class="hs-identifier">Prelude.Compat</span></a></span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Text.Parser.Char</span></a></span><span>            </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">CharParsing</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">anyChar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">char</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">satisfy</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Text.Parser.Combinators</span></a></span><span>     </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">between</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-operator">(&lt;?&gt;)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Text.Parser.Token</span></a></span><span>
+</span><span id="line-17"></span><span>       </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">TokenParsing</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">highlight</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">token</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">braces</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">brackets</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">commaSep</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>       </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">hexadecimal</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">parens</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">symbolic</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Text.Parser.Token.Highlight</span></a></span><span>
+</span><span id="line-20"></span><span>       </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Highlight</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Identifier</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">StringLiteral</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier">Symbol</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html"><span class="hs-identifier">Data.TreeDiff.Expr</span></a></span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Data.TreeDiff.OMap.html"><span class="hs-identifier">Data.TreeDiff.OMap</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">OMap</span></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- | Parsers for 'Expr' using @parsers@ type-classes.</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- You can use this with your parser-combinator library of choice:</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- @parsec@, @attoparsec@, @trifecta@...</span><span>
+</span><span id="line-30"></span><span id="local-6989586621679090791"><span class="annot"><a href="Data.TreeDiff.Parser.html#exprParser"><span class="hs-identifier hs-type">exprParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090791"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090791"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090791"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span></span><span>
+</span><span id="line-31"></span><span id="exprParser"><span class="annot"><span class="annottext">exprParser :: m Expr
+</span><a href="Data.TreeDiff.Parser.html#exprParser"><span class="hs-identifier hs-var hs-var">exprParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#apprecP"><span class="hs-identifier hs-var">apprecP</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr -&gt; m Expr -&gt; m Expr
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#lstP"><span class="hs-identifier hs-var">lstP</span></a></span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#lstP"><span class="hs-identifier hs-type">lstP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090788"><span class="annot"><a href="#local-6989586621679090788"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090788"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090788"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090788"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span>
+</span><span id="line-34"></span><span id="lstP"><span class="annot"><span class="annottext">lstP :: m Expr
+</span><a href="Data.TreeDiff.Parser.html#lstP"><span class="hs-identifier hs-var hs-var">lstP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Expr] -&gt; Expr
+</span><a href="Data.TreeDiff.Expr.html#Lst"><span class="hs-identifier hs-var">Lst</span></a></span><span> </span><span class="annot"><span class="annottext">([Expr] -&gt; Expr) -&gt; m [Expr] -&gt; m Expr
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m [Expr] -&gt; m [Expr]
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">brackets</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">m Expr -&gt; m [Expr]
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m [a]
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">commaSep</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#exprParser"><span class="hs-identifier hs-var">exprParser</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><span class="annottext">m Expr -&gt; String -&gt; m Expr
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;list&quot;</span></span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#apprecP"><span class="hs-identifier hs-type">apprecP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090884"><span class="annot"><a href="#local-6989586621679090884"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090884"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090884"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090884"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span>
+</span><span id="line-38"></span><span id="apprecP"><span class="annot"><span class="annottext">apprecP :: m Expr
+</span><a href="Data.TreeDiff.Parser.html#apprecP"><span class="hs-identifier hs-var hs-var">apprecP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-39"></span><span>    </span><span id="local-6989586621679090785"><span class="annot"><span class="annottext">Either String Expr
+</span><a href="#local-6989586621679090785"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m (Either String Expr)
+forall (m :: * -&gt; *).
+(Monad m, TokenParsing m) =&gt;
+m (Either String Expr)
+</span><a href="Data.TreeDiff.Parser.html#recP"><span class="hs-identifier hs-var">recP</span></a></span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either String Expr
+</span><a href="#local-6989586621679090785"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-41"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679090783"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679090783"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; m Expr
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679090783"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-42"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679090782"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090782"><span class="hs-identifier hs-var">n</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; [Expr] -&gt; Expr
+</span><a href="Data.TreeDiff.Expr.html#App"><span class="hs-identifier hs-var">App</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090782"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">([Expr] -&gt; Expr) -&gt; m [Expr] -&gt; m Expr
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr -&gt; m [Expr]
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">many</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#litP%27"><span class="hs-identifier hs-var">litP'</span></a></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#fieldP"><span class="hs-identifier hs-type">fieldP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090848"><span class="annot"><a href="#local-6989586621679090848"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090848"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090848"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090848"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.Expr.html#FieldName"><span class="hs-identifier hs-type">FieldName</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-45"></span><span id="fieldP"><span class="annot"><span class="annottext">fieldP :: m (String, Expr)
+</span><a href="Data.TreeDiff.Parser.html#fieldP"><span class="hs-identifier hs-var hs-var">fieldP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(String -&gt; Expr -&gt; (String, Expr))
+-&gt; m String -&gt; m (Expr -&gt; (String, Expr))
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m String
+</span><a href="Data.TreeDiff.Parser.html#litP"><span class="hs-identifier hs-var">litP</span></a></span><span> </span><span class="annot"><span class="annottext">m (Expr -&gt; (String, Expr)) -&gt; m Char -&gt; m (Expr -&gt; (String, Expr))
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). TokenParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">symbolic</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'='</span></span><span> </span><span class="annot"><span class="annottext">m (Expr -&gt; (String, Expr)) -&gt; m Expr -&gt; m (String, Expr)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#exprParser"><span class="hs-identifier hs-var">exprParser</span></a></span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#litP"><span class="hs-identifier hs-type">litP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090859"><span class="annot"><a href="#local-6989586621679090859"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090859"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090859"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090859"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-48"></span><span id="litP"><span class="annot"><span class="annottext">litP :: m String
+</span><a href="Data.TreeDiff.Parser.html#litP"><span class="hs-identifier hs-var hs-var">litP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m String
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m String
+</span><a href="Data.TreeDiff.Parser.html#atomP"><span class="hs-identifier hs-var">atomP</span></a></span><span> </span><span class="annot"><span class="annottext">m String -&gt; m String -&gt; m String
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m String
+</span><a href="Data.TreeDiff.Parser.html#identP"><span class="hs-identifier hs-var">identP</span></a></span><span> </span><span class="annot"><span class="annottext">m String -&gt; m String -&gt; m String
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m String
+</span><a href="Data.TreeDiff.Parser.html#stringP"><span class="hs-identifier hs-var">stringP</span></a></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#recP"><span class="hs-identifier hs-type">recP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090866"><span class="annot"><a href="#local-6989586621679090866"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090866"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090866"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090866"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span id="recP"><span class="annot"><span class="annottext">recP :: m (Either String Expr)
+</span><a href="Data.TreeDiff.Parser.html#recP"><span class="hs-identifier hs-var hs-var">recP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe [(String, Expr)] -&gt; Either String Expr
+</span><a href="#local-6989586621679090772"><span class="hs-identifier hs-var">mk</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Maybe [(String, Expr)] -&gt; Either String Expr)
+-&gt; m String -&gt; m (Maybe [(String, Expr)] -&gt; Either String Expr)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m String
+</span><a href="Data.TreeDiff.Parser.html#litP"><span class="hs-identifier hs-var">litP</span></a></span><span> </span><span class="annot"><span class="annottext">m (Maybe [(String, Expr)] -&gt; Either String Expr)
+-&gt; m (Maybe [(String, Expr)]) -&gt; m (Either String Expr)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m [(String, Expr)] -&gt; m (Maybe [(String, Expr)])
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f (Maybe a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">optional</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">m [(String, Expr)] -&gt; m [(String, Expr)]
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">braces</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">m (String, Expr) -&gt; m [(String, Expr)]
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m [a]
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">commaSep</span></a></span><span> </span><span class="annot"><span class="annottext">m (String, Expr)
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m (String, Expr)
+</span><a href="Data.TreeDiff.Parser.html#fieldP"><span class="hs-identifier hs-var">fieldP</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-52"></span><span>    </span><span id="local-6989586621679090772"><span class="annot"><span class="annottext">mk :: String -&gt; Maybe [(String, Expr)] -&gt; Either String Expr
+</span><a href="#local-6989586621679090772"><span class="hs-identifier hs-var hs-var">mk</span></a></span></span><span> </span><span id="local-6989586621679090771"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090771"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe [(String, Expr)]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Either String Expr
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090771"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-53"></span><span>    </span><span class="annot"><a href="#local-6989586621679090772"><span class="hs-identifier hs-var">mk</span></a></span><span> </span><span id="local-6989586621679090770"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090770"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679090769"><span class="annot"><span class="annottext">[(String, Expr)]
+</span><a href="#local-6989586621679090769"><span class="hs-identifier hs-var">fs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either String Expr
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; OMap String Expr -&gt; Expr
+</span><a href="Data.TreeDiff.Expr.html#Rec"><span class="hs-identifier hs-var">Rec</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090770"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[(String, Expr)] -&gt; OMap String Expr
+forall k v. Ord k =&gt; [(k, v)] -&gt; OMap k v
+</span><a href="Data.TreeDiff.OMap.html#fromList"><span class="hs-identifier hs-var">OMap.fromList</span></a></span><span> </span><span class="annot"><span class="annottext">[(String, Expr)]
+</span><a href="#local-6989586621679090769"><span class="hs-identifier hs-var">fs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#litP%27"><span class="hs-identifier hs-type">litP'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090766"><span class="annot"><a href="#local-6989586621679090766"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090766"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090766"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090766"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Data.TreeDiff.Expr.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span>
+</span><span id="line-56"></span><span id="litP%27"><span class="annot"><span class="annottext">litP' :: m Expr
+</span><a href="Data.TreeDiff.Parser.html#litP%27"><span class="hs-identifier hs-var hs-var">litP'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Either String Expr -&gt; Expr
+</span><a href="#local-6989586621679090765"><span class="hs-identifier hs-var">mk</span></a></span><span> </span><span class="annot"><span class="annottext">(Either String Expr -&gt; Expr) -&gt; m (Either String Expr) -&gt; m Expr
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m (Either String Expr)
+forall (m :: * -&gt; *).
+(Monad m, TokenParsing m) =&gt;
+m (Either String Expr)
+</span><a href="Data.TreeDiff.Parser.html#recP"><span class="hs-identifier hs-var">recP</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr -&gt; m Expr -&gt; m Expr
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr -&gt; m Expr
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">parens</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#exprParser"><span class="hs-identifier hs-var">exprParser</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr -&gt; m Expr -&gt; m Expr
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Expr
+forall (m :: * -&gt; *). (Monad m, TokenParsing m) =&gt; m Expr
+</span><a href="Data.TreeDiff.Parser.html#lstP"><span class="hs-identifier hs-var">lstP</span></a></span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-58"></span><span>    </span><span id="local-6989586621679090765"><span class="annot"><span class="annottext">mk :: Either String Expr -&gt; Expr
+</span><a href="#local-6989586621679090765"><span class="hs-identifier hs-var hs-var">mk</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span id="local-6989586621679090764"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090764"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; [Expr] -&gt; Expr
+</span><a href="Data.TreeDiff.Expr.html#App"><span class="hs-identifier hs-var">App</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679090764"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-59"></span><span>    </span><span class="annot"><a href="#local-6989586621679090765"><span class="hs-identifier hs-var">mk</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span id="local-6989586621679090763"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679090763"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679090763"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#identP"><span class="hs-identifier hs-type">identP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090762"><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-62"></span><span id="identP"><span class="annot"><span class="annottext">identP :: m String
+</span><a href="Data.TreeDiff.Parser.html#identP"><span class="hs-identifier hs-var hs-var">identP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m String -&gt; m String
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">token</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Highlight -&gt; m String -&gt; m String
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; Highlight -&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">highlight</span></a></span><span> </span><span class="annot"><span class="annottext">Highlight
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">Identifier</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+</span><a href="#local-6989586621679090761"><span class="hs-identifier hs-var">lit</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-63"></span><span>    </span><span class="annot"><a href="#local-6989586621679090761"><span class="hs-identifier hs-type">lit</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-64"></span><span>    </span><span id="local-6989586621679090761"><span class="annot"><span class="annottext">lit :: m String
+</span><a href="#local-6989586621679090761"><span class="hs-identifier hs-var hs-var">lit</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">:</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; String -&gt; String) -&gt; m Char -&gt; m (String -&gt; String)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Char
+</span><a href="#local-6989586621679090760"><span class="hs-identifier hs-var">firstLetter</span></a></span><span> </span><span class="annot"><span class="annottext">m (String -&gt; String) -&gt; m String -&gt; m String
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m String
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">many</span></a></span><span> </span><span class="annot"><span class="annottext">m Char
+</span><a href="#local-6989586621679090759"><span class="hs-identifier hs-var">restLetter</span></a></span><span>
+</span><span id="line-65"></span><span>        </span><span class="annot"><span class="annottext">m String -&gt; String -&gt; m String
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;identifier&quot;</span></span><span>
+</span><span id="line-66"></span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><a href="#local-6989586621679090760"><span class="hs-identifier hs-type">firstLetter</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-68"></span><span>    </span><span id="local-6989586621679090760"><span class="annot"><span class="annottext">firstLetter :: m Char
+</span><a href="#local-6989586621679090760"><span class="hs-identifier hs-var hs-var">firstLetter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; (Char -&gt; Bool) -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">satisfy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679090758"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090758"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Data.TreeDiff.Parser.html#valid%27"><span class="hs-identifier hs-var">valid'</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090758"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090758"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'-'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090758"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'+'</span></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><a href="#local-6989586621679090759"><span class="hs-identifier hs-type">restLetter</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090762"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span id="local-6989586621679090759"><span class="annot"><span class="annottext">restLetter :: m Char
+</span><a href="#local-6989586621679090759"><span class="hs-identifier hs-var hs-var">restLetter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; (Char -&gt; Bool) -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">satisfy</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Data.TreeDiff.Parser.html#valid%27"><span class="hs-identifier hs-var">valid'</span></a></span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#stringP"><span class="hs-identifier hs-type">stringP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090754"><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-74"></span><span id="stringP"><span class="annot"><span class="annottext">stringP :: m String
+</span><a href="Data.TreeDiff.Parser.html#stringP"><span class="hs-identifier hs-var hs-var">stringP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m String -&gt; m String
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">token</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Highlight -&gt; m String -&gt; m String
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; Highlight -&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">highlight</span></a></span><span> </span><span class="annot"><span class="annottext">Highlight
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">StringLiteral</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+</span><a href="#local-6989586621679090753"><span class="hs-identifier hs-var">lit</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><a href="#local-6989586621679090753"><span class="hs-identifier hs-type">lit</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-76"></span><span>    </span><span id="local-6989586621679090753"><span class="annot"><span class="annottext">lit :: m String
+</span><a href="#local-6989586621679090753"><span class="hs-identifier hs-var hs-var">lit</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+</span><a href="#local-6989586621679090752"><span class="hs-identifier hs-var">mk</span></a></span><span> </span><span class="annot"><span class="annottext">([String] -&gt; String) -&gt; m [String] -&gt; m String
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m [String] -&gt; m [String]
+forall (m :: * -&gt; *) bra ket a.
+Applicative m =&gt;
+m bra -&gt; m ket -&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">between</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; String -&gt; m Char
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;end of string&quot;</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">m String -&gt; m [String]
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">many</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+</span><a href="#local-6989586621679090751"><span class="hs-identifier hs-var">stringChar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><span class="annottext">m String -&gt; String -&gt; m String
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;atom&quot;</span></span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span>    </span><span class="annot"><a href="#local-6989586621679090752"><span class="hs-identifier hs-type">mk</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621679090752"><span class="annot"><span class="annottext">mk :: [String] -&gt; String
+</span><a href="#local-6989586621679090752"><span class="hs-identifier hs-var hs-var">mk</span></a></span></span><span> </span><span id="local-6989586621679090750"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679090750"><span class="hs-identifier hs-var">ss</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;\&quot;&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">concat</span></a></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679090750"><span class="hs-identifier hs-var">ss</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;\&quot;&quot;</span></span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span>    </span><span class="annot"><a href="#local-6989586621679090751"><span class="hs-identifier hs-type">stringChar</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-83"></span><span>    </span><span id="local-6989586621679090751"><span class="annot"><span class="annottext">stringChar :: m String
+</span><a href="#local-6989586621679090751"><span class="hs-identifier hs-var hs-var">stringChar</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m String
+</span><a href="#local-6989586621679090748"><span class="hs-identifier hs-var">stringLetter</span></a></span><span> </span><span class="annot"><span class="annottext">m String -&gt; m String -&gt; m String
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+</span><a href="#local-6989586621679090747"><span class="hs-identifier hs-var">stringEscape</span></a></span><span>
+</span><span id="line-84"></span><span>        </span><span class="annot"><span class="annottext">m String -&gt; String -&gt; m String
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;string character&quot;</span></span><span>
+</span><span id="line-85"></span><span>
+</span><span id="line-86"></span><span>    </span><span class="annot"><a href="#local-6989586621679090747"><span class="hs-identifier hs-type">stringEscape</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-87"></span><span>    </span><span id="local-6989586621679090747"><span class="annot"><span class="annottext">stringEscape :: m String
+</span><a href="#local-6989586621679090747"><span class="hs-identifier hs-var hs-var">stringEscape</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679090746"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090746"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679090745"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090745"><span class="hs-identifier hs-var">y</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090746"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090745"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Char -&gt; String) -&gt; m Char -&gt; m (Char -&gt; String)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span> </span><span class="annot"><span class="annottext">m (Char -&gt; String) -&gt; m Char -&gt; m String
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">anyChar</span></a></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span>    </span><span class="annot"><a href="#local-6989586621679090748"><span class="hs-identifier hs-type">stringLetter</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090754"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-90"></span><span>    </span><span id="local-6989586621679090748"><span class="annot"><span class="annottext">stringLetter :: m String
+</span><a href="#local-6989586621679090748"><span class="hs-identifier hs-var hs-var">stringLetter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char -&gt; String
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Char -&gt; String) -&gt; m Char -&gt; m String
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; (Char -&gt; Bool) -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">satisfy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679090744"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090744"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090744"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090744"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span class="hs-special">)</span><span>
+</span><span id="line-91"></span><span>
+</span><span id="line-92"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#atomP"><span class="hs-identifier hs-type">atomP</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679090743"><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../parsers/html/src"><span class="hs-identifier hs-type">TokenParsing</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-93"></span><span id="atomP"><span class="annot"><span class="annottext">atomP :: m String
+</span><a href="Data.TreeDiff.Parser.html#atomP"><span class="hs-identifier hs-var hs-var">atomP</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m String -&gt; m String
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">token</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Highlight -&gt; m String -&gt; m String
+forall (m :: * -&gt; *) a. TokenParsing m =&gt; Highlight -&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">highlight</span></a></span><span> </span><span class="annot"><span class="annottext">Highlight
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">Symbol</span></a></span><span> </span><span class="annot"><span class="annottext">m String
+</span><a href="#local-6989586621679090742"><span class="hs-identifier hs-var">lit</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-94"></span><span>    </span><span class="annot"><a href="#local-6989586621679090742"><span class="hs-identifier hs-type">lit</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-95"></span><span>    </span><span id="local-6989586621679090742"><span class="annot"><span class="annottext">lit :: m String
+</span><a href="#local-6989586621679090742"><span class="hs-identifier hs-var hs-var">lit</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m String -&gt; m String
+forall (m :: * -&gt; *) bra ket a.
+Applicative m =&gt;
+m bra -&gt; m ket -&gt; m a -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">between</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'`'</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'`'</span></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; String -&gt; m Char
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;end of atom&quot;</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">m Char -&gt; m String
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">many</span></a></span><span> </span><span class="annot"><span class="annottext">m Char
+</span><a href="#local-6989586621679090741"><span class="hs-identifier hs-var">atomChar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>        </span><span class="annot"><span class="annottext">m String -&gt; String -&gt; m String
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;atom&quot;</span></span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span>    </span><span class="annot"><a href="#local-6989586621679090741"><span class="hs-identifier hs-type">atomChar</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-99"></span><span>    </span><span id="local-6989586621679090741"><span class="annot"><span class="annottext">atomChar :: m Char
+</span><a href="#local-6989586621679090741"><span class="hs-identifier hs-var hs-var">atomChar</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m Char
+</span><a href="#local-6989586621679090740"><span class="hs-identifier hs-var">atomLetter</span></a></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m Char
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Char
+</span><a href="#local-6989586621679090739"><span class="hs-identifier hs-var">atomEscape</span></a></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m Char
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">' '</span></span><span>
+</span><span id="line-100"></span><span>        </span><span class="annot"><span class="annottext">m Char -&gt; String -&gt; m Char
+forall (m :: * -&gt; *) a. Parsing m =&gt; m a -&gt; String -&gt; m a
+</span><a href="../../../../parsers/html/src"><span class="hs-operator hs-var">&lt;?&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;atom character&quot;</span></span><span>
+</span><span id="line-101"></span><span>
+</span><span id="line-102"></span><span>    </span><span class="annot"><a href="#local-6989586621679090739"><span class="hs-identifier hs-type">atomEscape</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621679090739"><span class="annot"><span class="annottext">atomEscape :: m Char
+</span><a href="#local-6989586621679090739"><span class="hs-identifier hs-var hs-var">atomEscape</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m Char
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m Char
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'`'</span></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m Char
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;|&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Char
+</span><a href="#local-6989586621679090738"><span class="hs-identifier hs-var">escapedHex</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span>    </span><span class="annot"><a href="#local-6989586621679090738"><span class="hs-identifier hs-type">escapedHex</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-106"></span><span>    </span><span id="local-6989586621679090738"><span class="annot"><span class="annottext">escapedHex :: m Char
+</span><a href="#local-6989586621679090738"><span class="hs-identifier hs-var hs-var">escapedHex</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Char
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">chr</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Char) -&gt; (Integer -&gt; Int) -&gt; Integer -&gt; Char
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Integer -&gt; Int
+forall a. Num a =&gt; Integer -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromInteger</span></a></span><span> </span><span class="annot"><span class="annottext">(Integer -&gt; Char) -&gt; m Integer -&gt; m Char
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">m Integer
+forall (m :: * -&gt; *). TokenParsing m =&gt; m Integer
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">hexadecimal</span></a></span><span> </span><span class="annot"><span class="annottext">m Char -&gt; m Char -&gt; m Char
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; Char -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">char</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">';'</span></span><span>
+</span><span id="line-107"></span><span>
+</span><span id="line-108"></span><span>    </span><span class="annot"><a href="#local-6989586621679090740"><span class="hs-identifier hs-type">atomLetter</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679090743"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span>
+</span><span id="line-109"></span><span>    </span><span id="local-6989586621679090740"><span class="annot"><span class="annottext">atomLetter :: m Char
+</span><a href="#local-6989586621679090740"><span class="hs-identifier hs-var hs-var">atomLetter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; m Char
+forall (m :: * -&gt; *). CharParsing m =&gt; (Char -&gt; Bool) -&gt; m Char
+</span><a href="../../../../parsers/html/src"><span class="hs-identifier hs-var">satisfy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679090736"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090736"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090736"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'\\'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090736"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">/=</span></a></span><span>  </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'`'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Data.TreeDiff.Parser.html#valid"><span class="hs-identifier hs-var">valid</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090736"><span class="hs-identifier hs-var">c</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span>
+</span><span id="line-111"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#valid"><span class="hs-identifier hs-type">valid</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-112"></span><span id="valid"><span class="annot"><span class="annottext">valid :: Char -&gt; Bool
+</span><a href="Data.TreeDiff.Parser.html#valid"><span class="hs-identifier hs-var hs-var">valid</span></a></span></span><span> </span><span id="local-6989586621679090734"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090734"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">isAlphaNum</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090734"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">isSymbol</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090734"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">isPunctuation</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090734"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-113"></span><span>
+</span><span id="line-114"></span><span class="annot"><a href="Data.TreeDiff.Parser.html#valid%27"><span class="hs-identifier hs-type">valid'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Char</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-115"></span><span id="valid%27"><span class="annot"><span class="annottext">valid' :: Char -&gt; Bool
+</span><a href="Data.TreeDiff.Parser.html#valid%27"><span class="hs-identifier hs-var hs-var">valid'</span></a></span></span><span> </span><span id="local-6989586621679090732"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090732"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Data.TreeDiff.Parser.html#valid"><span class="hs-identifier hs-var">valid</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090732"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679090732"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; String -&gt; Bool
+forall (t :: * -&gt; *) a. (Foldable t, Eq a) =&gt; a -&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`notElem`</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;[](){}`\&quot;,&quot;</span></span><span>
+</span><span id="line-116"></span></pre></body></html>

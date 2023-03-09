@@ -1,0 +1,172 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module:       Control.Monad.Freer.Coroutine</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Description:  Composable coroutine effects layer.</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Copyright:    (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.; 2017 Alexis King</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- License:      BSD3</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Maintainer:   Alexis King &lt;lexi.lambda@gmail.com&gt;</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Stability:    experimental</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Portability:  GHC specific language extensions.</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- An effect to compose functions with the ability to yield.</span><span>
+</span><span id="line-11"></span><span class="hs-comment">--</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- Using &lt;http://okmij.org/ftp/Haskell/extensible/Eff1.hs&gt; as a starting point.</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Control.Monad.Freer.Coroutine</span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Yield Control</span></span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier">Yield</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#yield"><span class="hs-identifier">yield</span></a></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Handle Yield Effect</span></span><span>
+</span><span id="line-19"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier">Status</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#runC"><span class="hs-identifier">runC</span></a></span><span>
+</span><span id="line-21"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#interposeC"><span class="hs-identifier">interposeC</span></a></span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#replyC"><span class="hs-identifier">replyC</span></a></span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html"><span class="hs-identifier">Control.Monad.Freer.Internal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier">Eff</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier">Member</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#handleRelay"><span class="hs-identifier">handleRelay</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#interpose"><span class="hs-identifier">interpose</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier">send</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- | A type representing a yielding of control.</span><span>
+</span><span id="line-28"></span><span class="hs-comment">--</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- Type variables have following meaning:</span><span>
+</span><span id="line-30"></span><span class="hs-comment">--</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- [@a@]</span><span>
+</span><span id="line-32"></span><span class="hs-comment">--   The current type.</span><span>
+</span><span id="line-33"></span><span class="hs-comment">--</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- [@b@]</span><span>
+</span><span id="line-35"></span><span class="hs-comment">--   The input to the continuation function.</span><span>
+</span><span id="line-36"></span><span class="hs-comment">--</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- [@c@]</span><span>
+</span><span id="line-38"></span><span class="hs-comment">--   The output of the continuation.</span><span>
+</span><span id="line-39"></span><span class="hs-keyword">data</span><span> </span><span id="Yield"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-var">Yield</span></a></span></span><span> </span><span id="local-6989586621679066763"><span class="annot"><a href="#local-6989586621679066763"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679066762"><span class="annot"><a href="#local-6989586621679066762"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span id="local-6989586621679066761"><span class="annot"><a href="#local-6989586621679066761"><span class="hs-identifier hs-type">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Yield"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-var">Yield</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679066763"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066762"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679066761"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679066707"><span id="local-6989586621679066709"><span class="annot"><span class="annottext">a -&gt; Yield a b b -&gt; Yield a b a
+(a -&gt; b) -&gt; Yield a b a -&gt; Yield a b b
+(forall a b. (a -&gt; b) -&gt; Yield a b a -&gt; Yield a b b)
+-&gt; (forall a b. a -&gt; Yield a b b -&gt; Yield a b a)
+-&gt; Functor (Yield a b)
+forall a b. a -&gt; Yield a b b -&gt; Yield a b a
+forall a b. (a -&gt; b) -&gt; Yield a b a -&gt; Yield a b b
+forall a b a b. a -&gt; Yield a b b -&gt; Yield a b a
+forall a b a b. (a -&gt; b) -&gt; Yield a b a -&gt; Yield a b b
+forall (f :: * -&gt; *).
+(forall a b. (a -&gt; b) -&gt; f a -&gt; f b)
+-&gt; (forall a b. a -&gt; f b -&gt; f a) -&gt; Functor f
+&lt;$ :: a -&gt; Yield a b b -&gt; Yield a b a
+$c&lt;$ :: forall a b a b. a -&gt; Yield a b b -&gt; Yield a b a
+fmap :: (a -&gt; b) -&gt; Yield a b a -&gt; Yield a b b
+$cfmap :: forall a b a b. (a -&gt; b) -&gt; Yield a b a -&gt; Yield a b b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Functor</span></a></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- | Lifts a value and a function into the Coroutine effect.</span><span>
+</span><span id="line-43"></span><span id="local-6989586621679066702"><span id="local-6989586621679066703"><span id="local-6989586621679066704"><span id="local-6989586621679066705"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#yield"><span class="hs-identifier hs-type">yield</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier hs-type">Member</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-type">Yield</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066705"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066704"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679066703"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679066705"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066704"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679066702"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066703"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066702"><span class="hs-identifier hs-type">c</span></a></span></span></span></span></span><span>
+</span><span id="line-44"></span><span id="yield"><span class="annot"><span class="annottext">yield :: a -&gt; (b -&gt; c) -&gt; Eff effs c
+</span><a href="Control.Monad.Freer.Coroutine.html#yield"><span class="hs-identifier hs-var hs-var">yield</span></a></span></span><span> </span><span id="local-6989586621679066701"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679066701"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679066700"><span class="annot"><span class="annottext">b -&gt; c
+</span><a href="#local-6989586621679066700"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Yield a b c -&gt; Eff effs c
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) a.
+Member eff effs =&gt;
+eff a -&gt; Eff effs a
+</span><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier hs-var">send</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; (b -&gt; c) -&gt; Yield a b c
+forall a b c. a -&gt; (b -&gt; c) -&gt; Yield a b c
+</span><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-var">Yield</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679066701"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; c
+</span><a href="#local-6989586621679066700"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | Represents status of a coroutine.</span><span>
+</span><span id="line-47"></span><span class="hs-keyword">data</span><span> </span><span id="Status"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier hs-var">Status</span></a></span></span><span> </span><span id="local-6989586621679066747"><span class="annot"><a href="#local-6989586621679066747"><span class="hs-identifier hs-type">effs</span></a></span></span><span> </span><span id="local-6989586621679066749"><span class="annot"><a href="#local-6989586621679066749"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679066748"><span class="annot"><a href="#local-6989586621679066748"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span id="local-6989586621679066746"><span class="annot"><a href="#local-6989586621679066746"><span class="hs-identifier hs-type">r</span></a></span></span><span>
+</span><span id="line-48"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="Done"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Done"><span class="hs-identifier hs-var">Done</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679066746"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-comment">-- ^ Coroutine is done with a result value of type @r@.</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="Continue"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Continue"><span class="hs-identifier hs-var">Continue</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679066749"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066748"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066747"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier hs-type">Status</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066747"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066749"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066748"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066746"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>  </span><span class="hs-comment">-- ^ Reporting a value of the type @a@, and resuming with the value of type</span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-comment">-- @b@, possibly ending with a value of type @x@.</span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- | Reply to a coroutine effect by returning the Continue constructor.</span><span>
+</span><span id="line-55"></span><span id="local-6989586621679066728"><span id="local-6989586621679066729"><span id="local-6989586621679066730"><span id="local-6989586621679066731"><span id="local-6989586621679066732"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#replyC"><span class="hs-identifier hs-type">replyC</span></a></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-type">Yield</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066732"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066731"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066730"><span class="hs-identifier hs-type">c</span></a></span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679066730"><span class="hs-identifier hs-type">c</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066729"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier hs-type">Status</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066729"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066732"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066731"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066728"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066729"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier hs-type">Status</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066729"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066732"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066731"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066728"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span></span></span></span></span></span><span>
+</span><span id="line-59"></span><span id="replyC"><span class="annot"><span class="annottext">replyC :: Yield a b c
+-&gt; (c -&gt; Eff effs (Status effs a b r))
+-&gt; Eff effs (Status effs a b r)
+</span><a href="Control.Monad.Freer.Coroutine.html#replyC"><span class="hs-identifier hs-var hs-var">replyC</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-type">Yield</span></a></span><span> </span><span id="local-6989586621679066697"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679066697"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679066696"><span class="annot"><span class="annottext">b -&gt; c
+</span><a href="#local-6989586621679066696"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679066695"><span class="annot"><span class="annottext">c -&gt; Eff effs (Status effs a b r)
+</span><a href="#local-6989586621679066695"><span class="hs-identifier hs-var">arr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Status effs a b r -&gt; Eff effs (Status effs a b r)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Status effs a b r -&gt; Eff effs (Status effs a b r))
+-&gt; Status effs a b r -&gt; Eff effs (Status effs a b r)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; (b -&gt; Eff effs (Status effs a b r)) -&gt; Status effs a b r
+forall (effs :: [* -&gt; *]) a b r.
+a -&gt; (b -&gt; Eff effs (Status effs a b r)) -&gt; Status effs a b r
+</span><a href="Control.Monad.Freer.Coroutine.html#Continue"><span class="hs-identifier hs-var">Continue</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679066697"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">c -&gt; Eff effs (Status effs a b r)
+</span><a href="#local-6989586621679066695"><span class="hs-identifier hs-var">arr</span></a></span><span> </span><span class="annot"><span class="annottext">(c -&gt; Eff effs (Status effs a b r))
+-&gt; (b -&gt; c) -&gt; b -&gt; Eff effs (Status effs a b r)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; c
+</span><a href="#local-6989586621679066696"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- | Launch a coroutine and report its status.</span><span>
+</span><span id="line-62"></span><span id="local-6989586621679066690"><span id="local-6989586621679066691"><span id="local-6989586621679066692"><span id="local-6989586621679066693"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#runC"><span class="hs-identifier hs-type">runC</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-type">Yield</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066693"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066692"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-glyph">:</span><span> </span><span class="annot"><a href="#local-6989586621679066691"><span class="hs-identifier hs-type">effs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679066690"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066691"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier hs-type">Status</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066691"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066693"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066692"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066690"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-63"></span><span id="runC"><span class="annot"><span class="annottext">runC :: Eff (Yield a b : effs) r -&gt; Eff effs (Status effs a b r)
+</span><a href="Control.Monad.Freer.Coroutine.html#runC"><span class="hs-identifier hs-var hs-var">runC</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(r -&gt; Eff effs (Status effs a b r))
+-&gt; (forall v.
+    Yield a b v
+    -&gt; Arr effs v (Status effs a b r) -&gt; Eff effs (Status effs a b r))
+-&gt; Eff (Yield a b : effs) r
+-&gt; Eff effs (Status effs a b r)
+forall a (effs :: [* -&gt; *]) b (eff :: * -&gt; *).
+(a -&gt; Eff effs b)
+-&gt; (forall v. eff v -&gt; Arr effs v b -&gt; Eff effs b)
+-&gt; Eff (eff : effs) a
+-&gt; Eff effs b
+</span><a href="Control.Monad.Freer.Internal.html#handleRelay"><span class="hs-identifier hs-var">handleRelay</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Status effs a b r -&gt; Eff effs (Status effs a b r)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Status effs a b r -&gt; Eff effs (Status effs a b r))
+-&gt; (r -&gt; Status effs a b r) -&gt; r -&gt; Eff effs (Status effs a b r)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">r -&gt; Status effs a b r
+forall (effs :: [* -&gt; *]) a b r. r -&gt; Status effs a b r
+</span><a href="Control.Monad.Freer.Coroutine.html#Done"><span class="hs-identifier hs-var">Done</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">forall v.
+Yield a b v
+-&gt; Arr effs v (Status effs a b r) -&gt; Eff effs (Status effs a b r)
+forall a b c (effs :: [* -&gt; *]) r.
+Yield a b c
+-&gt; (c -&gt; Eff effs (Status effs a b r))
+-&gt; Eff effs (Status effs a b r)
+</span><a href="Control.Monad.Freer.Coroutine.html#replyC"><span class="hs-identifier hs-var">replyC</span></a></span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- | Launch a coroutine and report its status, without handling (removing)</span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- 'Yield' from the typelist. This is useful for reducing nested coroutines.</span><span>
+</span><span id="line-67"></span><span id="local-6989586621679066686"><span id="local-6989586621679066687"><span id="local-6989586621679066688"><span id="local-6989586621679066689"><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#interposeC"><span class="hs-identifier hs-type">interposeC</span></a></span><span>
+</span><span id="line-68"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier hs-type">Member</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Yield"><span class="hs-identifier hs-type">Yield</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066689"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066688"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="#local-6989586621679066687"><span class="hs-identifier hs-type">effs</span></a></span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066687"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066686"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-70"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier hs-type">Eff</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066687"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Coroutine.html#Status"><span class="hs-identifier hs-type">Status</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066687"><span class="hs-identifier hs-type">effs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066689"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066688"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679066686"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-71"></span><span id="interposeC"><span class="annot"><span class="annottext">interposeC :: Eff effs r -&gt; Eff effs (Status effs a b r)
+</span><a href="Control.Monad.Freer.Coroutine.html#interposeC"><span class="hs-identifier hs-var hs-var">interposeC</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(r -&gt; Eff effs (Status effs a b r))
+-&gt; (forall v.
+    Yield a b v
+    -&gt; Arr effs v (Status effs a b r) -&gt; Eff effs (Status effs a b r))
+-&gt; Eff effs r
+-&gt; Eff effs (Status effs a b r)
+forall (eff :: * -&gt; *) (effs :: [* -&gt; *]) a b.
+Member eff effs =&gt;
+(a -&gt; Eff effs b)
+-&gt; (forall v. eff v -&gt; Arr effs v b -&gt; Eff effs b)
+-&gt; Eff effs a
+-&gt; Eff effs b
+</span><a href="Control.Monad.Freer.Internal.html#interpose"><span class="hs-identifier hs-var">interpose</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Status effs a b r -&gt; Eff effs (Status effs a b r)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Status effs a b r -&gt; Eff effs (Status effs a b r))
+-&gt; (r -&gt; Status effs a b r) -&gt; r -&gt; Eff effs (Status effs a b r)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">r -&gt; Status effs a b r
+forall (effs :: [* -&gt; *]) a b r. r -&gt; Status effs a b r
+</span><a href="Control.Monad.Freer.Coroutine.html#Done"><span class="hs-identifier hs-var">Done</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">forall v.
+Yield a b v
+-&gt; Arr effs v (Status effs a b r) -&gt; Eff effs (Status effs a b r)
+forall a b c (effs :: [* -&gt; *]) r.
+Yield a b c
+-&gt; (c -&gt; Eff effs (Status effs a b r))
+-&gt; Eff effs (Status effs a b r)
+</span><a href="Control.Monad.Freer.Coroutine.html#replyC"><span class="hs-identifier hs-var">replyC</span></a></span><span>
+</span><span id="line-72"></span></pre></body></html>

@@ -1,0 +1,705 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE DeriveTraversable #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE NamedFieldPuns #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances #-}</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Copyright: &#169; 2018-2020 IOHK</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-11"></span><span class="hs-comment">--</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- Provides a strict implementation of a non-empty map.</span><span>
+</span><span id="line-13"></span><span class="hs-comment">--</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- This implementation is based on the implementation of 'Data.Map.Strict'</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- provided by the 'containers' package, but provides an extra guarantee</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- that the map contains at least one entry at all times.</span><span>
+</span><span id="line-17"></span><span class="hs-comment">--</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.Map.Strict.NonEmptyMap.Internal</span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-special">(</span><span>
+</span><span id="line-20"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Map type</span></span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span>      </span><span class="hs-comment">-- Important:</span><span>
+</span><span id="line-23"></span><span>      </span><span class="hs-comment">--</span><span>
+</span><span id="line-24"></span><span>      </span><span class="hs-comment">-- The default data constructor for 'NonEmptyMap' is not exported, by</span><span>
+</span><span id="line-25"></span><span>      </span><span class="hs-comment">-- design, as the internal data structure has an invariant that must be</span><span>
+</span><span id="line-26"></span><span>      </span><span class="hs-comment">-- preserved across all operations.</span><span>
+</span><span id="line-27"></span><span>      </span><span class="hs-comment">--</span><span>
+</span><span id="line-28"></span><span>      </span><span class="hs-comment">-- Exporting the default constructor would make it possible for functions</span><span>
+</span><span id="line-29"></span><span>      </span><span class="hs-comment">-- outside this module to break the invariant, opening the door to subtle</span><span>
+</span><span id="line-30"></span><span>      </span><span class="hs-comment">-- regressions.</span><span>
+</span><span id="line-31"></span><span>      </span><span class="hs-comment">--</span><span>
+</span><span id="line-32"></span><span>      </span><span class="hs-comment">-- See the definition of 'NonEmptyMap' for more details of the invariant.</span><span>
+</span><span id="line-33"></span><span>      </span><span class="hs-comment">--</span><span>
+</span><span id="line-34"></span><span>      </span><span class="hs-comment">-- To construct a 'NonEmptyMap', use one of the provided constructors,</span><span>
+</span><span id="line-35"></span><span>      </span><span class="hs-comment">-- all of which are tested to check that they respect the invariant.</span><span>
+</span><span id="line-36"></span><span>      </span><span class="hs-comment">--</span><span>
+</span><span id="line-37"></span><span>      </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier">NonEmptyMap</span></a></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Construction</span></span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromList"><span class="hs-identifier">fromList</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromMap"><span class="hs-identifier">fromMap</span></a></span><span>
+</span><span id="line-42"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#singleton"><span class="hs-identifier">singleton</span></a></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Deconstruction</span></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toList"><span class="hs-identifier">toList</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toMap"><span class="hs-identifier">toMap</span></a></span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Insertion</span></span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#insert"><span class="hs-identifier">insert</span></a></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Deletion</span></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#delete"><span class="hs-identifier">delete</span></a></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Lookup</span></span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#lookup"><span class="hs-identifier">lookup</span></a></span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Combination</span></span><span>
+</span><span id="line-58"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#unionWith"><span class="hs-identifier">unionWith</span></a></span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Internal functions</span></span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#invariantHolds"><span class="hs-identifier">invariantHolds</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-keyword">hiding</span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">lookup</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>
+</span><span id="line-68"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">Control.DeepSeq</span></a></span><span>
+</span><span id="line-69"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">NFData</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../hashable/html/src"><span class="hs-identifier">Data.Hashable</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../hashable/html/src"><span class="hs-identifier">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../hashable/html/src"><span class="hs-identifier">hashUsing</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List.NonEmpty</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">NonEmpty</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span>
+</span><span id="line-75"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Map</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Generics</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Generic</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Foldable</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">F</span></span><span>
+</span><span id="line-80"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- | A non-empty map from keys of type 'k' to values of type 'v'.</span><span>
+</span><span id="line-83"></span><span class="hs-comment">--</span><span>
+</span><span id="line-84"></span><span id="local-6989586621679051564"><span id="local-6989586621679051565"></span></span><span class="hs-keyword">data</span><span> </span><span id="NonEmptyMap"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span></span><span> </span><span id="local-6989586621679051625"><span class="annot"><a href="#local-6989586621679051625"><span class="hs-identifier hs-type">k</span></a></span></span><span> </span><span id="local-6989586621679051624"><span class="annot"><a href="#local-6989586621679051624"><span class="hs-identifier hs-type">v</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="NonEmptyMap"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span></span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="least"><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span></span><span>
+</span><span id="line-86"></span><span>        </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679051625"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679051624"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>      </span><span class="hs-comment">-- ^ Invariant: this key must be less than than all the keys in 'rest'.</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="rest"><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span></span><span>
+</span><span id="line-89"></span><span>        </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map.Map</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051625"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051624"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679051557"><span id="local-6989586621679051559"><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool
+(NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool)
+-&gt; (NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool)
+-&gt; Eq (NonEmptyMap k v)
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+forall k v.
+(Eq k, Eq v) =&gt;
+NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool
+/= :: NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool
+$c/= :: forall k v.
+(Eq k, Eq v) =&gt;
+NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool
+== :: NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool
+$c== :: forall k v.
+(Eq k, Eq v) =&gt;
+NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051522"><span id="local-6989586621679051524"><span id="local-6989586621679051526"><span id="local-6989586621679051528"><span id="local-6989586621679051530"><span id="local-6989586621679051532"><span id="local-6989586621679051534"><span id="local-6989586621679051536"><span id="local-6989586621679051538"><span id="local-6989586621679051540"><span id="local-6989586621679051542"><span id="local-6989586621679051544"><span id="local-6989586621679051546"><span id="local-6989586621679051548"><span id="local-6989586621679051550"><span id="local-6989586621679051552"><span id="local-6989586621679051554"><span class="annot"><span class="annottext">NonEmptyMap k a -&gt; Bool
+(a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+(a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+(forall m. Monoid m =&gt; NonEmptyMap k m -&gt; m)
+-&gt; (forall m a. Monoid m =&gt; (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m)
+-&gt; (forall m a. Monoid m =&gt; (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m)
+-&gt; (forall a b. (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b)
+-&gt; (forall a b. (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b)
+-&gt; (forall b a. (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b)
+-&gt; (forall b a. (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b)
+-&gt; (forall a. (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a)
+-&gt; (forall a. (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a)
+-&gt; (forall a. NonEmptyMap k a -&gt; [a])
+-&gt; (forall a. NonEmptyMap k a -&gt; Bool)
+-&gt; (forall a. NonEmptyMap k a -&gt; Int)
+-&gt; (forall a. Eq a =&gt; a -&gt; NonEmptyMap k a -&gt; Bool)
+-&gt; (forall a. Ord a =&gt; NonEmptyMap k a -&gt; a)
+-&gt; (forall a. Ord a =&gt; NonEmptyMap k a -&gt; a)
+-&gt; (forall a. Num a =&gt; NonEmptyMap k a -&gt; a)
+-&gt; (forall a. Num a =&gt; NonEmptyMap k a -&gt; a)
+-&gt; Foldable (NonEmptyMap k)
+forall a. Eq a =&gt; a -&gt; NonEmptyMap k a -&gt; Bool
+forall a. Num a =&gt; NonEmptyMap k a -&gt; a
+forall a. Ord a =&gt; NonEmptyMap k a -&gt; a
+forall m. Monoid m =&gt; NonEmptyMap k m -&gt; m
+forall a. NonEmptyMap k a -&gt; Bool
+forall a. NonEmptyMap k a -&gt; Int
+forall a. NonEmptyMap k a -&gt; [a]
+forall a. (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a
+forall k a. Eq a =&gt; a -&gt; NonEmptyMap k a -&gt; Bool
+forall k a. Num a =&gt; NonEmptyMap k a -&gt; a
+forall k a. Ord a =&gt; NonEmptyMap k a -&gt; a
+forall m a. Monoid m =&gt; (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+forall k m. Monoid m =&gt; NonEmptyMap k m -&gt; m
+forall k a. NonEmptyMap k a -&gt; Bool
+forall k a. NonEmptyMap k a -&gt; Int
+forall k a. NonEmptyMap k a -&gt; [a]
+forall b a. (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+forall a b. (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+forall k a. (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a
+forall k m a. Monoid m =&gt; (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+forall k b a. (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+forall k a b. (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+forall (t :: * -&gt; *).
+(forall m. Monoid m =&gt; t m -&gt; m)
+-&gt; (forall m a. Monoid m =&gt; (a -&gt; m) -&gt; t a -&gt; m)
+-&gt; (forall m a. Monoid m =&gt; (a -&gt; m) -&gt; t a -&gt; m)
+-&gt; (forall a b. (a -&gt; b -&gt; b) -&gt; b -&gt; t a -&gt; b)
+-&gt; (forall a b. (a -&gt; b -&gt; b) -&gt; b -&gt; t a -&gt; b)
+-&gt; (forall b a. (b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b)
+-&gt; (forall b a. (b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b)
+-&gt; (forall a. (a -&gt; a -&gt; a) -&gt; t a -&gt; a)
+-&gt; (forall a. (a -&gt; a -&gt; a) -&gt; t a -&gt; a)
+-&gt; (forall a. t a -&gt; [a])
+-&gt; (forall a. t a -&gt; Bool)
+-&gt; (forall a. t a -&gt; Int)
+-&gt; (forall a. Eq a =&gt; a -&gt; t a -&gt; Bool)
+-&gt; (forall a. Ord a =&gt; t a -&gt; a)
+-&gt; (forall a. Ord a =&gt; t a -&gt; a)
+-&gt; (forall a. Num a =&gt; t a -&gt; a)
+-&gt; (forall a. Num a =&gt; t a -&gt; a)
+-&gt; Foldable t
+product :: NonEmptyMap k a -&gt; a
+$cproduct :: forall k a. Num a =&gt; NonEmptyMap k a -&gt; a
+sum :: NonEmptyMap k a -&gt; a
+$csum :: forall k a. Num a =&gt; NonEmptyMap k a -&gt; a
+minimum :: NonEmptyMap k a -&gt; a
+$cminimum :: forall k a. Ord a =&gt; NonEmptyMap k a -&gt; a
+maximum :: NonEmptyMap k a -&gt; a
+$cmaximum :: forall k a. Ord a =&gt; NonEmptyMap k a -&gt; a
+elem :: a -&gt; NonEmptyMap k a -&gt; Bool
+$celem :: forall k a. Eq a =&gt; a -&gt; NonEmptyMap k a -&gt; Bool
+length :: NonEmptyMap k a -&gt; Int
+$clength :: forall k a. NonEmptyMap k a -&gt; Int
+null :: NonEmptyMap k a -&gt; Bool
+$cnull :: forall k a. NonEmptyMap k a -&gt; Bool
+toList :: NonEmptyMap k a -&gt; [a]
+$ctoList :: forall k a. NonEmptyMap k a -&gt; [a]
+foldl1 :: (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a
+$cfoldl1 :: forall k a. (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a
+foldr1 :: (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a
+$cfoldr1 :: forall k a. (a -&gt; a -&gt; a) -&gt; NonEmptyMap k a -&gt; a
+foldl' :: (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+$cfoldl' :: forall k b a. (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+foldl :: (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+$cfoldl :: forall k b a. (b -&gt; a -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+foldr' :: (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+$cfoldr' :: forall k a b. (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+foldr :: (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+$cfoldr :: forall k a b. (a -&gt; b -&gt; b) -&gt; b -&gt; NonEmptyMap k a -&gt; b
+foldMap' :: (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+$cfoldMap' :: forall k m a. Monoid m =&gt; (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+foldMap :: (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+$cfoldMap :: forall k m a. Monoid m =&gt; (a -&gt; m) -&gt; NonEmptyMap k a -&gt; m
+fold :: NonEmptyMap k m -&gt; m
+$cfold :: forall k m. Monoid m =&gt; NonEmptyMap k m -&gt; m
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Foldable</span></a></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051517"><span id="local-6989586621679051519"><span class="annot"><span class="annottext">a -&gt; NonEmptyMap k b -&gt; NonEmptyMap k a
+(a -&gt; b) -&gt; NonEmptyMap k a -&gt; NonEmptyMap k b
+(forall a b. (a -&gt; b) -&gt; NonEmptyMap k a -&gt; NonEmptyMap k b)
+-&gt; (forall a b. a -&gt; NonEmptyMap k b -&gt; NonEmptyMap k a)
+-&gt; Functor (NonEmptyMap k)
+forall a b. a -&gt; NonEmptyMap k b -&gt; NonEmptyMap k a
+forall a b. (a -&gt; b) -&gt; NonEmptyMap k a -&gt; NonEmptyMap k b
+forall k a b. a -&gt; NonEmptyMap k b -&gt; NonEmptyMap k a
+forall k a b. (a -&gt; b) -&gt; NonEmptyMap k a -&gt; NonEmptyMap k b
+forall (f :: * -&gt; *).
+(forall a b. (a -&gt; b) -&gt; f a -&gt; f b)
+-&gt; (forall a b. a -&gt; f b -&gt; f a) -&gt; Functor f
+&lt;$ :: a -&gt; NonEmptyMap k b -&gt; NonEmptyMap k a
+$c&lt;$ :: forall k a b. a -&gt; NonEmptyMap k b -&gt; NonEmptyMap k a
+fmap :: (a -&gt; b) -&gt; NonEmptyMap k a -&gt; NonEmptyMap k b
+$cfmap :: forall k a b. (a -&gt; b) -&gt; NonEmptyMap k a -&gt; NonEmptyMap k b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Functor</span></a></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. NonEmptyMap k v -&gt; Rep (NonEmptyMap k v) x)
+-&gt; (forall x. Rep (NonEmptyMap k v) x -&gt; NonEmptyMap k v)
+-&gt; Generic (NonEmptyMap k v)
+forall x. Rep (NonEmptyMap k v) x -&gt; NonEmptyMap k v
+forall x. NonEmptyMap k v -&gt; Rep (NonEmptyMap k v) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall k v x. Rep (NonEmptyMap k v) x -&gt; NonEmptyMap k v
+forall k v x. NonEmptyMap k v -&gt; Rep (NonEmptyMap k v) x
+$cto :: forall k v x. Rep (NonEmptyMap k v) x -&gt; NonEmptyMap k v
+$cfrom :: forall k v x. NonEmptyMap k v -&gt; Rep (NonEmptyMap k v) x
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051505"><span id="local-6989586621679051507"><span id="local-6989586621679051509"><span id="local-6989586621679051511"><span class="annot"><span class="annottext">ReadPrec [NonEmptyMap k v]
+ReadPrec (NonEmptyMap k v)
+Int -&gt; ReadS (NonEmptyMap k v)
+ReadS [NonEmptyMap k v]
+(Int -&gt; ReadS (NonEmptyMap k v))
+-&gt; ReadS [NonEmptyMap k v]
+-&gt; ReadPrec (NonEmptyMap k v)
+-&gt; ReadPrec [NonEmptyMap k v]
+-&gt; Read (NonEmptyMap k v)
+forall a.
+(Int -&gt; ReadS a)
+-&gt; ReadS [a] -&gt; ReadPrec a -&gt; ReadPrec [a] -&gt; Read a
+forall k v. (Read k, Read v, Ord k) =&gt; ReadPrec [NonEmptyMap k v]
+forall k v. (Read k, Read v, Ord k) =&gt; ReadPrec (NonEmptyMap k v)
+forall k v.
+(Read k, Read v, Ord k) =&gt;
+Int -&gt; ReadS (NonEmptyMap k v)
+forall k v. (Read k, Read v, Ord k) =&gt; ReadS [NonEmptyMap k v]
+readListPrec :: ReadPrec [NonEmptyMap k v]
+$creadListPrec :: forall k v. (Read k, Read v, Ord k) =&gt; ReadPrec [NonEmptyMap k v]
+readPrec :: ReadPrec (NonEmptyMap k v)
+$creadPrec :: forall k v. (Read k, Read v, Ord k) =&gt; ReadPrec (NonEmptyMap k v)
+readList :: ReadS [NonEmptyMap k v]
+$creadList :: forall k v. (Read k, Read v, Ord k) =&gt; ReadS [NonEmptyMap k v]
+readsPrec :: Int -&gt; ReadS (NonEmptyMap k v)
+$creadsPrec :: forall k v.
+(Read k, Read v, Ord k) =&gt;
+Int -&gt; ReadS (NonEmptyMap k v)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Read</span></a></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051498"><span id="local-6989586621679051500"><span id="local-6989586621679051502"><span class="annot"><span class="annottext">Int -&gt; NonEmptyMap k v -&gt; ShowS
+[NonEmptyMap k v] -&gt; ShowS
+NonEmptyMap k v -&gt; String
+(Int -&gt; NonEmptyMap k v -&gt; ShowS)
+-&gt; (NonEmptyMap k v -&gt; String)
+-&gt; ([NonEmptyMap k v] -&gt; ShowS)
+-&gt; Show (NonEmptyMap k v)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall k v. (Show k, Show v) =&gt; Int -&gt; NonEmptyMap k v -&gt; ShowS
+forall k v. (Show k, Show v) =&gt; [NonEmptyMap k v] -&gt; ShowS
+forall k v. (Show k, Show v) =&gt; NonEmptyMap k v -&gt; String
+showList :: [NonEmptyMap k v] -&gt; ShowS
+$cshowList :: forall k v. (Show k, Show v) =&gt; [NonEmptyMap k v] -&gt; ShowS
+show :: NonEmptyMap k v -&gt; String
+$cshow :: forall k v. (Show k, Show v) =&gt; NonEmptyMap k v -&gt; String
+showsPrec :: Int -&gt; NonEmptyMap k v -&gt; ShowS
+$cshowsPrec :: forall k v. (Show k, Show v) =&gt; Int -&gt; NonEmptyMap k v -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051487"><span id="local-6989586621679051489"><span id="local-6989586621679051491"><span id="local-6989586621679051493"><span class="annot"><span class="annottext">Functor (NonEmptyMap k)
+Foldable (NonEmptyMap k)
+Functor (NonEmptyMap k)
+-&gt; Foldable (NonEmptyMap k)
+-&gt; (forall (f :: * -&gt; *) a b.
+    Applicative f =&gt;
+    (a -&gt; f b) -&gt; NonEmptyMap k a -&gt; f (NonEmptyMap k b))
+-&gt; (forall (f :: * -&gt; *) a.
+    Applicative f =&gt;
+    NonEmptyMap k (f a) -&gt; f (NonEmptyMap k a))
+-&gt; (forall (m :: * -&gt; *) a b.
+    Monad m =&gt;
+    (a -&gt; m b) -&gt; NonEmptyMap k a -&gt; m (NonEmptyMap k b))
+-&gt; (forall (m :: * -&gt; *) a.
+    Monad m =&gt;
+    NonEmptyMap k (m a) -&gt; m (NonEmptyMap k a))
+-&gt; Traversable (NonEmptyMap k)
+(a -&gt; f b) -&gt; NonEmptyMap k a -&gt; f (NonEmptyMap k b)
+forall k. Functor (NonEmptyMap k)
+forall k. Foldable (NonEmptyMap k)
+forall k (m :: * -&gt; *) a.
+Monad m =&gt;
+NonEmptyMap k (m a) -&gt; m (NonEmptyMap k a)
+forall k (f :: * -&gt; *) a.
+Applicative f =&gt;
+NonEmptyMap k (f a) -&gt; f (NonEmptyMap k a)
+forall k (m :: * -&gt; *) a b.
+Monad m =&gt;
+(a -&gt; m b) -&gt; NonEmptyMap k a -&gt; m (NonEmptyMap k b)
+forall k (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; NonEmptyMap k a -&gt; f (NonEmptyMap k b)
+forall (t :: * -&gt; *).
+Functor t
+-&gt; Foldable t
+-&gt; (forall (f :: * -&gt; *) a b.
+    Applicative f =&gt;
+    (a -&gt; f b) -&gt; t a -&gt; f (t b))
+-&gt; (forall (f :: * -&gt; *) a. Applicative f =&gt; t (f a) -&gt; f (t a))
+-&gt; (forall (m :: * -&gt; *) a b.
+    Monad m =&gt;
+    (a -&gt; m b) -&gt; t a -&gt; m (t b))
+-&gt; (forall (m :: * -&gt; *) a. Monad m =&gt; t (m a) -&gt; m (t a))
+-&gt; Traversable t
+forall (m :: * -&gt; *) a.
+Monad m =&gt;
+NonEmptyMap k (m a) -&gt; m (NonEmptyMap k a)
+forall (f :: * -&gt; *) a.
+Applicative f =&gt;
+NonEmptyMap k (f a) -&gt; f (NonEmptyMap k a)
+forall (m :: * -&gt; *) a b.
+Monad m =&gt;
+(a -&gt; m b) -&gt; NonEmptyMap k a -&gt; m (NonEmptyMap k b)
+forall (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; NonEmptyMap k a -&gt; f (NonEmptyMap k b)
+sequence :: NonEmptyMap k (m a) -&gt; m (NonEmptyMap k a)
+$csequence :: forall k (m :: * -&gt; *) a.
+Monad m =&gt;
+NonEmptyMap k (m a) -&gt; m (NonEmptyMap k a)
+mapM :: (a -&gt; m b) -&gt; NonEmptyMap k a -&gt; m (NonEmptyMap k b)
+$cmapM :: forall k (m :: * -&gt; *) a b.
+Monad m =&gt;
+(a -&gt; m b) -&gt; NonEmptyMap k a -&gt; m (NonEmptyMap k b)
+sequenceA :: NonEmptyMap k (f a) -&gt; f (NonEmptyMap k a)
+$csequenceA :: forall k (f :: * -&gt; *) a.
+Applicative f =&gt;
+NonEmptyMap k (f a) -&gt; f (NonEmptyMap k a)
+traverse :: (a -&gt; f b) -&gt; NonEmptyMap k a -&gt; f (NonEmptyMap k b)
+$ctraverse :: forall k (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; NonEmptyMap k a -&gt; f (NonEmptyMap k b)
+$cp2Traversable :: forall k. Foldable (NonEmptyMap k)
+$cp1Traversable :: forall k. Functor (NonEmptyMap k)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Traversable</span></a></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span id="local-6989586621679051484"><span id="local-6989586621679051485"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679051482"><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-type">NFData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051485"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-type">NFData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051484"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-type">NFData</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051485"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051484"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-94"></span><span id="local-6989586621679051479"><span id="local-6989586621679051480"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679051476"><span class="hs-special">(</span><span class="annot"><a href="../../../../hashable/html/src"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051480"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../hashable/html/src"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051479"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../hashable/html/src"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051480"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051479"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-95"></span><span>    </span><span id="local-6989586621679051474"><span class="annot"><span class="annottext">hashWithSalt :: Int -&gt; NonEmptyMap k v -&gt; Int
+</span><a href="../../../../hashable/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashWithSalt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(NonEmptyMap k v -&gt; NonEmpty (k, v))
+-&gt; Int -&gt; NonEmptyMap k v -&gt; Int
+forall b a. Hashable b =&gt; (a -&gt; b) -&gt; Int -&gt; a -&gt; Int
+</span><a href="../../../../hashable/html/src"><span class="hs-identifier hs-var">hashUsing</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; NonEmpty (k, v)
+forall k v. NonEmptyMap k v -&gt; NonEmpty (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toList"><span class="hs-identifier hs-var">toList</span></a></span></span></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- | Builds a non-empty map from a list of key-value pairs.</span><span>
+</span><span id="line-98"></span><span class="hs-comment">--</span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- If the list contains more than one value for the same key, the last value</span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- for the key is retained.</span><span>
+</span><span id="line-101"></span><span class="hs-comment">--</span><span>
+</span><span id="line-102"></span><span id="local-6989586621679051471"><span id="local-6989586621679051472"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromList"><span class="hs-identifier hs-type">fromList</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051472"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">NonEmpty</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679051472"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679051471"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051472"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051471"><span class="hs-identifier hs-type">v</span></a></span></span></span><span>
+</span><span id="line-103"></span><span id="fromList"><span class="annot"><span class="annottext">fromList :: NonEmpty (k, v) -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromList"><span class="hs-identifier hs-var hs-var">fromList</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679051470"><span class="annot"><span class="annottext">(k, v)
+</span><a href="#local-6989586621679051470"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-type">:|</span></a></span><span> </span><span id="local-6989586621679051468"><span class="annot"><span class="annottext">[(k, v)]
+</span><a href="#local-6989586621679051468"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-104"></span><span>    </span><span class="annot"><span class="annottext">(NonEmptyMap k v -&gt; (k, v) -&gt; NonEmptyMap k v)
+-&gt; NonEmptyMap k v -&gt; [(k, v)] -&gt; NonEmptyMap k v
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">F.foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679051466"><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051466"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679051465"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051465"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051464"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051464"><span class="hs-identifier hs-var">v</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">k -&gt; v -&gt; NonEmptyMap k v -&gt; NonEmptyMap k v
+forall k v. Ord k =&gt; k -&gt; v -&gt; NonEmptyMap k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#insert"><span class="hs-identifier hs-var">insert</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051465"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051464"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051466"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(k -&gt; v -&gt; NonEmptyMap k v) -&gt; (k, v) -&gt; NonEmptyMap k v
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; v -&gt; NonEmptyMap k v
+forall k v. Ord k =&gt; k -&gt; v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#singleton"><span class="hs-identifier hs-var">singleton</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v)
+</span><a href="#local-6989586621679051470"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(k, v)]
+</span><a href="#local-6989586621679051468"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span class="hs-comment">-- | Builds a non-empty map from the given map.</span><span>
+</span><span id="line-107"></span><span class="hs-comment">--</span><span>
+</span><span id="line-108"></span><span class="hs-comment">-- If the given map is empty, this function returns 'Nothing'.</span><span>
+</span><span id="line-109"></span><span class="hs-comment">--</span><span>
+</span><span id="line-110"></span><span id="local-6989586621679051601"><span id="local-6989586621679051602"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromMap"><span class="hs-identifier hs-type">fromMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051602"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051601"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051602"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051601"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-111"></span><span id="fromMap"><span class="annot"><span class="annottext">fromMap :: Map k v -&gt; Maybe (NonEmptyMap k v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromMap"><span class="hs-identifier hs-var hs-var">fromMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(((k, v), Map k v) -&gt; NonEmptyMap k v)
+-&gt; Maybe ((k, v), Map k v) -&gt; Maybe (NonEmptyMap k v)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">((k, v) -&gt; Map k v -&gt; NonEmptyMap k v)
+-&gt; ((k, v), Map k v) -&gt; NonEmptyMap k v
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Maybe ((k, v), Map k v) -&gt; Maybe (NonEmptyMap k v))
+-&gt; (Map k v -&gt; Maybe ((k, v), Map k v))
+-&gt; Map k v
+-&gt; Maybe (NonEmptyMap k v)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v -&gt; Maybe ((k, v), Map k v)
+forall k a. Map k a -&gt; Maybe ((k, a), Map k a)
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.minViewWithKey</span></a></span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span class="hs-comment">-- | Converts a non-empty map to a list of key-value pairs.</span><span>
+</span><span id="line-114"></span><span class="hs-comment">--</span><span>
+</span><span id="line-115"></span><span id="local-6989586621679051637"><span id="local-6989586621679051638"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toList"><span class="hs-identifier hs-type">toList</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051638"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051637"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">NonEmpty</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679051638"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679051637"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-116"></span><span id="toList"><span class="annot"><span class="annottext">toList :: NonEmptyMap k v -&gt; NonEmpty (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toList"><span class="hs-identifier hs-var hs-var">toList</span></a></span></span><span> </span><span id="local-6989586621679051460"><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051460"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; (k, v)
+forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051460"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; [(k, v)] -&gt; NonEmpty (k, v)
+forall a. a -&gt; [a] -&gt; NonEmpty a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">:|</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v -&gt; [(k, v)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.toList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; Map k v
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051460"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- | Converts a non-empty map to an ordinary map.</span><span>
+</span><span id="line-119"></span><span class="hs-comment">--</span><span>
+</span><span id="line-120"></span><span id="local-6989586621679051457"><span id="local-6989586621679051458"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toMap"><span class="hs-identifier hs-type">toMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051458"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051458"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051457"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051458"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051457"><span class="hs-identifier hs-type">v</span></a></span></span></span><span>
+</span><span id="line-121"></span><span id="toMap"><span class="annot"><span class="annottext">toMap :: NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#toMap"><span class="hs-identifier hs-var hs-var">toMap</span></a></span></span><span> </span><span id="local-6989586621679051456"><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051456"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(k -&gt; v -&gt; Map k v -&gt; Map k v) -&gt; (k, v) -&gt; Map k v -&gt; Map k v
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; v -&gt; Map k v -&gt; Map k v
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.insert</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; (k, v)
+forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051456"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; Map k v
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051456"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>
+</span><span id="line-123"></span><span class="hs-comment">-- | Inserts a new key and value in the map.</span><span>
+</span><span id="line-124"></span><span class="hs-comment">--</span><span>
+</span><span id="line-125"></span><span class="hs-comment">-- If the key is already present in the map, the associated value is replaced</span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- with the supplied value.</span><span>
+</span><span id="line-127"></span><span class="hs-comment">--</span><span>
+</span><span id="line-128"></span><span id="local-6989586621679051633"><span id="local-6989586621679051634"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#insert"><span class="hs-identifier hs-type">insert</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051634"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051634"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051633"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051634"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051633"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051634"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051633"><span class="hs-identifier hs-type">v</span></a></span></span></span><span>
+</span><span id="line-129"></span><span id="insert"><span class="annot"><span class="annottext">insert :: k -&gt; v -&gt; NonEmptyMap k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#insert"><span class="hs-identifier hs-var hs-var">insert</span></a></span></span><span> </span><span id="local-6989586621679051454"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051454"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679051453"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051453"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span id="local-6989586621679051452"><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span></span><span>
+</span><span id="line-130"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051454"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; k
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; (k, v)
+forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-131"></span><span>        </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051454"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051453"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(k -&gt; v -&gt; Map k v -&gt; Map k v) -&gt; (k, v) -&gt; Map k v -&gt; Map k v
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">uncurry</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; v -&gt; Map k v -&gt; Map k v
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.insert</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; (k, v)
+forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; Map k v
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051454"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; k
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; (k, v)
+forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-133"></span><span>        </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051454"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051453"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; Map k v
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-134"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-135"></span><span>        </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-special">{</span><span class="annot"><span class="annottext">rest :: Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">k -&gt; v -&gt; Map k v -&gt; Map k v
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.insert</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051454"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051453"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k v -&gt; Map k v
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k v
+</span><a href="#local-6989586621679051452"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span class="hs-special">}</span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- | Deletes a key and its value from the map.</span><span>
+</span><span id="line-138"></span><span class="hs-comment">--</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- When the key is not a member of the map, the original map is returned.</span><span>
+</span><span id="line-140"></span><span class="hs-comment">--</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- This function returns 'Nothing' if the delete operation reduces the number</span><span>
+</span><span id="line-142"></span><span class="hs-comment">-- of elements to zero.</span><span>
+</span><span id="line-143"></span><span class="hs-comment">--</span><span>
+</span><span id="line-144"></span><span id="local-6989586621679051449"><span id="local-6989586621679051450"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#delete"><span class="hs-identifier hs-type">delete</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051450"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051450"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051450"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051449"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051450"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051449"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-145"></span><span id="delete"><span class="annot"><span class="annottext">delete :: k -&gt; NonEmptyMap k a -&gt; Maybe (NonEmptyMap k a)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#delete"><span class="hs-identifier hs-var hs-var">delete</span></a></span></span><span> </span><span id="local-6989586621679051448"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051448"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679051447"><span class="annot"><span class="annottext">NonEmptyMap k a
+</span><a href="#local-6989586621679051447"><span class="hs-identifier hs-var">m</span></a></span></span><span>
+</span><span id="line-146"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051448"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">(k, a) -&gt; k
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmptyMap k a -&gt; (k, a)
+forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#least"><span class="hs-identifier hs-var hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a
+</span><a href="#local-6989586621679051447"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map k a -&gt; Maybe (NonEmptyMap k a)
+forall k v. Map k v -&gt; Maybe (NonEmptyMap k v)
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#fromMap"><span class="hs-identifier hs-var">fromMap</span></a></span><span> </span><span class="annot"><span class="annottext">(Map k a -&gt; Maybe (NonEmptyMap k a))
+-&gt; Map k a -&gt; Maybe (NonEmptyMap k a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a -&gt; Map k a
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a
+</span><a href="#local-6989586621679051447"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-147"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a -&gt; Maybe (NonEmptyMap k a)
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a
+</span><a href="#local-6989586621679051447"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">rest :: Map k a
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">k -&gt; Map k a -&gt; Map k a
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.delete</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051448"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">(Map k a -&gt; Map k a) -&gt; Map k a -&gt; Map k a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a -&gt; Map k a
+forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#rest"><span class="hs-identifier hs-var hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">NonEmptyMap k a
+</span><a href="#local-6989586621679051447"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-148"></span><span>
+</span><span id="line-149"></span><span class="hs-comment">-- | Looks up the value of a key in the map.</span><span>
+</span><span id="line-150"></span><span class="hs-comment">--</span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- This function will return the corresponding value as '(Just value)',</span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- or 'Nothing' if the key isn't in the map.</span><span>
+</span><span id="line-153"></span><span class="hs-comment">--</span><span>
+</span><span id="line-154"></span><span id="local-6989586621679051444"><span id="local-6989586621679051445"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#lookup"><span class="hs-identifier hs-type">lookup</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051445"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051445"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051445"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051444"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051444"><span class="hs-identifier hs-type">v</span></a></span></span></span><span>
+</span><span id="line-155"></span><span id="lookup"><span class="annot"><span class="annottext">lookup :: k -&gt; NonEmptyMap k v -&gt; Maybe v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#lookup"><span class="hs-identifier hs-var hs-var">lookup</span></a></span></span><span> </span><span id="local-6989586621679051443"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051443"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679051442"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051442"><span class="hs-identifier hs-var">k1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051441"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051441"><span class="hs-identifier hs-var">v1</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679051440"><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051440"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-156"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051443"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051442"><span class="hs-identifier hs-var">k1</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">v -&gt; Maybe v
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051441"><span class="hs-identifier hs-var">v1</span></a></span><span>
+</span><span id="line-157"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">k -&gt; Map k v -&gt; Maybe v
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.lookup</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051443"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051440"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- | Creates a map with a single element.</span><span>
+</span><span id="line-160"></span><span class="hs-comment">--</span><span>
+</span><span id="line-161"></span><span id="local-6989586621679051628"><span id="local-6989586621679051629"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#singleton"><span class="hs-identifier hs-type">singleton</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051629"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051629"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051628"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051629"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051628"><span class="hs-identifier hs-type">v</span></a></span></span></span><span>
+</span><span id="line-162"></span><span id="singleton"><span class="annot"><span class="annottext">singleton :: k -&gt; v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#singleton"><span class="hs-identifier hs-var hs-var">singleton</span></a></span></span><span> </span><span id="local-6989586621679051438"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051438"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679051437"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051437"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051438"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051437"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map k v
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-163"></span><span>
+</span><span id="line-164"></span><span class="hs-comment">-- | Finds the union of two maps, with the given combining function.</span><span>
+</span><span id="line-165"></span><span class="hs-comment">--</span><span>
+</span><span id="line-166"></span><span id="local-6989586621679051435"><span id="local-6989586621679051436"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#unionWith"><span class="hs-identifier hs-type">unionWith</span></a></span><span>
+</span><span id="line-167"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051436"><span class="hs-identifier hs-type">k</span></a></span><span>
+</span><span id="line-168"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679051435"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051435"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679051435"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-169"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051436"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051435"><span class="hs-identifier hs-type">v</span></a></span><span>
+</span><span id="line-170"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051436"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051435"><span class="hs-identifier hs-type">v</span></a></span><span>
+</span><span id="line-171"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051436"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051435"><span class="hs-identifier hs-type">v</span></a></span></span></span><span>
+</span><span id="line-172"></span><span id="unionWith"><span class="annot"><span class="annottext">unionWith :: (v -&gt; v -&gt; v)
+-&gt; NonEmptyMap k v -&gt; NonEmptyMap k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#unionWith"><span class="hs-identifier hs-var hs-var">unionWith</span></a></span></span><span> </span><span id="local-6989586621679051434"><span class="annot"><span class="annottext">v -&gt; v -&gt; v
+</span><a href="#local-6989586621679051434"><span class="hs-identifier hs-var">combine</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679051433"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051433"><span class="hs-identifier hs-var">k1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051432"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051432"><span class="hs-identifier hs-var">v1</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679051431"><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051431"><span class="hs-identifier hs-var">r1</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679051430"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051430"><span class="hs-identifier hs-var">k2</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051429"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051429"><span class="hs-identifier hs-var">v2</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679051428"><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051428"><span class="hs-identifier hs-var">r2</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051433"><span class="hs-identifier hs-var">k1</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051430"><span class="hs-identifier hs-var">k2</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-174"></span><span>        </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051433"><span class="hs-identifier hs-var">k1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051432"><span class="hs-identifier hs-var">v1</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(v -&gt; v -&gt; v) -&gt; k -&gt; v -&gt; Map k v -&gt; Map k v
+forall k a. Ord k =&gt; (a -&gt; a -&gt; a) -&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.insertWith</span></a></span><span> </span><span class="annot"><span class="annottext">v -&gt; v -&gt; v
+</span><a href="#local-6989586621679051434"><span class="hs-identifier hs-var">combine</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051430"><span class="hs-identifier hs-var">k2</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051429"><span class="hs-identifier hs-var">v2</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051426"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-175"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051433"><span class="hs-identifier hs-var">k1</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051430"><span class="hs-identifier hs-var">k2</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-176"></span><span>        </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051430"><span class="hs-identifier hs-var">k2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051429"><span class="hs-identifier hs-var">v2</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(v -&gt; v -&gt; v) -&gt; k -&gt; v -&gt; Map k v -&gt; Map k v
+forall k a. Ord k =&gt; (a -&gt; a -&gt; a) -&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.insertWith</span></a></span><span> </span><span class="annot"><span class="annottext">v -&gt; v -&gt; v
+</span><a href="#local-6989586621679051434"><span class="hs-identifier hs-var">combine</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051433"><span class="hs-identifier hs-var">k1</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051432"><span class="hs-identifier hs-var">v1</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051426"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-177"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-178"></span><span>        </span><span class="annot"><span class="annottext">(k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+forall k v. (k, v) -&gt; Map k v -&gt; NonEmptyMap k v
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-var">NonEmptyMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679051433"><span class="hs-identifier hs-var">k1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v -&gt; v -&gt; v
+</span><a href="#local-6989586621679051434"><span class="hs-identifier hs-var">combine</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051432"><span class="hs-identifier hs-var">v1</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679051429"><span class="hs-identifier hs-var">v2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051426"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-179"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-180"></span><span>    </span><span id="local-6989586621679051426"><span class="annot"><span class="annottext">r :: Map k v
+</span><a href="#local-6989586621679051426"><span class="hs-identifier hs-var hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(v -&gt; v -&gt; v) -&gt; Map k v -&gt; Map k v -&gt; Map k v
+forall k a. Ord k =&gt; (a -&gt; a -&gt; a) -&gt; Map k a -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.unionWith</span></a></span><span> </span><span class="annot"><span class="annottext">v -&gt; v -&gt; v
+</span><a href="#local-6989586621679051434"><span class="hs-identifier hs-var">combine</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051431"><span class="hs-identifier hs-var">r1</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051428"><span class="hs-identifier hs-var">r2</span></a></span><span>
+</span><span id="line-181"></span><span>
+</span><span id="line-182"></span><span class="hs-comment">--------------------------------------------------------------------------------</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- Internal functions</span><span>
+</span><span id="line-184"></span><span class="hs-comment">--------------------------------------------------------------------------------</span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span class="hs-comment">-- | Returns true if and only if the invariant holds for the given map.</span><span>
+</span><span id="line-187"></span><span class="hs-comment">--</span><span>
+</span><span id="line-188"></span><span id="local-6989586621679051422"><span id="local-6989586621679051423"><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#invariantHolds"><span class="hs-identifier hs-type">invariantHolds</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051423"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051423"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679051422"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span></span></span><span>
+</span><span id="line-189"></span><span id="invariantHolds"><span class="annot"><span class="annottext">invariantHolds :: NonEmptyMap k v -&gt; Bool
+</span><a href="Data.Map.Strict.NonEmptyMap.Internal.html#invariantHolds"><span class="hs-identifier hs-var hs-var">invariantHolds</span></a></span></span><span> </span><span class="annot"><a href="Data.Map.Strict.NonEmptyMap.Internal.html#NonEmptyMap"><span class="hs-identifier hs-type">NonEmptyMap</span></a></span><span> </span><span class="hs-special">{</span><span id="local-6989586621679051421"><span class="annot"><span class="annottext">(k, v)
+least :: (k, v)
+least :: forall k v. NonEmptyMap k v -&gt; (k, v)
+</span><a href="#local-6989586621679051421"><span class="hs-identifier hs-var hs-var">least</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679051420"><span class="annot"><span class="annottext">Map k v
+rest :: Map k v
+rest :: forall k v. NonEmptyMap k v -&gt; Map k v
+</span><a href="#local-6989586621679051420"><span class="hs-identifier hs-var hs-var">rest</span></a></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-190"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Map k v -&gt; Maybe (k, v)
+forall k a. Map k a -&gt; Maybe (k, a)
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.lookupMin</span></a></span><span> </span><span class="annot"><span class="annottext">Map k v
+</span><a href="#local-6989586621679051420"><span class="hs-identifier hs-var">rest</span></a></span><span>  </span><span class="hs-keyword">of</span><span>
+</span><span id="line-191"></span><span>        </span><span class="annot"><span class="annottext">Maybe (k, v)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-192"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-193"></span><span>        </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679051418"><span class="annot"><span class="annottext">(k, v)
+</span><a href="#local-6989586621679051418"><span class="hs-identifier hs-var">nextSmallest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-194"></span><span>            </span><span class="annot"><span class="annottext">(k, v) -&gt; k
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v)
+</span><a href="#local-6989586621679051421"><span class="hs-identifier hs-var">least</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; k
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span> </span><span class="annot"><span class="annottext">(k, v)
+</span><a href="#local-6989586621679051418"><span class="hs-identifier hs-var">nextSmallest</span></a></span><span>
+</span><span id="line-195"></span></pre></body></html>

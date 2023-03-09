@@ -1,0 +1,860 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE BangPatterns, Rank2Types #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE GADTs #-}</span><span>
+</span><span id="line-3"></span><span class="hs-comment">{- |
+
+Helper functions to run genetic algorithms and control iterations.
+
+-}</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Moo.GeneticAlgorithm.Run</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-10"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Running algorithm</span></span><span>
+</span><span id="line-11"></span><span>    </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#runGA"><span class="hs-identifier">runGA</span></a></span><span>
+</span><span id="line-12"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#runIO"><span class="hs-identifier">runIO</span></a></span><span>
+</span><span id="line-13"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#nextGeneration"><span class="hs-identifier">nextGeneration</span></a></span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#nextSteadyState"><span class="hs-identifier">nextSteadyState</span></a></span><span>
+</span><span id="line-15"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#makeStoppable"><span class="hs-identifier">makeStoppable</span></a></span><span>
+</span><span id="line-16"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Iteration control</span></span><span>
+</span><span id="line-17"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loop"><span class="hs-identifier">loop</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loopWithLog"><span class="hs-identifier">loopWithLog</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loopIO"><span class="hs-identifier">loopIO</span></a></span><span>
+</span><span id="line-18"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Cond"><span class="hs-identifier">Cond</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#LogHook"><span class="hs-identifier">LogHook</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#IOHook"><span class="hs-identifier">IOHook</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Random</span></a></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Selection</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Selection.html#bestFirst"><span class="hs-identifier">bestFirst</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Types</span></a></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.StopCondition.html"><span class="hs-identifier">Moo.GeneticAlgorithm.StopCondition</span></a></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Utilities.html"><span class="hs-identifier">Moo.GeneticAlgorithm.Utilities</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Utilities.html#doCrossovers"><span class="hs-identifier">doCrossovers</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Utilities.html#doNCrossovers"><span class="hs-identifier">doNCrossovers</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Monoid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Monoid</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">mempty</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">mappend</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">Data.Time.Clock.POSIX</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../time/html/src"><span class="hs-identifier">getPOSIXTime</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.IORef</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">IORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">newIORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">readIORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">writeIORef</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">liftM</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">when</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- | Helper function to run the entire algorithm in the 'Rand' monad.</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- It takes care of generating a new random number generator.</span><span>
+</span><span id="line-34"></span><span id="local-6989586621679068516"><span id="local-6989586621679068517"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#runGA"><span class="hs-identifier hs-type">runGA</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068517"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>             </span><span class="hs-comment">-- ^ function to create initial population</span><span>
+</span><span id="line-35"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068517"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068516"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>       </span><span class="hs-comment">-- ^ genetic algorithm, see also 'loop' and 'loopWithLog'</span><span>
+</span><span id="line-36"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068516"><span class="hs-identifier hs-type">b</span></a></span><span>                        </span><span class="hs-comment">-- ^ final population</span></span></span><span>
+</span><span id="line-37"></span><span id="runGA"><span class="annot"><span class="annottext">runGA :: Rand [Genome a] -&gt; ([Genome a] -&gt; Rand b) -&gt; IO b
+</span><a href="Moo.GeneticAlgorithm.Run.html#runGA"><span class="hs-identifier hs-var hs-var">runGA</span></a></span></span><span> </span><span id="local-6989586621679068515"><span class="annot"><span class="annottext">Rand [Genome a]
+</span><a href="#local-6989586621679068515"><span class="hs-identifier hs-var">initialize</span></a></span></span><span> </span><span id="local-6989586621679068514"><span class="annot"><span class="annottext">[Genome a] -&gt; Rand b
+</span><a href="#local-6989586621679068514"><span class="hs-identifier hs-var">ga</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-38"></span><span>  </span><span id="local-6989586621679068513"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068513"><span class="hs-identifier hs-var">rng</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO PureMT
+</span><a href="../../../../mersenne-random-pure64/html/src"><span class="hs-identifier hs-var">newPureMT</span></a></span><span>
+</span><span id="line-39"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679068511"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068511"><span class="hs-identifier hs-var">genomes0</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679068510"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068510"><span class="hs-identifier hs-var">rng'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rand [Genome a] -&gt; PureMT -&gt; ([Genome a], PureMT)
+forall g a. Rand g a -&gt; g -&gt; (a, g)
+</span><a href="../../../../MonadRandom/html/src"><span class="hs-identifier hs-var">runRand</span></a></span><span> </span><span class="annot"><span class="annottext">Rand [Genome a]
+</span><a href="#local-6989586621679068515"><span class="hs-identifier hs-var">initialize</span></a></span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068513"><span class="hs-identifier hs-var">rng</span></a></span><span>
+</span><span id="line-40"></span><span>  </span><span class="annot"><span class="annottext">b -&gt; IO b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(b -&gt; IO b) -&gt; b -&gt; IO b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Rand b -&gt; PureMT -&gt; b
+forall g a. Rand g a -&gt; g -&gt; a
+</span><a href="../../../../MonadRandom/html/src"><span class="hs-identifier hs-var">evalRand</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Genome a] -&gt; Rand b
+</span><a href="#local-6989586621679068514"><span class="hs-identifier hs-var">ga</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068511"><span class="hs-identifier hs-var">genomes0</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068510"><span class="hs-identifier hs-var">rng'</span></a></span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- | Helper function to run the entire algorithm in the 'IO' monad.</span><span>
+</span><span id="line-43"></span><span id="local-6989586621679068507"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#runIO"><span class="hs-identifier hs-type">runIO</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068507"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>                  </span><span class="hs-comment">-- ^ function to create initial population</span><span>
+</span><span id="line-44"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IORef</span></a></span><span> </span><span class="annot"><a href="../../../../mersenne-random-pure64/html/src"><span class="hs-identifier hs-type">PureMT</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068507"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068507"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-45"></span><span>                                          </span><span class="hs-comment">-- ^ genetic algorithm, see also 'loopIO'</span><span>
+</span><span id="line-46"></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068507"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>                </span><span class="hs-comment">-- ^ final population</span></span><span>
+</span><span id="line-47"></span><span id="runIO"><span class="annot"><span class="annottext">runIO :: Rand [Genome a]
+-&gt; (IORef PureMT -&gt; [Genome a] -&gt; IO (Population a))
+-&gt; IO (Population a)
+</span><a href="Moo.GeneticAlgorithm.Run.html#runIO"><span class="hs-identifier hs-var hs-var">runIO</span></a></span></span><span> </span><span id="local-6989586621679068506"><span class="annot"><span class="annottext">Rand [Genome a]
+</span><a href="#local-6989586621679068506"><span class="hs-identifier hs-var">initialize</span></a></span></span><span> </span><span id="local-6989586621679068505"><span class="annot"><span class="annottext">IORef PureMT -&gt; [Genome a] -&gt; IO (Population a)
+</span><a href="#local-6989586621679068505"><span class="hs-identifier hs-var">gaIO</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-48"></span><span>  </span><span id="local-6989586621679068504"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068504"><span class="hs-identifier hs-var">rng</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO PureMT
+</span><a href="../../../../mersenne-random-pure64/html/src"><span class="hs-identifier hs-var">newPureMT</span></a></span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679068503"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068503"><span class="hs-identifier hs-var">genomes0</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679068502"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068502"><span class="hs-identifier hs-var">rng'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rand [Genome a] -&gt; PureMT -&gt; ([Genome a], PureMT)
+forall g a. Rand g a -&gt; g -&gt; (a, g)
+</span><a href="../../../../MonadRandom/html/src"><span class="hs-identifier hs-var">runRand</span></a></span><span> </span><span class="annot"><span class="annottext">Rand [Genome a]
+</span><a href="#local-6989586621679068506"><span class="hs-identifier hs-var">initialize</span></a></span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068504"><span class="hs-identifier hs-var">rng</span></a></span><span>
+</span><span id="line-50"></span><span>  </span><span id="local-6989586621679068501"><span class="annot"><span class="annottext">IORef PureMT
+</span><a href="#local-6989586621679068501"><span class="hs-identifier hs-var">rngref</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">PureMT -&gt; IO (IORef PureMT)
+forall a. a -&gt; IO (IORef a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">newIORef</span></a></span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068502"><span class="hs-identifier hs-var">rng'</span></a></span><span>
+</span><span id="line-51"></span><span>  </span><span class="annot"><span class="annottext">IORef PureMT -&gt; [Genome a] -&gt; IO (Population a)
+</span><a href="#local-6989586621679068505"><span class="hs-identifier hs-var">gaIO</span></a></span><span> </span><span class="annot"><span class="annottext">IORef PureMT
+</span><a href="#local-6989586621679068501"><span class="hs-identifier hs-var">rngref</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068503"><span class="hs-identifier hs-var">genomes0</span></a></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- | Construct a single step of the genetic algorithm.</span><span>
+</span><span id="line-54"></span><span class="hs-comment">--</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- See &quot;Moo.GeneticAlgorithm.Binary&quot; and &quot;Moo.GeneticAlgorithm.Continuous&quot;</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- for the building blocks of the algorithm.</span><span>
+</span><span id="line-57"></span><span class="hs-comment">--</span><span>
+</span><span id="line-58"></span><span id="local-6989586621679068499"><span id="local-6989586621679068500"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#nextGeneration"><span class="hs-identifier hs-type">nextGeneration</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ObjectiveFunction"><span class="hs-identifier hs-type">ObjectiveFunction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068500"><span class="hs-identifier hs-type">objectivefn</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068499"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ProblemType"><span class="hs-identifier hs-type">ProblemType</span></a></span><span>          </span><span class="hs-comment">-- ^ a type of the optimization @problem@</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068500"><span class="hs-identifier hs-type">objectivefn</span></a></span><span>          </span><span class="hs-comment">-- ^ objective function</span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#SelectionOp"><span class="hs-identifier hs-type">SelectionOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068499"><span class="hs-identifier hs-type">a</span></a></span><span>        </span><span class="hs-comment">-- ^ selection operator</span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>                  </span><span class="hs-comment">-- ^ @elite@, the number of genomes to keep intact</span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#CrossoverOp"><span class="hs-identifier hs-type">CrossoverOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068499"><span class="hs-identifier hs-type">a</span></a></span><span>        </span><span class="hs-comment">-- ^ crossover operator</span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#MutationOp"><span class="hs-identifier hs-type">MutationOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068499"><span class="hs-identifier hs-type">a</span></a></span><span>         </span><span class="hs-comment">-- ^ mutation operator</span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StepGA"><span class="hs-identifier hs-type">StepGA</span></a></span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068499"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-67"></span><span id="nextGeneration"><span class="annot"><span class="annottext">nextGeneration :: ProblemType
+-&gt; objectivefn
+-&gt; SelectionOp a
+-&gt; Int
+-&gt; CrossoverOp a
+-&gt; MutationOp a
+-&gt; StepGA Rand a
+</span><a href="Moo.GeneticAlgorithm.Run.html#nextGeneration"><span class="hs-identifier hs-var hs-var">nextGeneration</span></a></span></span><span> </span><span id="local-6989586621679068498"><span class="annot"><span class="annottext">ProblemType
+</span><a href="#local-6989586621679068498"><span class="hs-identifier hs-var">problem</span></a></span></span><span> </span><span id="local-6989586621679068497"><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068497"><span class="hs-identifier hs-var">objective</span></a></span></span><span> </span><span id="local-6989586621679068496"><span class="annot"><span class="annottext">SelectionOp a
+</span><a href="#local-6989586621679068496"><span class="hs-identifier hs-var">selectOp</span></a></span></span><span> </span><span id="local-6989586621679068495"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068495"><span class="hs-identifier hs-var">elite</span></a></span></span><span> </span><span id="local-6989586621679068494"><span class="annot"><span class="annottext">CrossoverOp a
+</span><a href="#local-6989586621679068494"><span class="hs-identifier hs-var">xoverOp</span></a></span></span><span> </span><span id="local-6989586621679068493"><span class="annot"><span class="annottext">MutationOp a
+</span><a href="#local-6989586621679068493"><span class="hs-identifier hs-var">mutationOp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-68"></span><span>  </span><span class="annot"><span class="annottext">objectivefn -&gt; SelectionOp a -&gt; StepGA Rand a
+forall objectivefn a (m :: * -&gt; *).
+(ObjectiveFunction objectivefn a, Monad m) =&gt;
+objectivefn -&gt; (Population a -&gt; m (Population a)) -&gt; StepGA m a
+</span><a href="Moo.GeneticAlgorithm.Run.html#makeStoppable"><span class="hs-identifier hs-var">makeStoppable</span></a></span><span> </span><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068497"><span class="hs-identifier hs-var">objective</span></a></span><span> </span><span class="annot"><span class="annottext">(SelectionOp a -&gt; StepGA Rand a) -&gt; SelectionOp a -&gt; StepGA Rand a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679068492"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068492"><span class="hs-identifier hs-var">pop</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-69"></span><span>    </span><span id="local-6989586621679068491"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068491"><span class="hs-identifier hs-var">genomes'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Population a -&gt; [Genome a])
+-&gt; RandT PureMT Identity (Population a)
+-&gt; RandT PureMT Identity [Genome a]
+forall (m :: * -&gt; *) a1 r. Monad m =&gt; (a1 -&gt; r) -&gt; m a1 -&gt; m r
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Phenotype a -&gt; Genome a) -&gt; Population a -&gt; [Genome a]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Phenotype a -&gt; Genome a
+forall gt a. GenomeState gt a =&gt; gt -&gt; Genome a
+</span><a href="Moo.GeneticAlgorithm.Types.html#takeGenome"><span class="hs-identifier hs-var">takeGenome</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(RandT PureMT Identity (Population a)
+ -&gt; RandT PureMT Identity [Genome a])
+-&gt; RandT PureMT Identity (Population a)
+-&gt; RandT PureMT Identity [Genome a]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ProblemType -&gt; Int -&gt; SelectionOp a -&gt; SelectionOp a
+forall a. ProblemType -&gt; Int -&gt; SelectionOp a -&gt; SelectionOp a
+</span><a href="Moo.GeneticAlgorithm.Run.html#withElite"><span class="hs-identifier hs-var">withElite</span></a></span><span> </span><span class="annot"><span class="annottext">ProblemType
+</span><a href="#local-6989586621679068498"><span class="hs-identifier hs-var">problem</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068495"><span class="hs-identifier hs-var">elite</span></a></span><span> </span><span class="annot"><span class="annottext">SelectionOp a
+</span><a href="#local-6989586621679068496"><span class="hs-identifier hs-var">selectOp</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068492"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068488"><span class="annot"><span class="annottext">top :: [Genome a]
+</span><a href="#local-6989586621679068488"><span class="hs-identifier hs-var hs-var">top</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Genome a] -&gt; [Genome a]
+forall a. Int -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">take</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068495"><span class="hs-identifier hs-var">elite</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068491"><span class="hs-identifier hs-var">genomes'</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068486"><span class="annot"><span class="annottext">rest :: [Genome a]
+</span><a href="#local-6989586621679068486"><span class="hs-identifier hs-var hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Genome a] -&gt; [Genome a]
+forall a. Int -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">drop</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068495"><span class="hs-identifier hs-var">elite</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068491"><span class="hs-identifier hs-var">genomes'</span></a></span><span>
+</span><span id="line-72"></span><span>    </span><span id="local-6989586621679068484"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068484"><span class="hs-identifier hs-var">genomes'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Genome a] -&gt; RandT PureMT Identity [Genome a]
+forall a. [a] -&gt; Rand [a]
+</span><a href="Moo.GeneticAlgorithm.Random.html#shuffle"><span class="hs-identifier hs-var">shuffle</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068486"><span class="hs-identifier hs-var">rest</span></a></span><span>         </span><span class="hs-comment">-- just in case if @selectOp@ preserves order</span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621679068482"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068482"><span class="hs-identifier hs-var">genomes'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Genome a] -&gt; CrossoverOp a -&gt; RandT PureMT Identity [Genome a]
+forall a. [Genome a] -&gt; CrossoverOp a -&gt; Rand [Genome a]
+</span><a href="Moo.GeneticAlgorithm.Utilities.html#doCrossovers"><span class="hs-identifier hs-var">doCrossovers</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068484"><span class="hs-identifier hs-var">genomes'</span></a></span><span> </span><span class="annot"><span class="annottext">CrossoverOp a
+</span><a href="#local-6989586621679068494"><span class="hs-identifier hs-var">xoverOp</span></a></span><span>
+</span><span id="line-74"></span><span>    </span><span id="local-6989586621679068481"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068481"><span class="hs-identifier hs-var">genomes'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MutationOp a -&gt; [Genome a] -&gt; RandT PureMT Identity [Genome a]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM</span></a></span><span> </span><span class="annot"><span class="annottext">MutationOp a
+</span><a href="#local-6989586621679068493"><span class="hs-identifier hs-var">mutationOp</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068482"><span class="hs-identifier hs-var">genomes'</span></a></span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><span class="annottext">SelectionOp a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">SelectionOp a -&gt; SelectionOp a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">objectivefn -&gt; [Genome a] -&gt; Population a
+forall f a.
+ObjectiveFunction f a =&gt;
+f -&gt; [Genome a] -&gt; Population a
+</span><a href="Moo.GeneticAlgorithm.Types.html#evalObjective"><span class="hs-identifier hs-var">evalObjective</span></a></span><span> </span><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068497"><span class="hs-identifier hs-var">objective</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068488"><span class="hs-identifier hs-var">top</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a] -&gt; [Genome a] -&gt; [Genome a]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068481"><span class="hs-identifier hs-var">genomes'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- | Construct a single step of the incremental (steady-steate) genetic algorithm.</span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- Exactly @n@ worst solutions are replaced with newly born children.</span><span>
+</span><span id="line-80"></span><span class="hs-comment">--</span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- See &quot;Moo.GeneticAlgorithm.Binary&quot; and &quot;Moo.GeneticAlgorithm.Continuous&quot;</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- for the building blocks of the algorithm.</span><span>
+</span><span id="line-83"></span><span class="hs-comment">--</span><span>
+</span><span id="line-84"></span><span id="local-6989586621679068477"><span id="local-6989586621679068478"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#nextSteadyState"><span class="hs-identifier hs-type">nextSteadyState</span></a></span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ObjectiveFunction"><span class="hs-identifier hs-type">ObjectiveFunction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068478"><span class="hs-identifier hs-type">objectivefn</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068477"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>                  </span><span class="hs-comment">-- ^ @n@, number of worst solutions to replace</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ProblemType"><span class="hs-identifier hs-type">ProblemType</span></a></span><span>          </span><span class="hs-comment">-- ^ a type of the optimization @problem@</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068478"><span class="hs-identifier hs-type">objectivefn</span></a></span><span>          </span><span class="hs-comment">-- ^ objective function</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#SelectionOp"><span class="hs-identifier hs-type">SelectionOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068477"><span class="hs-identifier hs-type">a</span></a></span><span>        </span><span class="hs-comment">-- ^ selection operator</span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#CrossoverOp"><span class="hs-identifier hs-type">CrossoverOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068477"><span class="hs-identifier hs-type">a</span></a></span><span>        </span><span class="hs-comment">-- ^ crossover operator</span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#MutationOp"><span class="hs-identifier hs-type">MutationOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068477"><span class="hs-identifier hs-type">a</span></a></span><span>         </span><span class="hs-comment">-- ^ mutation operator</span><span>
+</span><span id="line-92"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StepGA"><span class="hs-identifier hs-type">StepGA</span></a></span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068477"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-93"></span><span id="nextSteadyState"><span class="annot"><span class="annottext">nextSteadyState :: Int
+-&gt; ProblemType
+-&gt; objectivefn
+-&gt; SelectionOp a
+-&gt; CrossoverOp a
+-&gt; MutationOp a
+-&gt; StepGA Rand a
+</span><a href="Moo.GeneticAlgorithm.Run.html#nextSteadyState"><span class="hs-identifier hs-var hs-var">nextSteadyState</span></a></span></span><span> </span><span id="local-6989586621679068476"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068476"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679068475"><span class="annot"><span class="annottext">ProblemType
+</span><a href="#local-6989586621679068475"><span class="hs-identifier hs-var">problem</span></a></span></span><span> </span><span id="local-6989586621679068474"><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068474"><span class="hs-identifier hs-var">objective</span></a></span></span><span> </span><span id="local-6989586621679068473"><span class="annot"><span class="annottext">SelectionOp a
+</span><a href="#local-6989586621679068473"><span class="hs-identifier hs-var">selectOp</span></a></span></span><span> </span><span id="local-6989586621679068472"><span class="annot"><span class="annottext">CrossoverOp a
+</span><a href="#local-6989586621679068472"><span class="hs-identifier hs-var">crossoverOp</span></a></span></span><span> </span><span id="local-6989586621679068471"><span class="annot"><span class="annottext">MutationOp a
+</span><a href="#local-6989586621679068471"><span class="hs-identifier hs-var">mutationOp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-94"></span><span>    </span><span class="annot"><span class="annottext">objectivefn -&gt; SelectionOp a -&gt; StepGA Rand a
+forall objectivefn a (m :: * -&gt; *).
+(ObjectiveFunction objectivefn a, Monad m) =&gt;
+objectivefn -&gt; (Population a -&gt; m (Population a)) -&gt; StepGA m a
+</span><a href="Moo.GeneticAlgorithm.Run.html#makeStoppable"><span class="hs-identifier hs-var">makeStoppable</span></a></span><span> </span><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068474"><span class="hs-identifier hs-var">objective</span></a></span><span> </span><span class="annot"><span class="annottext">(SelectionOp a -&gt; StepGA Rand a) -&gt; SelectionOp a -&gt; StepGA Rand a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679068470"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068470"><span class="hs-identifier hs-var">pop</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-95"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068469"><span class="annot"><span class="annottext">popsize :: Int
+</span><a href="#local-6989586621679068469"><span class="hs-identifier hs-var hs-var">popsize</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068470"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-96"></span><span>      </span><span id="local-6989586621679068467"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068467"><span class="hs-identifier hs-var">parents</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Population a -&gt; [Genome a])
+-&gt; RandT PureMT Identity (Population a)
+-&gt; RandT PureMT Identity [Genome a]
+forall (m :: * -&gt; *) a1 r. Monad m =&gt; (a1 -&gt; r) -&gt; m a1 -&gt; m r
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Phenotype a -&gt; Genome a) -&gt; Population a -&gt; [Genome a]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Phenotype a -&gt; Genome a
+forall gt a. GenomeState gt a =&gt; gt -&gt; Genome a
+</span><a href="Moo.GeneticAlgorithm.Types.html#takeGenome"><span class="hs-identifier hs-var">takeGenome</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SelectionOp a
+</span><a href="#local-6989586621679068473"><span class="hs-identifier hs-var">selectOp</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068470"><span class="hs-identifier hs-var">pop</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-97"></span><span>      </span><span id="local-6989586621679068466"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068466"><span class="hs-identifier hs-var">children</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MutationOp a -&gt; [Genome a] -&gt; RandT PureMT Identity [Genome a]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM</span></a></span><span> </span><span class="annot"><span class="annottext">MutationOp a
+</span><a href="#local-6989586621679068471"><span class="hs-identifier hs-var">mutationOp</span></a></span><span> </span><span class="annot"><span class="annottext">([Genome a] -&gt; RandT PureMT Identity [Genome a])
+-&gt; RandT PureMT Identity [Genome a]
+-&gt; RandT PureMT Identity [Genome a]
+forall (m :: * -&gt; *) a b. Monad m =&gt; (a -&gt; m b) -&gt; m a -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">=&lt;&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; [Genome a] -&gt; CrossoverOp a -&gt; RandT PureMT Identity [Genome a]
+forall a. Int -&gt; [Genome a] -&gt; CrossoverOp a -&gt; Rand [Genome a]
+</span><a href="Moo.GeneticAlgorithm.Utilities.html#doNCrossovers"><span class="hs-identifier hs-var">doNCrossovers</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068476"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068467"><span class="hs-identifier hs-var">parents</span></a></span><span> </span><span class="annot"><span class="annottext">CrossoverOp a
+</span><a href="#local-6989586621679068472"><span class="hs-identifier hs-var">crossoverOp</span></a></span><span>
+</span><span id="line-98"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068464"><span class="annot"><span class="annottext">sortedPop :: Population a
+</span><a href="#local-6989586621679068464"><span class="hs-identifier hs-var hs-var">sortedPop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProblemType -&gt; Population a -&gt; Population a
+forall a. ProblemType -&gt; Population a -&gt; Population a
+</span><a href="Moo.GeneticAlgorithm.Selection.html#bestFirst"><span class="hs-identifier hs-var">bestFirst</span></a></span><span> </span><span class="annot"><span class="annottext">ProblemType
+</span><a href="#local-6989586621679068475"><span class="hs-identifier hs-var">problem</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068470"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-99"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068463"><span class="annot"><span class="annottext">cpop :: Population a
+</span><a href="#local-6989586621679068463"><span class="hs-identifier hs-var hs-var">cpop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">objectivefn -&gt; [Genome a] -&gt; Population a
+forall f a.
+ObjectiveFunction f a =&gt;
+f -&gt; [Genome a] -&gt; Population a
+</span><a href="Moo.GeneticAlgorithm.Types.html#evalObjective"><span class="hs-identifier hs-var">evalObjective</span></a></span><span> </span><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068474"><span class="hs-identifier hs-var">objective</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068466"><span class="hs-identifier hs-var">children</span></a></span><span>
+</span><span id="line-100"></span><span>      </span><span class="annot"><span class="annottext">SelectionOp a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">SelectionOp a -&gt; (Population a -&gt; Population a) -&gt; SelectionOp a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Population a -&gt; Population a
+forall a. Int -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">take</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068469"><span class="hs-identifier hs-var">popsize</span></a></span><span> </span><span class="annot"><span class="annottext">SelectionOp a -&gt; SelectionOp a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068463"><span class="hs-identifier hs-var">cpop</span></a></span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Population a -&gt; Population a
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068464"><span class="hs-identifier hs-var">sortedPop</span></a></span><span>
+</span><span id="line-101"></span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- | Wrap a population transformation with pre- and post-conditions</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- to indicate the end of simulation.</span><span>
+</span><span id="line-105"></span><span class="hs-comment">--</span><span>
+</span><span id="line-106"></span><span class="hs-comment">-- Use this function to define custom replacement strategies</span><span>
+</span><span id="line-107"></span><span class="hs-comment">-- in addition to 'nextGeneration' and 'nextSteadyState'.</span><span>
+</span><span id="line-108"></span><span id="local-6989586621679068620"><span id="local-6989586621679068622"><span id="local-6989586621679068623"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#makeStoppable"><span class="hs-identifier hs-type">makeStoppable</span></a></span><span>
+</span><span id="line-109"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ObjectiveFunction"><span class="hs-identifier hs-type">ObjectiveFunction</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068623"><span class="hs-identifier hs-type">objectivefn</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068622"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068620"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068623"><span class="hs-identifier hs-type">objectivefn</span></a></span><span>
+</span><span id="line-111"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068622"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068620"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068622"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>  </span><span class="hs-comment">-- single step</span><span>
+</span><span id="line-112"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StepGA"><span class="hs-identifier hs-type">StepGA</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068620"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068622"><span class="hs-identifier hs-type">a</span></a></span></span></span></span><span>
+</span><span id="line-113"></span><span id="makeStoppable"><span class="annot"><span class="annottext">makeStoppable :: objectivefn -&gt; (Population a -&gt; m (Population a)) -&gt; StepGA m a
+</span><a href="Moo.GeneticAlgorithm.Run.html#makeStoppable"><span class="hs-identifier hs-var hs-var">makeStoppable</span></a></span></span><span> </span><span id="local-6989586621679068461"><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068461"><span class="hs-identifier hs-var">objective</span></a></span></span><span> </span><span id="local-6989586621679068460"><span class="annot"><span class="annottext">Population a -&gt; m (Population a)
+</span><a href="#local-6989586621679068460"><span class="hs-identifier hs-var">onestep</span></a></span></span><span> </span><span id="local-6989586621679068459"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068459"><span class="hs-identifier hs-var">stop</span></a></span></span><span> </span><span id="local-6989586621679068458"><span class="annot"><span class="annottext">PopulationState a
+</span><a href="#local-6989586621679068458"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-114"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068457"><span class="annot"><span class="annottext">pop :: Population a
+</span><a href="#local-6989586621679068457"><span class="hs-identifier hs-var hs-var">pop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Genome a] -&gt; Population a)
+-&gt; (Population a -&gt; Population a)
+-&gt; PopulationState a
+-&gt; Population a
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">either</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">objectivefn -&gt; [Genome a] -&gt; Population a
+forall f a.
+ObjectiveFunction f a =&gt;
+f -&gt; [Genome a] -&gt; Population a
+</span><a href="Moo.GeneticAlgorithm.Types.html#evalObjective"><span class="hs-identifier hs-var">evalObjective</span></a></span><span> </span><span class="annot"><span class="annottext">objectivefn
+</span><a href="#local-6989586621679068461"><span class="hs-identifier hs-var">objective</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Population a
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">PopulationState a
+</span><a href="#local-6989586621679068458"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-115"></span><span>  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">PopulationState a -&gt; Bool
+forall a b. Either a b -&gt; Bool
+</span><a href="#local-6989586621679068454"><span class="hs-identifier hs-var">isGenomes</span></a></span><span> </span><span class="annot"><span class="annottext">PopulationState a
+</span><a href="#local-6989586621679068458"><span class="hs-identifier hs-var">input</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a -&gt; Population a -&gt; Bool
+forall a. Cond a -&gt; Population a -&gt; Bool
+</span><a href="Moo.GeneticAlgorithm.StopCondition.html#evalCond"><span class="hs-identifier hs-var">evalCond</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068459"><span class="hs-identifier hs-var">stop</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068457"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-116"></span><span>     </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">StepResult (Population a) -&gt; m (StepResult (Population a))
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(StepResult (Population a) -&gt; m (StepResult (Population a)))
+-&gt; StepResult (Population a) -&gt; m (StepResult (Population a))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Population a -&gt; StepResult (Population a)
+forall a. a -&gt; StepResult a
+</span><a href="Moo.GeneticAlgorithm.Types.html#StopGA"><span class="hs-identifier hs-var">StopGA</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068457"><span class="hs-identifier hs-var">pop</span></a></span><span>   </span><span class="hs-comment">-- stop before the first iteration</span><span>
+</span><span id="line-117"></span><span>     </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-118"></span><span>       </span><span id="local-6989586621679068450"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068450"><span class="hs-identifier hs-var">newpop</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; m (Population a)
+</span><a href="#local-6989586621679068460"><span class="hs-identifier hs-var">onestep</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068457"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-119"></span><span>       </span><span class="annot"><span class="annottext">StepResult (Population a) -&gt; m (StepResult (Population a))
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(StepResult (Population a) -&gt; m (StepResult (Population a)))
+-&gt; StepResult (Population a) -&gt; m (StepResult (Population a))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Cond a -&gt; Population a -&gt; Bool
+forall a. Cond a -&gt; Population a -&gt; Bool
+</span><a href="Moo.GeneticAlgorithm.StopCondition.html#evalCond"><span class="hs-identifier hs-var">evalCond</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068459"><span class="hs-identifier hs-var">stop</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068450"><span class="hs-identifier hs-var">newpop</span></a></span><span>
+</span><span id="line-120"></span><span>                </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; StepResult (Population a)
+forall a. a -&gt; StepResult a
+</span><a href="Moo.GeneticAlgorithm.Types.html#StopGA"><span class="hs-identifier hs-var">StopGA</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068450"><span class="hs-identifier hs-var">newpop</span></a></span><span>
+</span><span id="line-121"></span><span>                </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; StepResult (Population a)
+forall a. a -&gt; StepResult a
+</span><a href="Moo.GeneticAlgorithm.Types.html#ContinueGA"><span class="hs-identifier hs-var">ContinueGA</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068450"><span class="hs-identifier hs-var">newpop</span></a></span><span>
+</span><span id="line-122"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-123"></span><span>    </span><span id="local-6989586621679068454"><span class="annot"><span class="annottext">isGenomes :: Either a b -&gt; Bool
+</span><a href="#local-6989586621679068454"><span class="hs-identifier hs-var hs-var">isGenomes</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Left</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-124"></span><span>    </span><span class="annot"><a href="#local-6989586621679068454"><span class="hs-identifier hs-var">isGenomes</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Right</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- | Select @n@ best genomes, then select more genomes from the</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- /entire/ population (elite genomes inclusive). Elite genomes will</span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- be the first in the list.</span><span>
+</span><span id="line-130"></span><span id="local-6989586621679068608"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#withElite"><span class="hs-identifier hs-type">withElite</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ProblemType"><span class="hs-identifier hs-type">ProblemType</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#SelectionOp"><span class="hs-identifier hs-type">SelectionOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068608"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#SelectionOp"><span class="hs-identifier hs-type">SelectionOp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068608"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-131"></span><span id="withElite"><span class="annot"><span class="annottext">withElite :: ProblemType -&gt; Int -&gt; SelectionOp a -&gt; SelectionOp a
+</span><a href="Moo.GeneticAlgorithm.Run.html#withElite"><span class="hs-identifier hs-var hs-var">withElite</span></a></span></span><span> </span><span id="local-6989586621679068448"><span class="annot"><span class="annottext">ProblemType
+</span><a href="#local-6989586621679068448"><span class="hs-identifier hs-var">problem</span></a></span></span><span> </span><span id="local-6989586621679068447"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068447"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679068446"><span class="annot"><span class="annottext">SelectionOp a
+</span><a href="#local-6989586621679068446"><span class="hs-identifier hs-var">select</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679068445"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068445"><span class="hs-identifier hs-var">population</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-132"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068444"><span class="annot"><span class="annottext">elite :: Population a
+</span><a href="#local-6989586621679068444"><span class="hs-identifier hs-var hs-var">elite</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Population a -&gt; Population a
+forall a. Int -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">take</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068447"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">(Population a -&gt; Population a)
+-&gt; (Population a -&gt; Population a) -&gt; Population a -&gt; Population a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Population a
+</span><a href="#local-6989586621679068443"><span class="hs-identifier hs-var">eliteGenomes</span></a></span><span> </span><span class="annot"><span class="annottext">(Population a -&gt; Population a) -&gt; Population a -&gt; Population a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068445"><span class="hs-identifier hs-var">population</span></a></span><span>
+</span><span id="line-133"></span><span>  </span><span id="local-6989586621679068442"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068442"><span class="hs-identifier hs-var">selected</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">SelectionOp a
+</span><a href="#local-6989586621679068446"><span class="hs-identifier hs-var">select</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068445"><span class="hs-identifier hs-var">population</span></a></span><span>
+</span><span id="line-134"></span><span>  </span><span class="annot"><span class="annottext">SelectionOp a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068444"><span class="hs-identifier hs-var">elite</span></a></span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Population a -&gt; Population a
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068442"><span class="hs-identifier hs-var">selected</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-136"></span><span>    </span><span id="local-6989586621679068443"><span class="annot"><span class="annottext">eliteGenomes :: Population a -&gt; Population a
+</span><a href="#local-6989586621679068443"><span class="hs-identifier hs-var hs-var">eliteGenomes</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProblemType -&gt; Population a -&gt; Population a
+forall a. ProblemType -&gt; Population a -&gt; Population a
+</span><a href="Moo.GeneticAlgorithm.Selection.html#bestFirst"><span class="hs-identifier hs-var">bestFirst</span></a></span><span> </span><span class="annot"><span class="annottext">ProblemType
+</span><a href="#local-6989586621679068448"><span class="hs-identifier hs-var">problem</span></a></span><span>
+</span><span id="line-137"></span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- | Run strict iterations of the genetic algorithm defined by @step@.</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- Return the result of the last step.  Usually only the first two</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- arguments are given, and the result is passed to 'runGA'.</span><span>
+</span><span id="line-141"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loop"><span class="hs-pragma hs-type">loop</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-142"></span><span id="local-6989586621679068440"><span id="local-6989586621679068441"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loop"><span class="hs-identifier hs-type">loop</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068441"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-143"></span><span>     </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Cond"><span class="hs-identifier hs-type">Cond</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068440"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-144"></span><span>     </span><span class="hs-comment">-- ^ termination condition @cond@</span><span>
+</span><span id="line-145"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StepGA"><span class="hs-identifier hs-type">StepGA</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068441"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068440"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-146"></span><span>     </span><span class="hs-comment">-- ^ @step@ function to produce the next generation</span><span>
+</span><span id="line-147"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068440"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-148"></span><span>     </span><span class="hs-comment">-- ^ initial population</span><span>
+</span><span id="line-149"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068441"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068440"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>      </span><span class="hs-comment">-- ^ final population</span></span></span><span>
+</span><span id="line-151"></span><span id="loop"><span class="annot"><span class="annottext">loop :: Cond a -&gt; StepGA m a -&gt; [Genome a] -&gt; m (Population a)
+</span><a href="Moo.GeneticAlgorithm.Run.html#loop"><span class="hs-identifier hs-var hs-var">loop</span></a></span></span><span> </span><span id="local-6989586621679068439"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068439"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span id="local-6989586621679068438"><span class="annot"><span class="annottext">StepGA m a
+</span><a href="#local-6989586621679068438"><span class="hs-identifier hs-var">step</span></a></span></span><span> </span><span id="local-6989586621679068437"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068437"><span class="hs-identifier hs-var">genomes0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cond a -&gt; Either [Genome a] (Population a) -&gt; m (Population a)
+</span><a href="#local-6989586621679068436"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068439"><span class="hs-identifier hs-var">cond</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Genome a] -&gt; Either [Genome a] (Population a)
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068437"><span class="hs-identifier hs-var">genomes0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-152"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-153"></span><span>    </span><span id="local-6989586621679068436"><span class="annot"><span class="annottext">go :: Cond a -&gt; Either [Genome a] (Population a) -&gt; m (Population a)
+</span><a href="#local-6989586621679068436"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679068435"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068435"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068434"><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068434"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-154"></span><span>       </span><span id="local-6989586621679068433"><span class="annot"><span class="annottext">StepResult (Population a)
+</span><a href="#local-6989586621679068433"><span class="hs-identifier hs-var">x'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">StepGA m a
+</span><a href="#local-6989586621679068438"><span class="hs-identifier hs-var">step</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068435"><span class="hs-identifier hs-var">cond</span></a></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068434"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-155"></span><span>       </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">StepResult (Population a)
+</span><a href="#local-6989586621679068433"><span class="hs-identifier hs-var">x'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-156"></span><span>         </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StopGA"><span class="hs-identifier hs-type">StopGA</span></a></span><span> </span><span id="local-6989586621679068432"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068432"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; m (Population a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068432"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-157"></span><span>         </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ContinueGA"><span class="hs-identifier hs-type">ContinueGA</span></a></span><span> </span><span id="local-6989586621679068431"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068431"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cond a -&gt; Either [Genome a] (Population a) -&gt; m (Population a)
+</span><a href="#local-6989586621679068436"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a -&gt; Cond a -&gt; Cond a
+forall a. Population a -&gt; Cond a -&gt; Cond a
+</span><a href="Moo.GeneticAlgorithm.StopCondition.html#updateCond"><span class="hs-identifier hs-var">updateCond</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068431"><span class="hs-identifier hs-var">pop</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068435"><span class="hs-identifier hs-var">cond</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a -&gt; Either [Genome a] (Population a)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068431"><span class="hs-identifier hs-var">pop</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- | GA iteration interleaved with the same-monad logging hooks.</span><span>
+</span><span id="line-160"></span><span class="hs-comment">-- Usually only the first three arguments are given, and the result is</span><span>
+</span><span id="line-161"></span><span class="hs-comment">-- passed to 'runGA'.</span><span>
+</span><span id="line-162"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loopWithLog"><span class="hs-pragma hs-type">loopWithLog</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-163"></span><span id="local-6989586621679068427"><span id="local-6989586621679068428"><span id="local-6989586621679068429"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loopWithLog"><span class="hs-identifier hs-type">loopWithLog</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068429"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068428"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-164"></span><span>     </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#LogHook"><span class="hs-identifier hs-type">LogHook</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068427"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068429"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068428"><span class="hs-identifier hs-type">w</span></a></span><span>
+</span><span id="line-165"></span><span>     </span><span class="hs-comment">-- ^ periodic logging action</span><span>
+</span><span id="line-166"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Cond"><span class="hs-identifier hs-type">Cond</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068427"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-167"></span><span>     </span><span class="hs-comment">-- ^ termination condition @cond@</span><span>
+</span><span id="line-168"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StepGA"><span class="hs-identifier hs-type">StepGA</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068429"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068427"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-169"></span><span>     </span><span class="hs-comment">-- ^ @step@ function to produce the next generation</span><span>
+</span><span id="line-170"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068427"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-171"></span><span>     </span><span class="hs-comment">-- ^ initial population</span><span>
+</span><span id="line-172"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068429"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068427"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679068428"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>     </span><span class="hs-comment">-- ^ final population</span></span></span></span><span>
+</span><span id="line-174"></span><span id="loopWithLog"><span class="annot"><span class="annottext">loopWithLog :: LogHook a m w
+-&gt; Cond a -&gt; StepGA m a -&gt; [Genome a] -&gt; m (Population a, w)
+</span><a href="Moo.GeneticAlgorithm.Run.html#loopWithLog"><span class="hs-identifier hs-var hs-var">loopWithLog</span></a></span></span><span> </span><span id="local-6989586621679068426"><span class="annot"><span class="annottext">LogHook a m w
+</span><a href="#local-6989586621679068426"><span class="hs-identifier hs-var">hook</span></a></span></span><span> </span><span id="local-6989586621679068425"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068425"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span id="local-6989586621679068424"><span class="annot"><span class="annottext">StepGA m a
+</span><a href="#local-6989586621679068424"><span class="hs-identifier hs-var">step</span></a></span></span><span> </span><span id="local-6989586621679068423"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068423"><span class="hs-identifier hs-var">genomes0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cond a
+-&gt; Int
+-&gt; w
+-&gt; Either [Genome a] (Population a)
+-&gt; m (Population a, w)
+</span><a href="#local-6989586621679068422"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068425"><span class="hs-identifier hs-var">cond</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">w
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Genome a] -&gt; Either [Genome a] (Population a)
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068423"><span class="hs-identifier hs-var">genomes0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-175"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-176"></span><span>    </span><span id="local-6989586621679068422"><span class="annot"><span class="annottext">go :: Cond a
+-&gt; Int
+-&gt; w
+-&gt; Either [Genome a] (Population a)
+-&gt; m (Population a, w)
+</span><a href="#local-6989586621679068422"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679068421"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068421"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068420"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068420"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068419"><span class="annot"><span class="annottext">w
+</span><a href="#local-6989586621679068419"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068418"><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068418"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-177"></span><span>      </span><span id="local-6989586621679068417"><span class="annot"><span class="annottext">StepResult (Population a)
+</span><a href="#local-6989586621679068417"><span class="hs-identifier hs-var">x'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">StepGA m a
+</span><a href="#local-6989586621679068424"><span class="hs-identifier hs-var">step</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068421"><span class="hs-identifier hs-var">cond</span></a></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068418"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-178"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">StepResult (Population a)
+</span><a href="#local-6989586621679068417"><span class="hs-identifier hs-var">x'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-179"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StopGA"><span class="hs-identifier hs-type">StopGA</span></a></span><span> </span><span id="local-6989586621679068416"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068416"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Population a, w) -&gt; m (Population a, w)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068416"><span class="hs-identifier hs-var">pop</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">w
+</span><a href="#local-6989586621679068419"><span class="hs-identifier hs-var">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-180"></span><span>        </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ContinueGA"><span class="hs-identifier hs-type">ContinueGA</span></a></span><span> </span><span id="local-6989586621679068415"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068415"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-181"></span><span>                         </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068414"><span class="annot"><span class="annottext">w' :: w
+</span><a href="#local-6989586621679068414"><span class="hs-identifier hs-var hs-var">w'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">w -&gt; w -&gt; w
+forall a. Monoid a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mappend</span></a></span><span> </span><span class="annot"><span class="annottext">w
+</span><a href="#local-6989586621679068419"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Population a -&gt; LogHook a m w -&gt; w
+forall a (m :: * -&gt; *) p.
+Int -&gt; [Phenotype a] -&gt; LogHook a m p -&gt; p
+</span><a href="#local-6989586621679068413"><span class="hs-identifier hs-var">runHook</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068420"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068415"><span class="hs-identifier hs-var">pop</span></a></span><span> </span><span class="annot"><span class="annottext">LogHook a m w
+</span><a href="#local-6989586621679068426"><span class="hs-identifier hs-var">hook</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-182"></span><span>                         </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068412"><span class="annot"><span class="annottext">cond' :: Cond a
+</span><a href="#local-6989586621679068412"><span class="hs-identifier hs-var hs-var">cond'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Cond a -&gt; Cond a
+forall a. Population a -&gt; Cond a -&gt; Cond a
+</span><a href="Moo.GeneticAlgorithm.StopCondition.html#updateCond"><span class="hs-identifier hs-var">updateCond</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068415"><span class="hs-identifier hs-var">pop</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068421"><span class="hs-identifier hs-var">cond</span></a></span><span>
+</span><span id="line-183"></span><span>                         </span><span class="annot"><span class="annottext">Cond a
+-&gt; Int
+-&gt; w
+-&gt; Either [Genome a] (Population a)
+-&gt; m (Population a, w)
+</span><a href="#local-6989586621679068422"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068412"><span class="hs-identifier hs-var">cond'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068420"><span class="hs-identifier hs-var">i</span></a></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">w
+</span><a href="#local-6989586621679068414"><span class="hs-identifier hs-var">w'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a -&gt; Either [Genome a] (Population a)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068415"><span class="hs-identifier hs-var">pop</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-184"></span><span>
+</span><span id="line-185"></span><span>    </span><span id="local-6989586621679068413"><span class="annot"><span class="annottext">runHook :: Int -&gt; [Phenotype a] -&gt; LogHook a m p -&gt; p
+</span><a href="#local-6989586621679068413"><span class="hs-identifier hs-var hs-var">runHook</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068410"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068410"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068409"><span class="annot"><span class="annottext">[Phenotype a]
+</span><a href="#local-6989586621679068409"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#WriteEvery"><span class="hs-identifier hs-type">WriteEvery</span></a></span><span> </span><span id="local-6989586621679068407"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068407"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679068406"><span class="annot"><span class="annottext">Int -&gt; [Phenotype a] -&gt; p
+</span><a href="#local-6989586621679068406"><span class="hs-identifier hs-var">write</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-186"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">rem</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068410"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068407"><span class="hs-identifier hs-var">n</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Phenotype a] -&gt; p
+</span><a href="#local-6989586621679068406"><span class="hs-identifier hs-var">write</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068410"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">[Phenotype a]
+</span><a href="#local-6989586621679068409"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-187"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">p
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-188"></span><span>
+</span><span id="line-189"></span><span>
+</span><span id="line-190"></span><span class="hs-comment">-- | GA iteration interleaved with IO (for logging or saving the</span><span>
+</span><span id="line-191"></span><span class="hs-comment">-- intermediate results); it takes and returns the updated random</span><span>
+</span><span id="line-192"></span><span class="hs-comment">-- number generator via an IORef. Usually only the first three</span><span>
+</span><span id="line-193"></span><span class="hs-comment">-- arguments are given, and the result is passed to 'runIO'.</span><span>
+</span><span id="line-194"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loopIO"><span class="hs-pragma hs-type">loopIO</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-195"></span><span id="local-6989586621679068404"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#loopIO"><span class="hs-identifier hs-type">loopIO</span></a></span><span>
+</span><span id="line-196"></span><span>     </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#IOHook"><span class="hs-identifier hs-type">IOHook</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068404"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-197"></span><span>     </span><span class="hs-comment">-- ^ input-output actions, special and time-dependent stop conditions</span><span>
+</span><span id="line-198"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Cond"><span class="hs-identifier hs-type">Cond</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068404"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-199"></span><span>     </span><span class="hs-comment">-- ^ termination condition @cond@</span><span>
+</span><span id="line-200"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StepGA"><span class="hs-identifier hs-type">StepGA</span></a></span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Random.html#Rand"><span class="hs-identifier hs-type">Rand</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068404"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-201"></span><span>     </span><span class="hs-comment">-- ^ @step@ function to produce the next generation</span><span>
+</span><span id="line-202"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">IORef</span></a></span><span> </span><span class="annot"><a href="../../../../mersenne-random-pure64/html/src"><span class="hs-identifier hs-type">PureMT</span></a></span><span>
+</span><span id="line-203"></span><span>     </span><span class="hs-comment">-- ^ reference to the random number generator</span><span>
+</span><span id="line-204"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068404"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-205"></span><span>     </span><span class="hs-comment">-- ^ initial population @pop0@</span><span>
+</span><span id="line-206"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068404"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-207"></span><span>     </span><span class="hs-comment">-- ^ final population</span></span><span>
+</span><span id="line-208"></span><span id="loopIO"><span class="annot"><span class="annottext">loopIO :: [IOHook a]
+-&gt; Cond a
+-&gt; StepGA Rand a
+-&gt; IORef PureMT
+-&gt; [Genome a]
+-&gt; IO (Population a)
+</span><a href="Moo.GeneticAlgorithm.Run.html#loopIO"><span class="hs-identifier hs-var hs-var">loopIO</span></a></span></span><span> </span><span id="local-6989586621679068403"><span class="annot"><span class="annottext">[IOHook a]
+</span><a href="#local-6989586621679068403"><span class="hs-identifier hs-var">hooks</span></a></span></span><span> </span><span id="local-6989586621679068402"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068402"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span id="local-6989586621679068401"><span class="annot"><span class="annottext">StepGA Rand a
+</span><a href="#local-6989586621679068401"><span class="hs-identifier hs-var">step</span></a></span></span><span> </span><span id="local-6989586621679068400"><span class="annot"><span class="annottext">IORef PureMT
+</span><a href="#local-6989586621679068400"><span class="hs-identifier hs-var">rngref</span></a></span></span><span> </span><span id="local-6989586621679068399"><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068399"><span class="hs-identifier hs-var">genomes0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-209"></span><span>  </span><span id="local-6989586621679068398"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068398"><span class="hs-identifier hs-var">rng</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IORef PureMT -&gt; IO PureMT
+forall a. IORef a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">readIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef PureMT
+</span><a href="#local-6989586621679068400"><span class="hs-identifier hs-var">rngref</span></a></span><span>
+</span><span id="line-210"></span><span>  </span><span id="local-6989586621679068397"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068397"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">POSIXTime -&gt; Double
+forall a b. (Real a, Fractional b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">realToFrac</span></a></span><span> </span><span class="annot"><span class="annottext">(POSIXTime -&gt; Double) -&gt; IO POSIXTime -&gt; IO Double
+forall (m :: * -&gt; *) a1 r. Monad m =&gt; (a1 -&gt; r) -&gt; m a1 -&gt; m r
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`liftM`</span></a></span><span> </span><span class="annot"><span class="annottext">IO POSIXTime
+</span><a href="../../../../time/html/src"><span class="hs-identifier hs-var">getPOSIXTime</span></a></span><span>
+</span><span id="line-211"></span><span>  </span><span class="hs-special">(</span><span id="local-6989586621679068396"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068396"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679068395"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068395"><span class="hs-identifier hs-var">rng'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Double
+-&gt; Cond a
+-&gt; Int
+-&gt; PureMT
+-&gt; Either [Genome a] (Population a)
+-&gt; IO (Population a, PureMT)
+</span><a href="#local-6989586621679068394"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068397"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068402"><span class="hs-identifier hs-var">cond</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068398"><span class="hs-identifier hs-var">rng</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Genome a] -&gt; Either [Genome a] (Population a)
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">[Genome a]
+</span><a href="#local-6989586621679068399"><span class="hs-identifier hs-var">genomes0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-212"></span><span>  </span><span class="annot"><span class="annottext">IORef PureMT -&gt; PureMT -&gt; IO ()
+forall a. IORef a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef PureMT
+</span><a href="#local-6989586621679068400"><span class="hs-identifier hs-var">rngref</span></a></span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068395"><span class="hs-identifier hs-var">rng'</span></a></span><span>
+</span><span id="line-213"></span><span>  </span><span class="annot"><span class="annottext">Population a -&gt; IO (Population a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068396"><span class="hs-identifier hs-var">pop</span></a></span><span>
+</span><span id="line-214"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-215"></span><span>    </span><span id="local-6989586621679068394"><span class="annot"><span class="annottext">go :: Double
+-&gt; Cond a
+-&gt; Int
+-&gt; PureMT
+-&gt; Either [Genome a] (Population a)
+-&gt; IO (Population a, PureMT)
+</span><a href="#local-6989586621679068394"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679068393"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068393"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span id="local-6989586621679068392"><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068392"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068391"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068391"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068390"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068390"><span class="hs-identifier hs-var">rng</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679068389"><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068389"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-216"></span><span>      </span><span id="local-6989586621679068388"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679068388"><span class="hs-identifier hs-var">stop</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; [Bool] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">any</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([Bool] -&gt; Bool) -&gt; IO [Bool] -&gt; IO Bool
+forall (m :: * -&gt; *) a1 r. Monad m =&gt; (a1 -&gt; r) -&gt; m a1 -&gt; m r
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`liftM`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(IOHook a -&gt; IO Bool) -&gt; [IOHook a] -&gt; IO [Bool]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+-&gt; Int -&gt; Either [Genome a] (Population a) -&gt; IOHook a -&gt; IO Bool
+forall a.
+Double
+-&gt; Int -&gt; Either [Genome a] [Phenotype a] -&gt; IOHook a -&gt; IO Bool
+</span><a href="#local-6989586621679068386"><span class="hs-identifier hs-var">runhook</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068393"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068391"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068389"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[IOHook a]
+</span><a href="#local-6989586621679068403"><span class="hs-identifier hs-var">hooks</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-217"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679068388"><span class="hs-identifier hs-var">stop</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">||</span></a></span><span> </span><span class="annot"><span class="annottext">([Genome a] -&gt; Bool)
+-&gt; (Population a -&gt; Bool)
+-&gt; Either [Genome a] (Population a)
+-&gt; Bool
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">either</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; [Genome a] -&gt; Bool
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cond a -&gt; Population a -&gt; Bool
+forall a. Cond a -&gt; Population a -&gt; Bool
+</span><a href="Moo.GeneticAlgorithm.StopCondition.html#evalCond"><span class="hs-identifier hs-var">evalCond</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068392"><span class="hs-identifier hs-var">cond</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068389"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-218"></span><span>         </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">(Population a, PureMT) -&gt; IO (Population a, PureMT)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Either [Genome a] (Population a) -&gt; Population a
+forall a. Either [Genome a] [Phenotype a] -&gt; [Phenotype a]
+</span><a href="#local-6989586621679068383"><span class="hs-identifier hs-var">asPopulation</span></a></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068389"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068390"><span class="hs-identifier hs-var">rng</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-219"></span><span>         </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-220"></span><span>           </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679068382"><span class="annot"><span class="annottext">StepResult (Population a)
+</span><a href="#local-6989586621679068382"><span class="hs-identifier hs-var">x'</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679068381"><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068381"><span class="hs-identifier hs-var">rng'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Rand PureMT (StepResult (Population a))
+-&gt; PureMT -&gt; (StepResult (Population a), PureMT)
+forall g a. Rand g a -&gt; g -&gt; (a, g)
+</span><a href="../../../../MonadRandom/html/src"><span class="hs-identifier hs-var">runRand</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StepGA Rand a
+</span><a href="#local-6989586621679068401"><span class="hs-identifier hs-var">step</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068392"><span class="hs-identifier hs-var">cond</span></a></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] (Population a)
+</span><a href="#local-6989586621679068389"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068390"><span class="hs-identifier hs-var">rng</span></a></span><span>
+</span><span id="line-221"></span><span>           </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">StepResult (Population a)
+</span><a href="#local-6989586621679068382"><span class="hs-identifier hs-var">x'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-222"></span><span>             </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#StopGA"><span class="hs-identifier hs-type">StopGA</span></a></span><span> </span><span id="local-6989586621679068380"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068380"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Population a, PureMT) -&gt; IO (Population a, PureMT)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068380"><span class="hs-identifier hs-var">pop</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068381"><span class="hs-identifier hs-var">rng'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-223"></span><span>             </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#ContinueGA"><span class="hs-identifier hs-type">ContinueGA</span></a></span><span> </span><span id="local-6989586621679068379"><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068379"><span class="hs-identifier hs-var">pop</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-224"></span><span>                 </span><span class="hs-keyword">do</span><span>
+</span><span id="line-225"></span><span>                   </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068378"><span class="annot"><span class="annottext">i' :: Int
+</span><a href="#local-6989586621679068378"><span class="hs-identifier hs-var hs-var">i'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068391"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-226"></span><span>                   </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679068377"><span class="annot"><span class="annottext">cond' :: Cond a
+</span><a href="#local-6989586621679068377"><span class="hs-identifier hs-var hs-var">cond'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Population a -&gt; Cond a -&gt; Cond a
+forall a. Population a -&gt; Cond a -&gt; Cond a
+</span><a href="Moo.GeneticAlgorithm.StopCondition.html#updateCond"><span class="hs-identifier hs-var">updateCond</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068379"><span class="hs-identifier hs-var">pop</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068392"><span class="hs-identifier hs-var">cond</span></a></span><span>
+</span><span id="line-227"></span><span>                   </span><span class="annot"><span class="annottext">Double
+-&gt; Cond a
+-&gt; Int
+-&gt; PureMT
+-&gt; Either [Genome a] (Population a)
+-&gt; IO (Population a, PureMT)
+</span><a href="#local-6989586621679068394"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068393"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Cond a
+</span><a href="#local-6989586621679068377"><span class="hs-identifier hs-var">cond'</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068378"><span class="hs-identifier hs-var">i'</span></a></span><span> </span><span class="annot"><span class="annottext">PureMT
+</span><a href="#local-6989586621679068381"><span class="hs-identifier hs-var">rng'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Population a -&gt; Either [Genome a] (Population a)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Population a
+</span><a href="#local-6989586621679068379"><span class="hs-identifier hs-var">pop</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-228"></span><span>
+</span><span id="line-229"></span><span>    </span><span class="hs-comment">-- runhook returns True to terminate the loop</span><span>
+</span><span id="line-230"></span><span>    </span><span id="local-6989586621679068386"><span class="annot"><span class="annottext">runhook :: Double
+-&gt; Int -&gt; Either [Genome a] [Phenotype a] -&gt; IOHook a -&gt; IO Bool
+</span><a href="#local-6989586621679068386"><span class="hs-identifier hs-var hs-var">runhook</span></a></span></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679068376"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068376"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679068375"><span class="annot"><span class="annottext">Either [Genome a] [Phenotype a]
+</span><a href="#local-6989586621679068375"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#DoEvery"><span class="hs-identifier hs-type">DoEvery</span></a></span><span> </span><span id="local-6989586621679068373"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068373"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679068372"><span class="annot"><span class="annottext">Int -&gt; [Phenotype a] -&gt; IO ()
+</span><a href="#local-6989586621679068372"><span class="hs-identifier hs-var">io</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-231"></span><span>             </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">when</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">rem</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068376"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068373"><span class="hs-identifier hs-var">n</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; [Phenotype a] -&gt; IO ()
+</span><a href="#local-6989586621679068372"><span class="hs-identifier hs-var">io</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679068376"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Either [Genome a] [Phenotype a] -&gt; [Phenotype a]
+forall a. Either [Genome a] [Phenotype a] -&gt; [Phenotype a]
+</span><a href="#local-6989586621679068383"><span class="hs-identifier hs-var">asPopulation</span></a></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] [Phenotype a]
+</span><a href="#local-6989586621679068375"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-232"></span><span>             </span><span class="annot"><span class="annottext">Bool -&gt; IO Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-233"></span><span>    </span><span class="annot"><a href="#local-6989586621679068386"><span class="hs-identifier hs-var">runhook</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] [Phenotype a]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#StopWhen"><span class="hs-identifier hs-type">StopWhen</span></a></span><span> </span><span id="local-6989586621679068370"><span class="annot"><span class="annottext">IO Bool
+</span><a href="#local-6989586621679068370"><span class="hs-identifier hs-var">iotest</span></a></span></span><span class="hs-special">)</span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO Bool
+</span><a href="#local-6989586621679068370"><span class="hs-identifier hs-var">iotest</span></a></span><span>
+</span><span id="line-234"></span><span>    </span><span class="annot"><a href="#local-6989586621679068386"><span class="hs-identifier hs-var">runhook</span></a></span><span> </span><span id="local-6989586621679068369"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068369"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Either [Genome a] [Phenotype a]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#TimeLimit"><span class="hs-identifier hs-type">TimeLimit</span></a></span><span> </span><span id="local-6989586621679068367"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068367"><span class="hs-identifier hs-var">limit</span></a></span></span><span class="hs-special">)</span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-235"></span><span>             </span><span id="local-6989586621679068366"><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068366"><span class="hs-identifier hs-var">now</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">POSIXTime -&gt; Double
+forall a b. (Real a, Fractional b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">realToFrac</span></a></span><span> </span><span class="annot"><span class="annottext">(POSIXTime -&gt; Double) -&gt; IO POSIXTime -&gt; IO Double
+forall (m :: * -&gt; *) a1 r. Monad m =&gt; (a1 -&gt; r) -&gt; m a1 -&gt; m r
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">`liftM`</span></a></span><span> </span><span class="annot"><span class="annottext">IO POSIXTime
+</span><a href="../../../../time/html/src"><span class="hs-identifier hs-var">getPOSIXTime</span></a></span><span>
+</span><span id="line-236"></span><span>             </span><span class="annot"><span class="annottext">Bool -&gt; IO Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068366"><span class="hs-identifier hs-var">now</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068369"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><a href="#local-6989586621679068367"><span class="hs-identifier hs-var">limit</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-237"></span><span>
+</span><span id="line-238"></span><span>    </span><span class="hs-comment">-- assign dummy objective value to a genome</span><span>
+</span><span id="line-239"></span><span>    </span><span id="local-6989586621679068538"><span class="annot"><a href="#local-6989586621679068365"><span class="hs-identifier hs-type">dummyObjective</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Genome"><span class="hs-identifier hs-type">Genome</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068538"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Phenotype"><span class="hs-identifier hs-type">Phenotype</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068538"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-240"></span><span>    </span><span id="local-6989586621679068365"><span class="annot"><span class="annottext">dummyObjective :: Genome a -&gt; Phenotype a
+</span><a href="#local-6989586621679068365"><span class="hs-identifier hs-var hs-var">dummyObjective</span></a></span></span><span> </span><span id="local-6989586621679068364"><span class="annot"><span class="annottext">Genome a
+</span><a href="#local-6989586621679068364"><span class="hs-identifier hs-var">g</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Genome a
+</span><a href="#local-6989586621679068364"><span class="hs-identifier hs-var">g</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0.0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-241"></span><span>
+</span><span id="line-242"></span><span>    </span><span id="local-6989586621679068383"><span class="annot"><span class="annottext">asPopulation :: Either [Genome a] [Phenotype a] -&gt; [Phenotype a]
+</span><a href="#local-6989586621679068383"><span class="hs-identifier hs-var hs-var">asPopulation</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Genome a] -&gt; [Phenotype a])
+-&gt; ([Phenotype a] -&gt; [Phenotype a])
+-&gt; Either [Genome a] [Phenotype a]
+-&gt; [Phenotype a]
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">either</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Genome a -&gt; Phenotype a) -&gt; [Genome a] -&gt; [Phenotype a]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Genome a -&gt; Phenotype a
+forall a. Genome a -&gt; Phenotype a
+</span><a href="#local-6989586621679068365"><span class="hs-identifier hs-var">dummyObjective</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Phenotype a] -&gt; [Phenotype a]
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-243"></span><span>
+</span><span id="line-244"></span><span class="hs-comment">-- | Logging to run every @n@th iteration starting from 0 (the first parameter).</span><span>
+</span><span id="line-245"></span><span class="hs-comment">-- The logging function takes the current generation count and population.</span><span>
+</span><span id="line-246"></span><span class="hs-keyword">data</span><span> </span><span id="LogHook"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#LogHook"><span class="hs-identifier hs-var">LogHook</span></a></span></span><span> </span><span id="local-6989586621679068363"><span class="annot"><a href="#local-6989586621679068363"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679068362"><span class="annot"><a href="#local-6989586621679068362"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679068361"><span class="annot"><a href="#local-6989586621679068361"><span class="hs-identifier hs-type">w</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-247"></span><span>    </span><span id="local-6989586621679068358"><span id="local-6989586621679068359"><span id="local-6989586621679068360"><span id="WriteEvery"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#WriteEvery"><span class="hs-identifier hs-var">WriteEvery</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monad</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068360"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Monoid</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068359"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-248"></span><span>               </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span>
+</span><span id="line-249"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068358"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679068359"><span class="hs-identifier hs-type">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-250"></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#LogHook"><span class="hs-identifier hs-type">LogHook</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068358"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068360"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068359"><span class="hs-identifier hs-type">w</span></a></span></span></span></span><span>
+</span><span id="line-251"></span><span>
+</span><span id="line-252"></span><span class="hs-comment">-- | Input-output actions, interactive and time-dependent stop conditions.</span><span>
+</span><span id="line-253"></span><span class="hs-keyword">data</span><span> </span><span id="IOHook"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#IOHook"><span class="hs-identifier hs-var">IOHook</span></a></span></span><span> </span><span id="local-6989586621679068357"><span class="annot"><a href="#local-6989586621679068357"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-254"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span id="DoEvery"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#DoEvery"><span class="hs-identifier hs-var">DoEvery</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="io%27n"><span class="annot"><span class="annottext">IOHook a -&gt; Int
+</span><a href="Moo.GeneticAlgorithm.Run.html#io%27n"><span class="hs-identifier hs-var hs-var">io'n</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">,</span><span> </span><span id="io%27action"><span class="annot"><span class="annottext">IOHook a -&gt; Int -&gt; Population a -&gt; IO ()
+</span><a href="Moo.GeneticAlgorithm.Run.html#io%27action"><span class="hs-identifier hs-var hs-var">io'action</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Moo.GeneticAlgorithm.Types.html#Population"><span class="hs-identifier hs-type">Population</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679068357"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-255"></span><span>    </span><span class="hs-comment">-- ^ action to run every @n@th iteration, starting from 0;</span><span>
+</span><span id="line-256"></span><span>    </span><span class="hs-comment">-- initially (at iteration 0) the objective value is zero.</span><span>
+</span><span id="line-257"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="StopWhen"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#StopWhen"><span class="hs-identifier hs-var">StopWhen</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-258"></span><span>    </span><span class="hs-comment">-- ^ custom or interactive stop condition</span><span>
+</span><span id="line-259"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="TimeLimit"><span class="annot"><a href="Moo.GeneticAlgorithm.Run.html#TimeLimit"><span class="hs-identifier hs-var">TimeLimit</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="io%27t"><span class="annot"><span class="annottext">IOHook a -&gt; Double
+</span><a href="Moo.GeneticAlgorithm.Run.html#io%27t"><span class="hs-identifier hs-var hs-var">io't</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Double</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-260"></span><span>    </span><span class="hs-comment">-- ^ terminate iteration after @t@ seconds</span><span>
+</span><span id="line-261"></span></pre></body></html>

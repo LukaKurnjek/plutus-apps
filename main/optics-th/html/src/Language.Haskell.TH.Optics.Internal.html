@@ -1,0 +1,873 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Language.Haskell.TH.Optics.Internal</span><span>
+</span><span id="line-3"></span><span>  </span><span class="hs-special">(</span><span>
+</span><span id="line-4"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Traversals</span></span><span>
+</span><span id="line-5"></span><span>    </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier">HasTypeVars</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-6"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier">typeVars</span></a></span><span>      </span><span class="hs-comment">-- :: HasTypeVars t =&gt; Traversal' t Name</span><span>
+</span><span id="line-7"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsKinded"><span class="hs-identifier">typeVarsKinded</span></a></span><span>
+</span><span id="line-8"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substTypeVars"><span class="hs-identifier">substTypeVars</span></a></span><span> </span><span class="hs-comment">-- :: HasTypeVars t =&gt; Map Name Name -&gt; t -&gt; t</span><span>
+</span><span id="line-9"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#SubstType"><span class="hs-identifier">SubstType</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span>
+</span><span id="line-11"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Prisms</span></span><span>
+</span><span id="line-12"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_FamilyI"><span class="hs-identifier">_FamilyI</span></a></span><span>
+</span><span id="line-13"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_ClosedTypeFamilyD"><span class="hs-identifier">_ClosedTypeFamilyD</span></a></span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_OpenTypeFamilyD"><span class="hs-identifier">_OpenTypeFamilyD</span></a></span><span>
+</span><span id="line-15"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_ForallT"><span class="hs-identifier">_ForallT</span></a></span><span>
+</span><span id="line-16"></span><span>
+</span><span id="line-17"></span><span>  </span><span class="annot"><span class="hs-comment">-- * TyVarBndr compatibility</span></span><span>
+</span><span id="line-18"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../th-abstraction/html/src"><span class="hs-identifier">TyVarBndrSpec</span></a></span><span>
+</span><span id="line-19"></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">map</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">toList</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Maybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">fromMaybe</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Foldable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">traverse_</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Set</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Set</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">map</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">toList</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier">Language.Haskell.TH</span></a></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../th-abstraction/html/src"><span class="hs-identifier">Language.Haskell.TH.Datatype.TyVarBndr</span></a></span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier">Data.Set.Optics</span></a></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier">Optics.Core</span></a></span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- | Has a 'Name'</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">class</span><span> </span><span id="HasName"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasName"><span class="hs-identifier hs-var">HasName</span></a></span></span><span> </span><span id="local-6989586621679065236"><span class="annot"><a href="#local-6989586621679065236"><span class="hs-identifier hs-type">t</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-comment">-- | Extract (or modify) the 'Name' of something</span><span>
+</span><span id="line-34"></span><span>  </span><span id="name"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#name"><span class="hs-identifier hs-type">name</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Lens'</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065236"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span id="local-6989586621679065090"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasName"><span class="hs-identifier hs-type">HasName</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../th-abstraction/html/src"><span class="hs-identifier hs-type">TyVarBndr_</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065090"><span class="hs-identifier hs-type">flag</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-37"></span><span>  </span><span id="local-6989586621679065087"><span class="annot"><span class="annottext">name :: Lens' (TyVarBndr_ flag) Name
+</span><a href="#local-6989586621679065087"><span class="hs-identifier hs-var hs-var hs-var hs-var">name</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LensVL (TyVarBndr_ flag) (TyVarBndr_ flag) Name Name
+-&gt; Lens' (TyVarBndr_ flag) Name
+forall s t a b. LensVL s t a b -&gt; Lens s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">lensVL</span></a></span><span> </span><span class="annot"><span class="annottext">(LensVL (TyVarBndr_ flag) (TyVarBndr_ flag) Name Name
+ -&gt; Lens' (TyVarBndr_ flag) Name)
+-&gt; LensVL (TyVarBndr_ flag) (TyVarBndr_ flag) Name Name
+-&gt; Lens' (TyVarBndr_ flag) Name
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679065085"><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065085"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span class="hs-cpp">
+#if MIN_VERSION_template_haskell(2,17,0)
+</span><span>    </span><span class="hs-identifier">PlainTV</span><span> </span><span class="hs-identifier">n</span><span> </span><span class="hs-identifier">flag</span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-identifier">n'</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">PlainTV</span><span> </span><span class="hs-identifier">n'</span><span> </span><span class="hs-identifier">flag</span><span class="hs-special">)</span><span> </span><span class="hs-operator">&lt;$&gt;</span><span> </span><span class="hs-identifier">f</span><span> </span><span class="hs-identifier">n</span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-identifier">KindedTV</span><span> </span><span class="hs-identifier">n</span><span> </span><span class="hs-identifier">flag</span><span> </span><span class="hs-identifier">k</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-identifier">n'</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">KindedTV</span><span> </span><span class="hs-identifier">n'</span><span> </span><span class="hs-identifier">flag</span><span> </span><span class="hs-identifier">k</span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-operator">&lt;$&gt;</span><span> </span><span class="hs-identifier">f</span><span> </span><span class="hs-identifier">n</span><span class="hs-cpp">
+#else
+</span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">PlainTV</span></a></span><span> </span><span id="local-6989586621679065083"><span class="annot"><a href="#local-6989586621679065083"><span class="hs-identifier hs-var">n</span></a></span></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Name -&gt; TyVarBndr_ flag
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">PlainTV</span></a></span><span> </span><span class="annot"><span class="annottext">(Name -&gt; TyVarBndr_ flag) -&gt; f Name -&gt; f (TyVarBndr_ flag)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065085"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065083"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">KindedTV</span></a></span><span> </span><span id="local-6989586621679065080"><span class="annot"><a href="#local-6989586621679065080"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679065079"><span class="annot"><a href="#local-6989586621679065079"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; Kind -&gt; TyVarBndr_ flag
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-operator hs-var">`KindedTV`</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065079"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Name -&gt; TyVarBndr_ flag) -&gt; f Name -&gt; f (TyVarBndr_ flag)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065085"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065080"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-cpp">
+#endif
+</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | Provides for the extraction of free type variables, and alpha renaming.</span><span>
+</span><span id="line-47"></span><span class="hs-keyword">class</span><span> </span><span id="HasTypeVars"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-var">HasTypeVars</span></a></span></span><span> </span><span id="local-6989586621679065217"><span class="annot"><a href="#local-6989586621679065217"><span class="hs-identifier hs-type">t</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-48"></span><span>  </span><span class="hs-comment">-- | When performing substitution into this traversal you're not allowed to</span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-comment">-- substitute in a name that is bound internally or you'll violate the</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-comment">-- 'Traversal' laws, when in doubt generate your names with 'newName'.</span><span>
+</span><span id="line-51"></span><span>  </span><span id="typeVarsEx"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-type">typeVarsEx</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Set</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Traversal'</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065217"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span id="local-6989586621679065077"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../th-abstraction/html/src"><span class="hs-identifier hs-type">TyVarBndr_</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065077"><span class="hs-identifier hs-type">flag</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-54"></span><span>  </span><span id="local-6989586621679065074"><span class="annot"><span class="annottext">typeVarsEx :: Set Name -&gt; Traversal' (TyVarBndr_ flag) Name
+</span><a href="#local-6989586621679065074"><span class="hs-identifier hs-var hs-var hs-var hs-var">typeVarsEx</span></a></span></span><span> </span><span id="local-6989586621679065073"><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065073"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TraversalVL (TyVarBndr_ flag) (TyVarBndr_ flag) Name Name
+-&gt; Traversal' (TyVarBndr_ flag) Name
+forall s t a b. TraversalVL s t a b -&gt; Traversal s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traversalVL</span></a></span><span> </span><span class="annot"><span class="annottext">(TraversalVL (TyVarBndr_ flag) (TyVarBndr_ flag) Name Name
+ -&gt; Traversal' (TyVarBndr_ flag) Name)
+-&gt; TraversalVL (TyVarBndr_ flag) (TyVarBndr_ flag) Name Name
+-&gt; Traversal' (TyVarBndr_ flag) Name
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679065071"><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065071"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679065070"><span class="annot"><span class="annottext">TyVarBndr_ flag
+</span><a href="#local-6989586621679065070"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Lens' (TyVarBndr_ flag) Name -&gt; TyVarBndr_ flag -&gt; Name
+forall k (is :: IxList) s a.
+Is k A_Getter =&gt;
+Optic' k is s a -&gt; s -&gt; a
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">view</span></a></span><span> </span><span class="annot"><span class="annottext">Lens' (TyVarBndr_ flag) Name
+forall t. HasName t =&gt; Lens' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#name"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">TyVarBndr_ flag
+</span><a href="#local-6989586621679065070"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Set Name -&gt; Bool
+forall a. Ord a =&gt; a -&gt; Set a -&gt; Bool
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Set.member`</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065073"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">TyVarBndr_ flag -&gt; f (TyVarBndr_ flag)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">TyVarBndr_ flag
+</span><a href="#local-6989586621679065070"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Lens' (TyVarBndr_ flag) Name
+-&gt; (Name -&gt; f Name) -&gt; TyVarBndr_ flag -&gt; f (TyVarBndr_ flag)
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="annot"><span class="annottext">Lens' (TyVarBndr_ flag) Name
+forall t. HasName t =&gt; Lens' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#name"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065071"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">TyVarBndr_ flag
+</span><a href="#local-6989586621679065070"><span class="hs-identifier hs-var">b</span></a></span></span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-60"></span><span>  </span><span id="local-6989586621679065065"><span class="annot"><span class="annottext">typeVarsEx :: Set Name -&gt; Traversal' Name Name
+</span><a href="#local-6989586621679065065"><span class="hs-identifier hs-var hs-var hs-var hs-var">typeVarsEx</span></a></span></span><span> </span><span id="local-6989586621679065064"><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065064"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TraversalVL Name Name Name Name -&gt; Traversal' Name Name
+forall s t a b. TraversalVL s t a b -&gt; Traversal s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traversalVL</span></a></span><span> </span><span class="annot"><span class="annottext">(TraversalVL Name Name Name Name -&gt; Traversal' Name Name)
+-&gt; TraversalVL Name Name Name Name -&gt; Traversal' Name Name
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679065063"><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065063"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679065062"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065062"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065062"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Set Name -&gt; Bool
+forall a. Ord a =&gt; a -&gt; Set a -&gt; Bool
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Set.member`</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065064"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065062"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065063"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065062"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-66"></span><span>  </span><span id="local-6989586621679065060"><span class="annot"><span class="annottext">typeVarsEx :: Set Name -&gt; Traversal' Kind Name
+</span><a href="#local-6989586621679065060"><span class="hs-identifier hs-var hs-var hs-var hs-var">typeVarsEx</span></a></span></span><span> </span><span id="local-6989586621679065059"><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TraversalVL Kind Kind Name Name -&gt; Traversal' Kind Name
+forall s t a b. TraversalVL s t a b -&gt; Traversal s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traversalVL</span></a></span><span> </span><span class="annot"><span class="annottext">(TraversalVL Kind Kind Name Name -&gt; Traversal' Kind Name)
+-&gt; TraversalVL Kind Kind Name Name -&gt; Traversal' Kind Name
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679065058"><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">VarT</span></a></span><span> </span><span id="local-6989586621679065056"><span class="annot"><a href="#local-6989586621679065056"><span class="hs-identifier hs-var">n</span></a></span></span><span>            </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">VarT</span></a></span><span> </span><span class="annot"><span class="annottext">(Name -&gt; Kind) -&gt; f Name -&gt; f Kind
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Name Name -&gt; (Name -&gt; f Name) -&gt; Name -&gt; f Name
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Name Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065056"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-68"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppT</span></a></span><span> </span><span id="local-6989586621679065054"><span class="annot"><a href="#local-6989586621679065054"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679065053"><span class="annot"><a href="#local-6989586621679065053"><span class="hs-identifier hs-var">r</span></a></span></span><span>          </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind -&gt; Kind) -&gt; f Kind -&gt; f (Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065054"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-69"></span><span>                              </span><span class="annot"><span class="annottext">f (Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065053"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">SigT</span></a></span><span> </span><span id="local-6989586621679065051"><span class="annot"><a href="#local-6989586621679065051"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679065050"><span class="annot"><a href="#local-6989586621679065050"><span class="hs-identifier hs-var">k</span></a></span></span><span>          </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">SigT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind -&gt; Kind) -&gt; f Kind -&gt; f (Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065051"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-71"></span><span>                              </span><span class="annot"><span class="annottext">f (Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065050"><span class="hs-identifier hs-var">k</span></a></span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallT</span></a></span><span> </span><span id="local-6989586621679065048"><span class="annot"><a href="#local-6989586621679065048"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span id="local-6989586621679065047"><span class="annot"><a href="#local-6989586621679065047"><span class="hs-identifier hs-var">ctx</span></a></span></span><span> </span><span id="local-6989586621679065046"><span class="annot"><a href="#local-6989586621679065046"><span class="hs-identifier hs-var">ty</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679065045"><span class="annot"><span class="annottext">s' :: Set Name
+</span><a href="#local-6989586621679065045"><span class="hs-identifier hs-var hs-var">s'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; Set Name -&gt; Set Name
+forall a. Ord a =&gt; Set a -&gt; Set a -&gt; Set a
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Set.union`</span></a></span><span> </span><span class="annot"><span class="annottext">Optic' A_Traversal NoIx [TyVarBndr_ flag] Name
+-&gt; [TyVarBndr_ flag] -&gt; Set Name
+forall k a (is :: IxList) s.
+(Is k A_Fold, Ord a) =&gt;
+Optic' k is s a -&gt; s -&gt; Set a
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">setOf</span></a></span><span> </span><span class="annot"><span class="annottext">Optic' A_Traversal NoIx [TyVarBndr_ flag] Name
+forall t. HasTypeVars t =&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier hs-var">typeVars</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679065048"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-73"></span><span>                         </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag] -&gt; Cxt -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ForallT</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679065048"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">(Cxt -&gt; Kind -&gt; Kind) -&gt; f Cxt -&gt; f (Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Traversal NoIx Cxt Cxt Name Name
+-&gt; (Name -&gt; f Name) -&gt; Cxt -&gt; f Cxt
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Optic A_Traversal NoIx Cxt Cxt Name Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065045"><span class="hs-identifier hs-var">s'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679065047"><span class="hs-identifier hs-var">ctx</span></a></span><span>
+</span><span id="line-74"></span><span>                                       </span><span class="annot"><span class="annottext">f (Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065045"><span class="hs-identifier hs-var">s'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065046"><span class="hs-identifier hs-var">ty</span></a></span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">InfixT</span></a></span><span>  </span><span id="local-6989586621679065041"><span class="annot"><a href="#local-6989586621679065041"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679065040"><span class="annot"><a href="#local-6989586621679065040"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679065039"><span class="annot"><a href="#local-6989586621679065039"><span class="hs-identifier hs-var">t2</span></a></span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Name -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">InfixT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Name -&gt; Kind -&gt; Kind)
+-&gt; f Kind -&gt; f (Name -&gt; Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065041"><span class="hs-identifier hs-var">t1</span></a></span><span>
+</span><span id="line-76"></span><span>                                </span><span class="annot"><span class="annottext">f (Name -&gt; Kind -&gt; Kind) -&gt; f Name -&gt; f (Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065040"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-77"></span><span>                                </span><span class="annot"><span class="annottext">f (Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065039"><span class="hs-identifier hs-var">t2</span></a></span><span>
+</span><span id="line-78"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">UInfixT</span></a></span><span> </span><span id="local-6989586621679065037"><span class="annot"><a href="#local-6989586621679065037"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679065036"><span class="annot"><a href="#local-6989586621679065036"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679065035"><span class="annot"><a href="#local-6989586621679065035"><span class="hs-identifier hs-var">t2</span></a></span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Name -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">UInfixT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Name -&gt; Kind -&gt; Kind)
+-&gt; f Kind -&gt; f (Name -&gt; Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065037"><span class="hs-identifier hs-var">t1</span></a></span><span>
+</span><span id="line-79"></span><span>                                 </span><span class="annot"><span class="annottext">f (Name -&gt; Kind -&gt; Kind) -&gt; f Name -&gt; f (Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065036"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-80"></span><span>                                 </span><span class="annot"><span class="annottext">f (Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065035"><span class="hs-identifier hs-var">t2</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ParensT</span></a></span><span> </span><span id="local-6989586621679065033"><span class="annot"><a href="#local-6989586621679065033"><span class="hs-identifier hs-var">t</span></a></span></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ParensT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065033"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-cpp">
+#if MIN_VERSION_template_haskell(2,15,0)
+</span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppKindT</span></a></span><span> </span><span id="local-6989586621679065031"><span class="annot"><a href="#local-6989586621679065031"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679065030"><span class="annot"><a href="#local-6989586621679065030"><span class="hs-identifier hs-var">k</span></a></span></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppKindT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind -&gt; Kind) -&gt; f Kind -&gt; f (Kind -&gt; Kind)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065031"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-84"></span><span>                                   </span><span class="annot"><span class="annottext">f (Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065030"><span class="hs-identifier hs-var">k</span></a></span><span>
+</span><span id="line-85"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ImplicitParamT</span></a></span><span> </span><span id="local-6989586621679065028"><span class="annot"><a href="#local-6989586621679065028"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679065027"><span class="annot"><a href="#local-6989586621679065027"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ImplicitParamT</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679065028"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind) -&gt; f Kind -&gt; f Kind
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal' Kind Name -&gt; (Name -&gt; f Name) -&gt; Kind -&gt; f Kind
+forall k (f :: * -&gt; *) (is :: IxList) s t a b.
+(Is k A_Traversal, Applicative f) =&gt;
+Optic k is s t a b -&gt; (a -&gt; f b) -&gt; s -&gt; f t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traverseOf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' Kind Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065059"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+</span><a href="#local-6989586621679065058"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065027"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-cpp">
+#endif
+</span><span>    </span><span id="local-6989586621679065026"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065026"><span class="hs-identifier hs-var">t</span></a></span></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f Kind
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065026"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span id="local-6989586621679065025"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065025"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679065025"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-90"></span><span>  </span><span id="local-6989586621679065023"><span class="annot"><span class="annottext">typeVarsEx :: Set Name -&gt; Traversal' [t] Name
+</span><a href="#local-6989586621679065023"><span class="hs-identifier hs-var hs-var hs-var hs-var">typeVarsEx</span></a></span></span><span> </span><span id="local-6989586621679065022"><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065022"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Traversal [t] [t] t t
+forall (t :: * -&gt; *) a b.
+Traversable t =&gt;
+Traversal (t a) (t b) a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">traversed</span></a></span><span> </span><span class="annot"><span class="annottext">Traversal [t] [t] t t
+-&gt; Optic A_Traversal NoIx t t Name Name -&gt; Traversal' [t] Name
+forall k l m (is :: IxList) (js :: IxList) (ks :: IxList) s t u v a
+       b.
+(JoinKinds k l m, AppendIndices is js ks) =&gt;
+Optic k is s t u v -&gt; Optic l js u v a b -&gt; Optic m ks s t a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-operator hs-var">%</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; Optic A_Traversal NoIx t t Name Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065022"><span class="hs-identifier hs-var">s</span></a></span></span><span>
+</span><span id="line-91"></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- | Traverse /free/ type variables</span><span>
+</span><span id="line-94"></span><span id="local-6989586621679065178"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier hs-type">typeVars</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065178"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Traversal'</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679065178"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span></span><span>
+</span><span id="line-95"></span><span id="typeVars"><span class="annot"><span class="annottext">typeVars :: Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier hs-var hs-var">typeVars</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; Traversal' t Name
+forall t. HasTypeVars t =&gt; Set Name -&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsEx"><span class="hs-identifier hs-var">typeVarsEx</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- | Traverse /free/ type variables paired with their kinds if applicable.</span><span>
+</span><span id="line-98"></span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsKinded"><span class="hs-identifier hs-type">typeVarsKinded</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Fold</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-99"></span><span id="typeVarsKinded"><span class="annot"><span class="annottext">typeVarsKinded :: Fold Kind Kind
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVarsKinded"><span class="hs-identifier hs-var hs-var">typeVarsKinded</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall (f :: * -&gt; *).
+ Applicative f =&gt;
+ (Kind -&gt; f ()) -&gt; Kind -&gt; f ())
+-&gt; Fold Kind Kind
+forall a u s v.
+(forall (f :: * -&gt; *). Applicative f =&gt; (a -&gt; f u) -&gt; s -&gt; f v)
+-&gt; Fold s a
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">foldVL</span></a></span><span> </span><span class="annot"><span class="annottext">((forall (f :: * -&gt; *).
+  Applicative f =&gt;
+  (Kind -&gt; f ()) -&gt; Kind -&gt; f ())
+ -&gt; Fold Kind Kind)
+-&gt; (forall (f :: * -&gt; *).
+    Applicative f =&gt;
+    (Kind -&gt; f ()) -&gt; Kind -&gt; f ())
+-&gt; Fold Kind Kind
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+forall (f :: * -&gt; *).
+Applicative f =&gt;
+Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+forall a. Monoid a =&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mempty</span></a></span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-101"></span><span>    </span><span id="local-6989586621679065018"><span class="annot"><span class="annottext">go :: Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679065017"><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span id="local-6989586621679065016"><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-102"></span><span>      </span><span id="local-6989586621679065015"><span class="annot"><span class="annottext">var :: Kind
+</span><a href="#local-6989586621679065015"><span class="hs-identifier hs-var">var</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">VarT</span></a></span><span> </span><span id="local-6989586621679065014"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065014"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span>          </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065014"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Set Name -&gt; Bool
+forall a. Ord a =&gt; a -&gt; Set a -&gt; Bool
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Set.member`</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">() -&gt; f ()
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065015"><span class="hs-identifier hs-var">var</span></a></span><span>
+</span><span id="line-103"></span><span>      </span><span id="local-6989586621679065013"><span class="annot"><span class="annottext">var :: Kind
+</span><a href="#local-6989586621679065013"><span class="hs-identifier hs-var">var</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">SigT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">VarT</span></a></span><span> </span><span id="local-6989586621679065012"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065012"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Kind
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679065012"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Set Name -&gt; Bool
+forall a. Ord a =&gt; a -&gt; Set a -&gt; Bool
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Set.member`</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">() -&gt; f ()
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065013"><span class="hs-identifier hs-var">var</span></a></span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppT</span></a></span><span> </span><span id="local-6989586621679065011"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065011"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679065010"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065010"><span class="hs-identifier hs-var">r</span></a></span></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065011"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">f () -&gt; f () -&gt; f ()
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065010"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-106"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">SigT</span></a></span><span> </span><span id="local-6989586621679065009"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065009"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679065008"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065008"><span class="hs-identifier hs-var">k</span></a></span></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065009"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">f () -&gt; f () -&gt; f ()
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065008"><span class="hs-identifier hs-var">k</span></a></span><span>
+</span><span id="line-107"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallT</span></a></span><span> </span><span id="local-6989586621679065007"><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679065007"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span id="local-6989586621679065006"><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679065006"><span class="hs-identifier hs-var">ctx</span></a></span></span><span> </span><span id="local-6989586621679065005"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065005"><span class="hs-identifier hs-var">ty</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679065004"><span class="annot"><span class="annottext">s' :: Set Name
+</span><a href="#local-6989586621679065004"><span class="hs-identifier hs-var hs-var">s'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; Set Name -&gt; Set Name
+forall a. Ord a =&gt; Set a -&gt; Set a -&gt; Set a
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Set.union`</span></a></span><span> </span><span class="annot"><span class="annottext">Optic' A_Traversal NoIx [TyVarBndr_ flag] Name
+-&gt; [TyVarBndr_ flag] -&gt; Set Name
+forall k a (is :: IxList) s.
+(Is k A_Fold, Ord a) =&gt;
+Optic' k is s a -&gt; s -&gt; Set a
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">setOf</span></a></span><span> </span><span class="annot"><span class="annottext">Optic' A_Traversal NoIx [TyVarBndr_ flag] Name
+forall t. HasTypeVars t =&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier hs-var">typeVars</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679065007"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-108"></span><span>                            </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; f ()) -&gt; Cxt -&gt; f ()
+forall (t :: * -&gt; *) (f :: * -&gt; *) a b.
+(Foldable t, Applicative f) =&gt;
+(a -&gt; f b) -&gt; t a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">traverse_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065004"><span class="hs-identifier hs-var">s'</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679065006"><span class="hs-identifier hs-var">ctx</span></a></span><span> </span><span class="annot"><span class="annottext">f () -&gt; f () -&gt; f ()
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065004"><span class="hs-identifier hs-var">s'</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065005"><span class="hs-identifier hs-var">ty</span></a></span><span>
+</span><span id="line-109"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">InfixT</span></a></span><span>  </span><span id="local-6989586621679065003"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065003"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span class="annot"><span class="annottext">Name
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679065002"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065002"><span class="hs-identifier hs-var">t2</span></a></span></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065003"><span class="hs-identifier hs-var">t1</span></a></span><span> </span><span class="annot"><span class="annottext">f () -&gt; f () -&gt; f ()
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065002"><span class="hs-identifier hs-var">t2</span></a></span><span>
+</span><span id="line-110"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">UInfixT</span></a></span><span> </span><span id="local-6989586621679065001"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065001"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span class="annot"><span class="annottext">Name
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679065000"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065000"><span class="hs-identifier hs-var">t2</span></a></span></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065001"><span class="hs-identifier hs-var">t1</span></a></span><span> </span><span class="annot"><span class="annottext">f () -&gt; f () -&gt; f ()
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679065000"><span class="hs-identifier hs-var">t2</span></a></span><span>
+</span><span id="line-111"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ParensT</span></a></span><span> </span><span id="local-6989586621679064999"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064999"><span class="hs-identifier hs-var">t</span></a></span></span><span>          </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064999"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-cpp">
+#if MIN_VERSION_template_haskell(2,15,0)
+</span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppKindT</span></a></span><span> </span><span id="local-6989586621679064998"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064998"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679064997"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064997"><span class="hs-identifier hs-var">k</span></a></span></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064998"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">f () -&gt; f () -&gt; f ()
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064997"><span class="hs-identifier hs-var">k</span></a></span><span>
+</span><span id="line-114"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ImplicitParamT</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679064996"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064996"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Set Name -&gt; (Kind -&gt; f ()) -&gt; Kind -&gt; f ()
+</span><a href="#local-6989586621679065018"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Set Name
+</span><a href="#local-6989586621679065017"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; f ()
+</span><a href="#local-6989586621679065016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064996"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-cpp">
+#endif
+</span><span>      </span><span class="annot"><span class="annottext">Kind
+</span><span class="hs-identifier">_</span></span><span>                 </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; f ()
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- | Substitute using a map of names in for /free/ type variables</span><span>
+</span><span id="line-119"></span><span id="local-6989586621679064995"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substTypeVars"><span class="hs-identifier hs-type">substTypeVars</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#HasTypeVars"><span class="hs-identifier hs-type">HasTypeVars</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679064995"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679064995"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679064995"><span class="hs-identifier hs-type">t</span></a></span></span><span>
+</span><span id="line-120"></span><span id="substTypeVars"><span class="annot"><span class="annottext">substTypeVars :: Map Name Name -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substTypeVars"><span class="hs-identifier hs-var hs-var">substTypeVars</span></a></span></span><span> </span><span id="local-6989586621679064994"><span class="annot"><span class="annottext">Map Name Name
+</span><a href="#local-6989586621679064994"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Optic A_Traversal NoIx t t Name Name -&gt; (Name -&gt; Name) -&gt; t -&gt; t
+forall k (is :: IxList) s t a b.
+Is k A_Setter =&gt;
+Optic k is s t a b -&gt; (a -&gt; b) -&gt; s -&gt; t
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">over</span></a></span><span> </span><span class="annot"><span class="annottext">Optic A_Traversal NoIx t t Name Name
+forall t. HasTypeVars t =&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier hs-var">typeVars</span></a></span><span> </span><span class="annot"><span class="annottext">((Name -&gt; Name) -&gt; t -&gt; t) -&gt; (Name -&gt; Name) -&gt; t -&gt; t
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679064992"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064992"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Maybe Name -&gt; Name
+forall a. a -&gt; Maybe a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064992"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064992"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Map Name Name -&gt; Maybe Name
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Map.lookup`</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Name
+</span><a href="#local-6989586621679064994"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span class="hs-comment">-- | Provides substitution for types</span><span>
+</span><span id="line-123"></span><span class="hs-keyword">class</span><span> </span><span id="SubstType"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#SubstType"><span class="hs-identifier hs-var">SubstType</span></a></span></span><span> </span><span id="local-6989586621679065128"><span class="annot"><a href="#local-6989586621679065128"><span class="hs-identifier hs-type">t</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-comment">-- | Perform substitution for types</span><span>
+</span><span id="line-125"></span><span>  </span><span id="substType"><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-type">substType</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier hs-type">Map</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679065128"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679065128"><span class="hs-identifier hs-type">t</span></a></span><span>
+</span><span id="line-126"></span><span>
+</span><span id="line-127"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#SubstType"><span class="hs-identifier hs-type">SubstType</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-128"></span><span>  </span><span id="local-6989586621679064987"><span class="annot"><span class="annottext">substType :: Map Name Kind -&gt; Kind -&gt; Kind
+</span><a href="#local-6989586621679064987"><span class="hs-identifier hs-var hs-var hs-var hs-var">substType</span></a></span></span><span> </span><span id="local-6989586621679064986"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064986"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span id="local-6989586621679064985"><span class="annot"><span class="annottext">t :: Kind
+</span><a href="#local-6989586621679064985"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">VarT</span></a></span><span> </span><span id="local-6989586621679064984"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064984"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Maybe Kind -&gt; Kind
+forall a. a -&gt; Maybe a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromMaybe</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064985"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064984"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Map Name Kind -&gt; Maybe Kind
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><a href="../../../../containers/html/src"><span class="hs-operator hs-var">`Map.lookup`</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064986"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-129"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064983"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064983"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallT</span></a></span><span> </span><span id="local-6989586621679064982"><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064982"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span id="local-6989586621679064981"><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679064981"><span class="hs-identifier hs-var">ctx</span></a></span></span><span> </span><span id="local-6989586621679064980"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064980"><span class="hs-identifier hs-var">ty</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag] -&gt; Cxt -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ForallT</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064982"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Cxt -&gt; Cxt
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064979"><span class="hs-identifier hs-var">m'</span></a></span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679064981"><span class="hs-identifier hs-var">ctx</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064979"><span class="hs-identifier hs-var">m'</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064980"><span class="hs-identifier hs-var">ty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span>    </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679064979"><span class="annot"><span class="annottext">m' :: Map Name Kind
+</span><a href="#local-6989586621679064979"><span class="hs-identifier hs-var hs-var">m'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Optic' A_Traversal NoIx [TyVarBndr_ flag] Name
+-&gt; (Name -&gt; Map Name Kind -&gt; Map Name Kind)
+-&gt; Map Name Kind
+-&gt; [TyVarBndr_ flag]
+-&gt; Map Name Kind
+forall k (is :: IxList) s a r.
+Is k A_Fold =&gt;
+Optic' k is s a -&gt; (a -&gt; r -&gt; r) -&gt; r -&gt; s -&gt; r
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">foldrOf</span></a></span><span> </span><span class="annot"><span class="annottext">Optic' A_Traversal NoIx [TyVarBndr_ flag] Name
+forall t. HasTypeVars t =&gt; Traversal' t Name
+</span><a href="Language.Haskell.TH.Optics.Internal.html#typeVars"><span class="hs-identifier hs-var">typeVars</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Map Name Kind -&gt; Map Name Kind
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.delete</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064983"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064982"><span class="hs-identifier hs-var">bs</span></a></span><span>
+</span><span id="line-131"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064976"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064976"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">SigT</span></a></span><span> </span><span id="local-6989586621679064975"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064975"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679064974"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064974"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">SigT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064976"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064975"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064976"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064974"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064973"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064973"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppT</span></a></span><span> </span><span id="local-6989586621679064972"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064972"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679064971"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064971"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064973"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064972"><span class="hs-identifier hs-var">l</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064973"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064971"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064970"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064970"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">InfixT</span></a></span><span>  </span><span id="local-6989586621679064969"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064969"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679064968"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064968"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679064967"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064967"><span class="hs-identifier hs-var">t2</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Name -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">InfixT</span></a></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064970"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064969"><span class="hs-identifier hs-var">t1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064968"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064970"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064967"><span class="hs-identifier hs-var">t2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-134"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064966"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064966"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">UInfixT</span></a></span><span> </span><span id="local-6989586621679064965"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064965"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679064964"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064964"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679064963"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064963"><span class="hs-identifier hs-var">t2</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Name -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">UInfixT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064966"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064965"><span class="hs-identifier hs-var">t1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679064964"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064966"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064963"><span class="hs-identifier hs-var">t2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064962"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064962"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ParensT</span></a></span><span> </span><span id="local-6989586621679064961"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064961"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span>         </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ParensT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064962"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064961"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span class="hs-cpp">
+#if MIN_VERSION_template_haskell(2,15,0)
+</span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064960"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064960"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppKindT</span></a></span><span> </span><span id="local-6989586621679064959"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064959"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679064958"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064958"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppKindT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064960"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064959"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064960"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064958"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-138"></span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span id="local-6989586621679064957"><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064957"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ImplicitParamT</span></a></span><span> </span><span id="local-6989586621679064956"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679064956"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679064955"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064955"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ImplicitParamT</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679064956"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map Name Kind -&gt; Kind -&gt; Kind
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><a href="#local-6989586621679064957"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064955"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span>  </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679064954"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064954"><span class="hs-identifier hs-var">t</span></a></span></span><span>                   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064954"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-141"></span><span>
+</span><span id="line-142"></span><span id="local-6989586621679064953"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#SubstType"><span class="hs-identifier hs-type">SubstType</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679064953"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#SubstType"><span class="hs-identifier hs-type">SubstType</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679064953"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-143"></span><span>  </span><span id="local-6989586621679064951"><span class="annot"><span class="annottext">substType :: Map Name Kind -&gt; [t] -&gt; [t]
+</span><a href="#local-6989586621679064951"><span class="hs-identifier hs-var hs-var hs-var hs-var">substType</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(t -&gt; t) -&gt; [t] -&gt; [t]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">((t -&gt; t) -&gt; [t] -&gt; [t])
+-&gt; (Map Name Kind -&gt; t -&gt; t) -&gt; Map Name Kind -&gt; [t] -&gt; [t]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Map Name Kind -&gt; t -&gt; t
+forall t. SubstType t =&gt; Map Name Kind -&gt; t -&gt; t
+</span><a href="Language.Haskell.TH.Optics.Internal.html#substType"><span class="hs-identifier hs-var">substType</span></a></span></span><span>
+</span><span id="line-144"></span><span>
+</span><span id="line-145"></span><span>
+</span><span id="line-146"></span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_FamilyI"><span class="hs-identifier hs-type">_FamilyI</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Prism'</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Info</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">InstanceDec</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-147"></span><span id="_FamilyI"><span class="annot"><span class="annottext">_FamilyI :: Prism' Info (Dec, [Dec])
+</span><a href="Language.Haskell.TH.Optics.Internal.html#_FamilyI"><span class="hs-identifier hs-var hs-var">_FamilyI</span></a></span></span><span>
+</span><span id="line-148"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Dec, [Dec]) -&gt; Info)
+-&gt; (Info -&gt; Maybe (Dec, [Dec])) -&gt; Prism' Info (Dec, [Dec])
+forall b s a. (b -&gt; s) -&gt; (s -&gt; Maybe a) -&gt; Prism s s a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">prism'</span></a></span><span> </span><span class="annot"><span class="annottext">(Dec, [Dec]) -&gt; Info
+</span><a href="#local-6989586621679064947"><span class="hs-identifier hs-var">reviewer</span></a></span><span> </span><span class="annot"><span class="annottext">Info -&gt; Maybe (Dec, [Dec])
+</span><a href="#local-6989586621679064946"><span class="hs-identifier hs-var">remitter</span></a></span><span>
+</span><span id="line-149"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-150"></span><span>      </span><span id="local-6989586621679064947"><span class="annot"><span class="annottext">reviewer :: (Dec, [Dec]) -&gt; Info
+</span><a href="#local-6989586621679064947"><span class="hs-identifier hs-var hs-var">reviewer</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679064945"><span class="annot"><span class="annottext">Dec
+</span><a href="#local-6989586621679064945"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679064944"><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679064944"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Dec -&gt; [Dec] -&gt; Info
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">FamilyI</span></a></span><span> </span><span class="annot"><span class="annottext">Dec
+</span><a href="#local-6989586621679064945"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679064944"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-151"></span><span>      </span><span id="local-6989586621679064946"><span class="annot"><span class="annottext">remitter :: Info -&gt; Maybe (Dec, [Dec])
+</span><a href="#local-6989586621679064946"><span class="hs-identifier hs-var hs-var">remitter</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">FamilyI</span></a></span><span> </span><span id="local-6989586621679064942"><span class="annot"><span class="annottext">Dec
+</span><a href="#local-6989586621679064942"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679064941"><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679064941"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Dec, [Dec]) -&gt; Maybe (Dec, [Dec])
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Dec
+</span><a href="#local-6989586621679064942"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679064941"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-152"></span><span>      </span><span class="annot"><a href="#local-6989586621679064946"><span class="hs-identifier hs-var">remitter</span></a></span><span> </span><span class="annot"><span class="annottext">Info
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (Dec, [Dec])
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-153"></span><span>
+</span><span id="line-154"></span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_ClosedTypeFamilyD"><span class="hs-identifier hs-type">_ClosedTypeFamilyD</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Prism'</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">TypeFamilyHead</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">TySynEqn</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-155"></span><span id="_ClosedTypeFamilyD"><span class="annot"><span class="annottext">_ClosedTypeFamilyD :: Prism' Dec (TypeFamilyHead, [TySynEqn])
+</span><a href="Language.Haskell.TH.Optics.Internal.html#_ClosedTypeFamilyD"><span class="hs-identifier hs-var hs-var">_ClosedTypeFamilyD</span></a></span></span><span>
+</span><span id="line-156"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((TypeFamilyHead, [TySynEqn]) -&gt; Dec)
+-&gt; (Dec -&gt; Maybe (TypeFamilyHead, [TySynEqn]))
+-&gt; Prism' Dec (TypeFamilyHead, [TySynEqn])
+forall b s a. (b -&gt; s) -&gt; (s -&gt; Maybe a) -&gt; Prism s s a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">prism'</span></a></span><span> </span><span class="annot"><span class="annottext">(TypeFamilyHead, [TySynEqn]) -&gt; Dec
+</span><a href="#local-6989586621679064940"><span class="hs-identifier hs-var">reviewer</span></a></span><span> </span><span class="annot"><span class="annottext">Dec -&gt; Maybe (TypeFamilyHead, [TySynEqn])
+</span><a href="#local-6989586621679064939"><span class="hs-identifier hs-var">remitter</span></a></span><span>
+</span><span id="line-157"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-158"></span><span>      </span><span id="local-6989586621679064940"><span class="annot"><span class="annottext">reviewer :: (TypeFamilyHead, [TySynEqn]) -&gt; Dec
+</span><a href="#local-6989586621679064940"><span class="hs-identifier hs-var hs-var">reviewer</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679064938"><span class="annot"><span class="annottext">TypeFamilyHead
+</span><a href="#local-6989586621679064938"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679064937"><span class="annot"><span class="annottext">[TySynEqn]
+</span><a href="#local-6989586621679064937"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TypeFamilyHead -&gt; [TySynEqn] -&gt; Dec
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ClosedTypeFamilyD</span></a></span><span> </span><span class="annot"><span class="annottext">TypeFamilyHead
+</span><a href="#local-6989586621679064938"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">[TySynEqn]
+</span><a href="#local-6989586621679064937"><span class="hs-identifier hs-var">y</span></a></span><span>
+</span><span id="line-159"></span><span>      </span><span id="local-6989586621679064939"><span class="annot"><span class="annottext">remitter :: Dec -&gt; Maybe (TypeFamilyHead, [TySynEqn])
+</span><a href="#local-6989586621679064939"><span class="hs-identifier hs-var hs-var">remitter</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ClosedTypeFamilyD</span></a></span><span> </span><span id="local-6989586621679064935"><span class="annot"><span class="annottext">TypeFamilyHead
+</span><a href="#local-6989586621679064935"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679064934"><span class="annot"><span class="annottext">[TySynEqn]
+</span><a href="#local-6989586621679064934"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(TypeFamilyHead, [TySynEqn]) -&gt; Maybe (TypeFamilyHead, [TySynEqn])
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TypeFamilyHead
+</span><a href="#local-6989586621679064935"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[TySynEqn]
+</span><a href="#local-6989586621679064934"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-160"></span><span>      </span><span class="annot"><a href="#local-6989586621679064939"><span class="hs-identifier hs-var">remitter</span></a></span><span> </span><span class="annot"><span class="annottext">Dec
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (TypeFamilyHead, [TySynEqn])
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-161"></span><span>
+</span><span id="line-162"></span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_OpenTypeFamilyD"><span class="hs-identifier hs-type">_OpenTypeFamilyD</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Prism'</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">TypeFamilyHead</span></a></span><span>
+</span><span id="line-163"></span><span id="_OpenTypeFamilyD"><span class="annot"><span class="annottext">_OpenTypeFamilyD :: Prism' Dec TypeFamilyHead
+</span><a href="Language.Haskell.TH.Optics.Internal.html#_OpenTypeFamilyD"><span class="hs-identifier hs-var hs-var">_OpenTypeFamilyD</span></a></span></span><span>
+</span><span id="line-164"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(TypeFamilyHead -&gt; Dec)
+-&gt; (Dec -&gt; Maybe TypeFamilyHead) -&gt; Prism' Dec TypeFamilyHead
+forall b s a. (b -&gt; s) -&gt; (s -&gt; Maybe a) -&gt; Prism s s a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">prism'</span></a></span><span> </span><span class="annot"><span class="annottext">TypeFamilyHead -&gt; Dec
+</span><a href="#local-6989586621679064933"><span class="hs-identifier hs-var">reviewer</span></a></span><span> </span><span class="annot"><span class="annottext">Dec -&gt; Maybe TypeFamilyHead
+</span><a href="#local-6989586621679064932"><span class="hs-identifier hs-var">remitter</span></a></span><span>
+</span><span id="line-165"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-166"></span><span>      </span><span id="local-6989586621679064933"><span class="annot"><span class="annottext">reviewer :: TypeFamilyHead -&gt; Dec
+</span><a href="#local-6989586621679064933"><span class="hs-identifier hs-var hs-var">reviewer</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TypeFamilyHead -&gt; Dec
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">OpenTypeFamilyD</span></a></span><span>
+</span><span id="line-167"></span><span>      </span><span id="local-6989586621679064932"><span class="annot"><span class="annottext">remitter :: Dec -&gt; Maybe TypeFamilyHead
+</span><a href="#local-6989586621679064932"><span class="hs-identifier hs-var hs-var">remitter</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">OpenTypeFamilyD</span></a></span><span> </span><span id="local-6989586621679064930"><span class="annot"><span class="annottext">TypeFamilyHead
+</span><a href="#local-6989586621679064930"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TypeFamilyHead -&gt; Maybe TypeFamilyHead
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">TypeFamilyHead
+</span><a href="#local-6989586621679064930"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-168"></span><span>      </span><span class="annot"><a href="#local-6989586621679064932"><span class="hs-identifier hs-var">remitter</span></a></span><span> </span><span class="annot"><span class="annottext">Dec
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe TypeFamilyHead
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span class="annot"><a href="Language.Haskell.TH.Optics.Internal.html#_ForallT"><span class="hs-identifier hs-type">_ForallT</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-type">Prism'</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="../../../../th-abstraction/html/src"><span class="hs-identifier hs-type">TyVarBndrSpec</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Cxt</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-171"></span><span id="_ForallT"><span class="annot"><span class="annottext">_ForallT :: Prism' Kind ([TyVarBndr_ flag], Cxt, Kind)
+</span><a href="Language.Haskell.TH.Optics.Internal.html#_ForallT"><span class="hs-identifier hs-var hs-var">_ForallT</span></a></span></span><span>
+</span><span id="line-172"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(([TyVarBndr_ flag], Cxt, Kind) -&gt; Kind)
+-&gt; (Kind -&gt; Maybe ([TyVarBndr_ flag], Cxt, Kind))
+-&gt; Prism' Kind ([TyVarBndr_ flag], Cxt, Kind)
+forall b s a. (b -&gt; s) -&gt; (s -&gt; Maybe a) -&gt; Prism s s a b
+</span><a href="../../../../optics-core/html/src"><span class="hs-identifier hs-var">prism'</span></a></span><span> </span><span class="annot"><span class="annottext">([TyVarBndr_ flag], Cxt, Kind) -&gt; Kind
+</span><a href="#local-6989586621679064929"><span class="hs-identifier hs-var">reviewer</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Maybe ([TyVarBndr_ flag], Cxt, Kind)
+</span><a href="#local-6989586621679064928"><span class="hs-identifier hs-var">remitter</span></a></span><span>
+</span><span id="line-173"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-174"></span><span>      </span><span id="local-6989586621679064929"><span class="annot"><span class="annottext">reviewer :: ([TyVarBndr_ flag], Cxt, Kind) -&gt; Kind
+</span><a href="#local-6989586621679064929"><span class="hs-identifier hs-var hs-var">reviewer</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679064927"><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064927"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679064926"><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679064926"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679064925"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064925"><span class="hs-identifier hs-var">z</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag] -&gt; Cxt -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ForallT</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064927"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679064926"><span class="hs-identifier hs-var">y</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064925"><span class="hs-identifier hs-var">z</span></a></span><span>
+</span><span id="line-175"></span><span>      </span><span id="local-6989586621679064928"><span class="annot"><span class="annottext">remitter :: Kind -&gt; Maybe ([TyVarBndr_ flag], Cxt, Kind)
+</span><a href="#local-6989586621679064928"><span class="hs-identifier hs-var hs-var">remitter</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallT</span></a></span><span> </span><span id="local-6989586621679064924"><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064924"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679064923"><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679064923"><span class="hs-identifier hs-var">y</span></a></span></span><span> </span><span id="local-6989586621679064922"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064922"><span class="hs-identifier hs-var">z</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([TyVarBndr_ flag], Cxt, Kind)
+-&gt; Maybe ([TyVarBndr_ flag], Cxt, Kind)
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[TyVarBndr_ flag]
+</span><a href="#local-6989586621679064924"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679064923"><span class="hs-identifier hs-var">y</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679064922"><span class="hs-identifier hs-var">z</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-176"></span><span>      </span><span class="annot"><a href="#local-6989586621679064928"><span class="hs-identifier hs-var">remitter</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe ([TyVarBndr_ flag], Cxt, Kind)
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-177"></span></pre></body></html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Copyright: &#169; 2018-2020 IOHK</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Utility function for finding the package test data directory.</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Test.Utils.Paths</span><span>
+</span><span id="line-8"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Test.Utils.Paths.html#getTestData"><span class="hs-identifier">getTestData</span></a></span><span>
+</span><span id="line-9"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Test.Utils.Paths.html#getTestDataPath"><span class="hs-identifier">getTestDataPath</span></a></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Test.Utils.Paths.html#inNixBuild"><span class="hs-identifier">inNixBuild</span></a></span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad.IO.Class</span></a></span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">liftIO</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../file-embed/html/src"><span class="hs-identifier">Data.FileEmbed</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../file-embed/html/src"><span class="hs-identifier">makeRelativeToProject</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier">Language.Haskell.TH.Syntax</span></a></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier">Exp</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier">Q</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier">liftData</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">System.Environment</span></a></span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">lookupEnv</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-identifier">System.FilePath</span></a></span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-operator">(&lt;/&gt;)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- | A TH function to get the test data directory.</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- It combines the current source file location and cabal file to locate the</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- package directory in such a way that works in both the stack/cabal package</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- build and ghci.</span><span>
+</span><span id="line-31"></span><span class="hs-comment">--</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- For the Nix build, rather than baking in a path that starts with @/build@, it</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- makes the test data path relative to the current directory.</span><span>
+</span><span id="line-34"></span><span class="annot"><a href="Test.Utils.Paths.html#getTestData"><span class="hs-identifier hs-type">getTestData</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Exp</span></a></span><span>
+</span><span id="line-35"></span><span id="getTestData"><span class="annot"><span class="annottext">getTestData :: Q Exp
+</span><a href="Test.Utils.Paths.html#getTestData"><span class="hs-identifier hs-var hs-var">getTestData</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Q Exp
+</span><a href="Test.Utils.Paths.html#getTestDataPath"><span class="hs-identifier hs-var">getTestDataPath</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;test&quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;data&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- | A variant of 'getTestData' which lets you specify the test data 'FilePath'</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- relative to the package root directory.</span><span>
+</span><span id="line-39"></span><span class="annot"><a href="Test.Utils.Paths.html#getTestDataPath"><span class="hs-identifier hs-type">getTestDataPath</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Exp</span></a></span><span>
+</span><span id="line-40"></span><span id="getTestDataPath"><span class="annot"><span class="annottext">getTestDataPath :: FilePath -&gt; Q Exp
+</span><a href="Test.Utils.Paths.html#getTestDataPath"><span class="hs-identifier hs-var hs-var">getTestDataPath</span></a></span></span><span> </span><span id="local-6989586621679138634"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138634"><span class="hs-identifier hs-var">relPath</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-41"></span><span>    </span><span id="local-6989586621679138633"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138633"><span class="hs-identifier hs-var">absPath</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Q FilePath
+</span><a href="../../../../file-embed/html/src"><span class="hs-identifier hs-var">makeRelativeToProject</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138634"><span class="hs-identifier hs-var">relPath</span></a></span><span>
+</span><span id="line-42"></span><span>    </span><span id="local-6989586621679138632"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679138632"><span class="hs-identifier hs-var">useRel</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Bool -&gt; Q Bool
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftIO</span></a></span><span> </span><span class="annot"><span class="annottext">IO Bool
+</span><a href="Test.Utils.Paths.html#inNixBuild"><span class="hs-identifier hs-var">inNixBuild</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="annot"><span class="annottext">FilePath -&gt; Q Exp
+forall a. Data a =&gt; a -&gt; Q Exp
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">liftData</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679138632"><span class="hs-identifier hs-var">useRel</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138634"><span class="hs-identifier hs-var">relPath</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679138633"><span class="hs-identifier hs-var">absPath</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- | Infer from environment variables whether we are running within a Nix build</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- (and not just a nix-shell).</span><span>
+</span><span id="line-47"></span><span class="annot"><a href="Test.Utils.Paths.html#inNixBuild"><span class="hs-identifier hs-type">inNixBuild</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span>
+</span><span id="line-48"></span><span id="inNixBuild"><span class="annot"><span class="annottext">inNixBuild :: IO Bool
+</span><a href="Test.Utils.Paths.html#inNixBuild"><span class="hs-identifier hs-var hs-var">inNixBuild</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679138631"><span class="annot"><span class="annottext">testEnv :: FilePath -&gt; IO Bool
+</span><a href="#local-6989586621679138631"><span class="hs-identifier hs-var hs-var">testEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Maybe FilePath -&gt; Bool) -&gt; IO (Maybe FilePath) -&gt; IO Bool
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; (FilePath -&gt; Bool) -&gt; Maybe FilePath -&gt; Bool
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; (FilePath -&gt; Bool) -&gt; FilePath -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">null</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(IO (Maybe FilePath) -&gt; IO Bool)
+-&gt; (FilePath -&gt; IO (Maybe FilePath)) -&gt; FilePath -&gt; IO Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO (Maybe FilePath)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">lookupEnv</span></a></span><span>
+</span><span id="line-50"></span><span>    </span><span id="local-6989586621679138626"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679138626"><span class="hs-identifier hs-var">haveNixBuildDir</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO Bool
+</span><a href="#local-6989586621679138631"><span class="hs-identifier hs-var">testEnv</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;NIX_BUILD_TOP&quot;</span></span><span>
+</span><span id="line-51"></span><span>    </span><span id="local-6989586621679138625"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679138625"><span class="hs-identifier hs-var">inNixShell</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO Bool
+</span><a href="#local-6989586621679138631"><span class="hs-identifier hs-var">testEnv</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;IN_NIX_SHELL&quot;</span></span><span>
+</span><span id="line-52"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; IO Bool
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679138626"><span class="hs-identifier hs-var">haveNixBuildDir</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&amp;&amp;</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">not</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679138625"><span class="hs-identifier hs-var">inNixShell</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span></pre></body></html>

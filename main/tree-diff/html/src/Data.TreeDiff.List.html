@@ -1,0 +1,640 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE BangPatterns #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- | A list diff.</span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.TreeDiff.List</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-5"></span><span>    </span><span class="annot"><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier">diffBy</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-6"></span><span>    </span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier">Edit</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-7"></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">Control.DeepSeq</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier">NFData</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad.ST</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">ST</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">runST</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../primitive/html/src"><span class="hs-identifier">Data.Primitive</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">P</span></span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- import Debug.Trace</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- | List edit operations</span><span>
+</span><span id="line-17"></span><span class="hs-comment">--</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- The 'Swp' constructor is redundant, but it let us spot</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- a recursion point when performing tree diffs.</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">data</span><span> </span><span id="Edit"><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-var">Edit</span></a></span></span><span> </span><span id="local-6989586621679089432"><span class="annot"><a href="#local-6989586621679089432"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span id="Ins"><span class="annot"><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-var">Ins</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679089432"><span class="hs-identifier hs-type">a</span></a></span><span>    </span><span class="hs-comment">-- ^ insert</span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="Del"><span class="annot"><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-var">Del</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679089432"><span class="hs-identifier hs-type">a</span></a></span><span>    </span><span class="hs-comment">-- ^ delete</span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="Cpy"><span class="annot"><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-var">Cpy</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679089432"><span class="hs-identifier hs-type">a</span></a></span><span>    </span><span class="hs-comment">-- ^ copy unchanged</span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="Swp"><span class="annot"><a href="Data.TreeDiff.List.html#Swp"><span class="hs-identifier hs-var">Swp</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679089432"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089432"><span class="hs-identifier hs-type">a</span></a></span><span>  </span><span class="hs-comment">-- ^ swap, i.e. delete + insert</span><span>
+</span><span id="line-25"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679089376"><span id="local-6989586621679089378"><span class="annot"><span class="annottext">Edit a -&gt; Edit a -&gt; Bool
+(Edit a -&gt; Edit a -&gt; Bool)
+-&gt; (Edit a -&gt; Edit a -&gt; Bool) -&gt; Eq (Edit a)
+forall a. Eq a =&gt; Edit a -&gt; Edit a -&gt; Bool
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: Edit a -&gt; Edit a -&gt; Bool
+$c/= :: forall a. Eq a =&gt; Edit a -&gt; Edit a -&gt; Bool
+== :: Edit a -&gt; Edit a -&gt; Bool
+$c== :: forall a. Eq a =&gt; Edit a -&gt; Edit a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679089369"><span id="local-6989586621679089371"><span id="local-6989586621679089373"><span class="annot"><span class="annottext">Int -&gt; Edit a -&gt; ShowS
+[Edit a] -&gt; ShowS
+Edit a -&gt; String
+(Int -&gt; Edit a -&gt; ShowS)
+-&gt; (Edit a -&gt; String) -&gt; ([Edit a] -&gt; ShowS) -&gt; Show (Edit a)
+forall a. Show a =&gt; Int -&gt; Edit a -&gt; ShowS
+forall a. Show a =&gt; [Edit a] -&gt; ShowS
+forall a. Show a =&gt; Edit a -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [Edit a] -&gt; ShowS
+$cshowList :: forall a. Show a =&gt; [Edit a] -&gt; ShowS
+show :: Edit a -&gt; String
+$cshow :: forall a. Show a =&gt; Edit a -&gt; String
+showsPrec :: Int -&gt; Edit a -&gt; ShowS
+$cshowsPrec :: forall a. Show a =&gt; Int -&gt; Edit a -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span id="local-6989586621679089367"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-type">NFData</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089367"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-type">NFData</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089367"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-28"></span><span>    </span><span id="local-6989586621679089364"><span class="annot"><span class="annottext">rnf :: Edit a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">rnf</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-type">Ins</span></a></span><span> </span><span id="local-6989586621679089362"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089362"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089362"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-type">Del</span></a></span><span> </span><span id="local-6989586621679089361"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089361"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089361"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-30"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-type">Cpy</span></a></span><span> </span><span id="local-6989586621679089360"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089360"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089360"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Swp"><span class="hs-identifier hs-type">Swp</span></a></span><span> </span><span id="local-6989586621679089359"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089359"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679089358"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089358"><span class="hs-identifier hs-var">y</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089359"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">() -&gt; () -&gt; ()
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">`seq`</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.4.0/src"><span class="hs-identifier hs-var">rnf</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089358"><span class="hs-identifier hs-var">y</span></a></span></span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- | List difference.</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- &gt;&gt;&gt; diffBy (==) &quot;hello&quot; &quot;world&quot;</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- [Swp 'h' 'w',Swp 'e' 'o',Swp 'l' 'r',Cpy 'l',Swp 'o' 'd']</span><span>
+</span><span id="line-37"></span><span class="hs-comment">--</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- &gt;&gt;&gt; diffBy (==) &quot;kitten&quot; &quot;sitting&quot;</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- [Swp 'k' 's',Cpy 'i',Cpy 't',Cpy 't',Swp 'e' 'i',Cpy 'n',Ins 'g']</span><span>
+</span><span id="line-40"></span><span class="hs-comment">--</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- prop&gt; \xs ys -&gt; length (diffBy (==) xs ys) &gt;= max (length xs) (length (ys :: String))</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- prop&gt; \xs ys -&gt; length (diffBy (==) xs ys) &lt;= length xs + length (ys :: String)</span><span>
+</span><span id="line-43"></span><span class="hs-comment">--</span><span>
+</span><span id="line-44"></span><span class="annot"><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier hs-type">diffBy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679089357"><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-45"></span><span id="diffBy"><span class="annot"><span class="annottext">diffBy :: (a -&gt; a -&gt; Bool) -&gt; [a] -&gt; [a] -&gt; [Edit a]
+</span><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier hs-var hs-var">diffBy</span></a></span></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-46"></span><span class="annot"><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier hs-var">diffBy</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-special">[</span><span class="hs-special">]</span><span>  </span><span id="local-6989586621679089356"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089356"><span class="hs-identifier hs-var">ys'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; Edit a) -&gt; [a] -&gt; [Edit a]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-var">Ins</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089356"><span class="hs-identifier hs-var">ys'</span></a></span><span>
+</span><span id="line-47"></span><span class="annot"><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier hs-var">diffBy</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+</span><span class="hs-identifier">_</span></span><span>  </span><span id="local-6989586621679089355"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089355"><span class="hs-identifier hs-var">xs'</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; Edit a) -&gt; [a] -&gt; [Edit a]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-var">Del</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089355"><span class="hs-identifier hs-var">xs'</span></a></span><span>
+</span><span id="line-48"></span><span class="annot"><a href="Data.TreeDiff.List.html#diffBy"><span class="hs-identifier hs-var">diffBy</span></a></span><span> </span><span id="local-6989586621679089354"><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+</span><a href="#local-6989586621679089354"><span class="hs-identifier hs-var">eq</span></a></span></span><span> </span><span id="local-6989586621679089353"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089353"><span class="hs-identifier hs-var">xs'</span></a></span></span><span> </span><span id="local-6989586621679089352"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089352"><span class="hs-identifier hs-var">ys'</span></a></span></span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Edit a] -&gt; [Edit a]
+forall a. [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">reverse</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cell [Edit a] -&gt; [Edit a]
+forall a. Cell a -&gt; a
+</span><a href="Data.TreeDiff.List.html#getCell"><span class="hs-identifier hs-var">getCell</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089349"><span class="hs-identifier hs-var">lcs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>    </span><span id="local-6989586621679089348"><span class="annot"><span class="annottext">xn :: Int
+</span><a href="#local-6989586621679089348"><span class="hs-identifier hs-var hs-var">xn</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[a] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089353"><span class="hs-identifier hs-var">xs'</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span id="local-6989586621679089346"><span class="annot"><span class="annottext">yn :: Int
+</span><a href="#local-6989586621679089346"><span class="hs-identifier hs-var hs-var">yn</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[a] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089352"><span class="hs-identifier hs-var">ys'</span></a></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span>    </span><span id="local-6989586621679089345"><span class="annot"><span class="annottext">xs :: Array a
+</span><a href="#local-6989586621679089345"><span class="hs-identifier hs-var hs-var">xs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [a] -&gt; Array a
+forall a. Int -&gt; [a] -&gt; Array a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.arrayFromListN</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089348"><span class="hs-identifier hs-var">xn</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089353"><span class="hs-identifier hs-var">xs'</span></a></span><span>
+</span><span id="line-55"></span><span>    </span><span id="local-6989586621679089343"><span class="annot"><span class="annottext">ys :: Array a
+</span><a href="#local-6989586621679089343"><span class="hs-identifier hs-var hs-var">ys</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [a] -&gt; Array a
+forall a. Int -&gt; [a] -&gt; Array a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.arrayFromListN</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089346"><span class="hs-identifier hs-var">yn</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679089352"><span class="hs-identifier hs-var">ys'</span></a></span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span>    </span><span class="annot"><a href="#local-6989586621679089349"><span class="hs-identifier hs-type">lcs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-58"></span><span>    </span><span id="local-6989586621679089349"><span class="annot"><span class="annottext">lcs :: Cell [Edit a]
+</span><a href="#local-6989586621679089349"><span class="hs-identifier hs-var hs-var">lcs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(forall s. ST s (Cell [Edit a])) -&gt; Cell [Edit a]
+forall a. (forall s. ST s a) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">runST</span></a></span><span> </span><span class="annot"><span class="annottext">((forall s. ST s (Cell [Edit a])) -&gt; Cell [Edit a])
+-&gt; (forall s. ST s (Cell [Edit a])) -&gt; Cell [Edit a]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-59"></span><span>        </span><span class="hs-comment">-- traceShowM (&quot;sizes&quot;, xn, yn)</span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span>        </span><span class="hs-comment">-- create two buffers.</span><span>
+</span><span id="line-62"></span><span>        </span><span id="local-6989586621679089342"><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089342"><span class="hs-identifier hs-var">buf1</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Cell [Edit a]
+-&gt; ST s (MutableArray (PrimState (ST s)) (Cell [Edit a]))
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+Int -&gt; a -&gt; m (MutableArray (PrimState m) a)
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.newArray</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089346"><span class="hs-identifier hs-var">yn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; [Edit a] -&gt; Cell [Edit a]
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-63"></span><span>        </span><span id="local-6989586621679089339"><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089339"><span class="hs-identifier hs-var">buf2</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Cell [Edit a]
+-&gt; ST s (MutableArray (PrimState (ST s)) (Cell [Edit a]))
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+Int -&gt; a -&gt; m (MutableArray (PrimState m) a)
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.newArray</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089346"><span class="hs-identifier hs-var">yn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; [Edit a] -&gt; Cell [Edit a]
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span>        </span><span class="hs-comment">-- fill the first row</span><span>
+</span><span id="line-66"></span><span>        </span><span class="hs-comment">-- 0,0 case is filled already</span><span>
+</span><span id="line-67"></span><span>        </span><span class="annot"><span class="annottext">Cell [Edit a]
+-&gt; (Int -&gt; Cell [Edit a] -&gt; ST s (Cell [Edit a])) -&gt; ST s ()
+forall acc s. acc -&gt; (Int -&gt; acc -&gt; ST s acc) -&gt; ST s ()
+</span><a href="#local-6989586621679089338"><span class="hs-identifier hs-var">yLoop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; [Edit a] -&gt; Cell [Edit a]
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">((Int -&gt; Cell [Edit a] -&gt; ST s (Cell [Edit a])) -&gt; ST s ())
+-&gt; (Int -&gt; Cell [Edit a] -&gt; ST s (Cell [Edit a])) -&gt; ST s ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679089337"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089337"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span id="local-6989586621679089336"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089336"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span id="local-6989586621679089335"><span class="annot"><span class="annottext">[Edit a]
+</span><a href="#local-6989586621679089335"><span class="hs-identifier hs-var">edit</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-68"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679089334"><span class="annot"><span class="annottext">cell :: Cell [Edit a]
+</span><a href="#local-6989586621679089334"><span class="hs-identifier hs-var hs-var">cell</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Edit a] -&gt; Cell [Edit a]
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089336"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-var">Ins</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Array a -&gt; Int -&gt; a
+forall a. Array a -&gt; Int -&gt; a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.indexArray</span></a></span><span> </span><span class="annot"><span class="annottext">Array a
+</span><a href="#local-6989586621679089343"><span class="hs-identifier hs-var">ys</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089337"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Edit a -&gt; [Edit a] -&gt; [Edit a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">[Edit a]
+</span><a href="#local-6989586621679089335"><span class="hs-identifier hs-var">edit</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>            </span><span class="annot"><span class="annottext">MutableArray (PrimState (ST s)) (Cell [Edit a])
+-&gt; Int -&gt; Cell [Edit a] -&gt; ST s ()
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MutableArray (PrimState m) a -&gt; Int -&gt; a -&gt; m ()
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.writeArray</span></a></span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+MutableArray (PrimState (ST s)) (Cell [Edit a])
+</span><a href="#local-6989586621679089342"><span class="hs-identifier hs-var">buf1</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089337"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089334"><span class="hs-identifier hs-var">cell</span></a></span><span>
+</span><span id="line-70"></span><span>            </span><span class="annot"><span class="annottext">MutableArray (PrimState (ST s)) (Cell [Edit a])
+-&gt; Int -&gt; Cell [Edit a] -&gt; ST s ()
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MutableArray (PrimState m) a -&gt; Int -&gt; a -&gt; m ()
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.writeArray</span></a></span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+MutableArray (PrimState (ST s)) (Cell [Edit a])
+</span><a href="#local-6989586621679089339"><span class="hs-identifier hs-var">buf2</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089337"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089334"><span class="hs-identifier hs-var">cell</span></a></span><span>
+</span><span id="line-71"></span><span>            </span><span class="hs-comment">-- traceShowM (&quot;init&quot;, m, cell)</span><span>
+</span><span id="line-72"></span><span>            </span><span class="annot"><span class="annottext">Cell [Edit a] -&gt; ST s (Cell [Edit a])
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089334"><span class="hs-identifier hs-var">cell</span></a></span><span>
+</span><span id="line-73"></span><span>
+</span><span id="line-74"></span><span>        </span><span class="hs-comment">-- following rows</span><span>
+</span><span id="line-75"></span><span>        </span><span class="hs-comment">--</span><span>
+</span><span id="line-76"></span><span>        </span><span class="hs-comment">-- cellC cellT</span><span>
+</span><span id="line-77"></span><span>        </span><span class="hs-comment">-- cellL cellX</span><span>
+</span><span id="line-78"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621679089330"><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089330"><span class="hs-identifier hs-var">buf1final</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+ Cell [Edit a])
+-&gt; (Int
+    -&gt; (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+        Cell [Edit a])
+    -&gt; ST
+         s
+         (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+          Cell [Edit a]))
+-&gt; ST
+     s
+     (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+      Cell [Edit a])
+forall acc s. acc -&gt; (Int -&gt; acc -&gt; ST s acc) -&gt; ST s acc
+</span><a href="#local-6989586621679089329"><span class="hs-identifier hs-var">xLoop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089342"><span class="hs-identifier hs-var">buf1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089339"><span class="hs-identifier hs-var">buf2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Edit a] -&gt; Cell [Edit a]
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">((Int
+  -&gt; (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+      Cell [Edit a])
+  -&gt; ST
+       s
+       (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+        Cell [Edit a]))
+ -&gt; ST
+      s
+      (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+       Cell [Edit a]))
+-&gt; (Int
+    -&gt; (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+        Cell [Edit a])
+    -&gt; ST
+         s
+         (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+          Cell [Edit a]))
+-&gt; ST
+     s
+     (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+      Cell [Edit a])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679089328"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089328"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679089327"><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089327"><span class="hs-identifier hs-var">prev</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679089326"><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089326"><span class="hs-identifier hs-var">curr</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679089325"><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089325"><span class="hs-identifier hs-var">cellC</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-79"></span><span>            </span><span class="hs-comment">-- prevZ &lt;- P.unsafeFreezeArray prev</span><span>
+</span><span id="line-80"></span><span>            </span><span class="hs-comment">-- currZ &lt;- P.unsafeFreezeArray prev</span><span>
+</span><span id="line-81"></span><span>            </span><span class="hs-comment">-- traceShowM (&quot;prev&quot;, n, prevZ)</span><span>
+</span><span id="line-82"></span><span>            </span><span class="hs-comment">-- traceShowM (&quot;curr&quot;, n, currZ)</span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679089324"><span class="hs-identifier hs-type">cellL</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-85"></span><span>                </span><span id="local-6989586621679089324"><span class="annot"><span class="annottext">cellL :: Cell [Edit a]
+</span><a href="#local-6989586621679089324"><span class="hs-identifier hs-var hs-var">cellL</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089325"><span class="hs-identifier hs-var">cellC</span></a></span><span> </span><span class="hs-keyword">of</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span id="local-6989586621679089323"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089323"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span id="local-6989586621679089322"><span class="annot"><span class="annottext">[Edit a]
+</span><a href="#local-6989586621679089322"><span class="hs-identifier hs-var">edit</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [Edit a] -&gt; Cell [Edit a]
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089323"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-var">Del</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Array a -&gt; Int -&gt; a
+forall a. Array a -&gt; Int -&gt; a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.indexArray</span></a></span><span> </span><span class="annot"><span class="annottext">Array a
+</span><a href="#local-6989586621679089345"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089328"><span class="hs-identifier hs-var">n</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Edit a -&gt; [Edit a] -&gt; [Edit a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">[Edit a]
+</span><a href="#local-6989586621679089322"><span class="hs-identifier hs-var">edit</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-86"></span><span>
+</span><span id="line-87"></span><span>            </span><span class="hs-comment">-- traceShowM (&quot;cellC, cellL&quot;, n, cellC, cellL)</span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span>            </span><span class="annot"><span class="annottext">(Cell [Edit a], Cell [Edit a])
+-&gt; (Int
+    -&gt; (Cell [Edit a], Cell [Edit a])
+    -&gt; ST s (Cell [Edit a], Cell [Edit a]))
+-&gt; ST s ()
+forall acc s. acc -&gt; (Int -&gt; acc -&gt; ST s acc) -&gt; ST s ()
+</span><a href="#local-6989586621679089338"><span class="hs-identifier hs-var">yLoop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089325"><span class="hs-identifier hs-var">cellC</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089324"><span class="hs-identifier hs-var">cellL</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">((Int
+  -&gt; (Cell [Edit a], Cell [Edit a])
+  -&gt; ST s (Cell [Edit a], Cell [Edit a]))
+ -&gt; ST s ())
+-&gt; (Int
+    -&gt; (Cell [Edit a], Cell [Edit a])
+    -&gt; ST s (Cell [Edit a], Cell [Edit a]))
+-&gt; ST s ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679089321"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089321"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679089320"><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089320"><span class="hs-identifier hs-var">cellC'</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679089319"><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089319"><span class="hs-identifier hs-var">cellL'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-90"></span><span>                </span><span class="hs-comment">-- traceShowM (&quot;inner loop&quot;, n, m)</span><span>
+</span><span id="line-91"></span><span>                </span><span id="local-6989586621679089318"><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089318"><span class="hs-identifier hs-var">cellT</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MutableArray (PrimState (ST s)) (Cell [Edit a])
+-&gt; Int -&gt; ST s (Cell [Edit a])
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MutableArray (PrimState m) a -&gt; Int -&gt; m a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.readArray</span></a></span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+MutableArray (PrimState (ST s)) (Cell [Edit a])
+</span><a href="#local-6989586621679089327"><span class="hs-identifier hs-var">prev</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089321"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span>                </span><span class="hs-comment">-- traceShowM (&quot;cellT&quot;, n, m, cellT)</span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span>                </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679089316"><span class="hs-identifier hs-type">x</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679089315"><span class="hs-identifier hs-type">y</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-96"></span><span>                    </span><span id="local-6989586621679089316"><span class="annot"><span class="annottext">x :: a
+</span><a href="#local-6989586621679089316"><span class="hs-identifier hs-var hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Array a -&gt; Int -&gt; a
+forall a. Array a -&gt; Int -&gt; a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.indexArray</span></a></span><span> </span><span class="annot"><span class="annottext">Array a
+</span><a href="#local-6989586621679089345"><span class="hs-identifier hs-var">xs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089328"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-97"></span><span>                    </span><span id="local-6989586621679089315"><span class="annot"><span class="annottext">y :: a
+</span><a href="#local-6989586621679089315"><span class="hs-identifier hs-var hs-var">y</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Array a -&gt; Int -&gt; a
+forall a. Array a -&gt; Int -&gt; a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.indexArray</span></a></span><span> </span><span class="annot"><span class="annottext">Array a
+</span><a href="#local-6989586621679089343"><span class="hs-identifier hs-var">ys</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089321"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span>                </span><span class="hs-comment">-- from diagonal</span><span>
+</span><span id="line-100"></span><span>                </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679089314"><span class="hs-identifier hs-type">cellX1</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-101"></span><span>                    </span><span id="local-6989586621679089314"><span class="annot"><span class="annottext">cellX1 :: Cell [Edit a]
+</span><a href="#local-6989586621679089314"><span class="hs-identifier hs-var hs-var">cellX1</span></a></span></span><span>
+</span><span id="line-102"></span><span>                        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+</span><a href="#local-6989586621679089354"><span class="hs-identifier hs-var">eq</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089316"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089315"><span class="hs-identifier hs-var">y</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Int)
+-&gt; ([Edit a] -&gt; [Edit a]) -&gt; Cell [Edit a] -&gt; Cell [Edit a]
+forall a b. (Int -&gt; Int) -&gt; (a -&gt; b) -&gt; Cell a -&gt; Cell b
+</span><a href="Data.TreeDiff.List.html#bimap"><span class="hs-identifier hs-var">bimap</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int
+forall a. a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">id</span></a></span><span>   </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Cpy"><span class="hs-identifier hs-var">Cpy</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089316"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Edit a -&gt; [Edit a] -&gt; [Edit a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span>   </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089320"><span class="hs-identifier hs-var">cellC'</span></a></span><span>
+</span><span id="line-103"></span><span>                        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Int)
+-&gt; ([Edit a] -&gt; [Edit a]) -&gt; Cell [Edit a] -&gt; Cell [Edit a]
+forall a b. (Int -&gt; Int) -&gt; (a -&gt; b) -&gt; Cell a -&gt; Cell b
+</span><a href="Data.TreeDiff.List.html#bimap"><span class="hs-identifier hs-var">bimap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; a -&gt; Edit a
+forall a. a -&gt; a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Swp"><span class="hs-identifier hs-var">Swp</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089316"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089315"><span class="hs-identifier hs-var">y</span></a></span><span> </span><span class="annot"><span class="annottext">Edit a -&gt; [Edit a] -&gt; [Edit a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089320"><span class="hs-identifier hs-var">cellC'</span></a></span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span>                </span><span class="hs-comment">-- from left</span><span>
+</span><span id="line-106"></span><span>                </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679089311"><span class="hs-identifier hs-type">cellX2</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-107"></span><span>                    </span><span id="local-6989586621679089311"><span class="annot"><span class="annottext">cellX2 :: Cell [Edit a]
+</span><a href="#local-6989586621679089311"><span class="hs-identifier hs-var hs-var">cellX2</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Int)
+-&gt; ([Edit a] -&gt; [Edit a]) -&gt; Cell [Edit a] -&gt; Cell [Edit a]
+forall a b. (Int -&gt; Int) -&gt; (a -&gt; b) -&gt; Cell a -&gt; Cell b
+</span><a href="Data.TreeDiff.List.html#bimap"><span class="hs-identifier hs-var">bimap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Ins"><span class="hs-identifier hs-var">Ins</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089315"><span class="hs-identifier hs-var">y</span></a></span><span> </span><span class="annot"><span class="annottext">Edit a -&gt; [Edit a] -&gt; [Edit a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089319"><span class="hs-identifier hs-var">cellL'</span></a></span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span>                </span><span class="hs-comment">-- from top</span><span>
+</span><span id="line-110"></span><span>                </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679089310"><span class="hs-identifier hs-type">cellX3</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-111"></span><span>                    </span><span id="local-6989586621679089310"><span class="annot"><span class="annottext">cellX3 :: Cell [Edit a]
+</span><a href="#local-6989586621679089310"><span class="hs-identifier hs-var hs-var">cellX3</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Int)
+-&gt; ([Edit a] -&gt; [Edit a]) -&gt; Cell [Edit a] -&gt; Cell [Edit a]
+forall a b. (Int -&gt; Int) -&gt; (a -&gt; b) -&gt; Cell a -&gt; Cell b
+</span><a href="Data.TreeDiff.List.html#bimap"><span class="hs-identifier hs-var">bimap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Edit a
+forall a. a -&gt; Edit a
+</span><a href="Data.TreeDiff.List.html#Del"><span class="hs-identifier hs-var">Del</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089316"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Edit a -&gt; [Edit a] -&gt; [Edit a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089318"><span class="hs-identifier hs-var">cellT</span></a></span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span>                </span><span class="hs-comment">-- the actual cell is best of three</span><span>
+</span><span id="line-114"></span><span>                </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679089309"><span class="hs-identifier hs-type">cellX</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.TreeDiff.List.html#Edit"><span class="hs-identifier hs-type">Edit</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089357"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-115"></span><span>                    </span><span id="local-6989586621679089309"><span class="annot"><span class="annottext">cellX :: Cell [Edit a]
+</span><a href="#local-6989586621679089309"><span class="hs-identifier hs-var hs-var">cellX</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a] -&gt; Cell [Edit a] -&gt; Cell [Edit a] -&gt; Cell [Edit a]
+forall a. Cell a -&gt; Cell a -&gt; Cell a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#bestOfThree"><span class="hs-identifier hs-var">bestOfThree</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089314"><span class="hs-identifier hs-var">cellX1</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089311"><span class="hs-identifier hs-var">cellX2</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089310"><span class="hs-identifier hs-var">cellX3</span></a></span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span>                </span><span class="hs-comment">-- traceShowM (&quot;cellX&quot;, n, m, cellX)</span><span>
+</span><span id="line-118"></span><span>
+</span><span id="line-119"></span><span>                </span><span class="hs-comment">-- memoize</span><span>
+</span><span id="line-120"></span><span>                </span><span class="annot"><span class="annottext">MutableArray (PrimState (ST s)) (Cell [Edit a])
+-&gt; Int -&gt; Cell [Edit a] -&gt; ST s ()
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MutableArray (PrimState m) a -&gt; Int -&gt; a -&gt; m ()
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.writeArray</span></a></span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+MutableArray (PrimState (ST s)) (Cell [Edit a])
+</span><a href="#local-6989586621679089326"><span class="hs-identifier hs-var">curr</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089321"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089309"><span class="hs-identifier hs-var">cellX</span></a></span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span>                </span><span class="annot"><span class="annottext">(Cell [Edit a], Cell [Edit a])
+-&gt; ST s (Cell [Edit a], Cell [Edit a])
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089318"><span class="hs-identifier hs-var">cellT</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089309"><span class="hs-identifier hs-var">cellX</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span>            </span><span class="annot"><span class="annottext">(MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+ Cell [Edit a])
+-&gt; ST
+     s
+     (MutableArray s (Cell [Edit a]), MutableArray s (Cell [Edit a]),
+      Cell [Edit a])
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089326"><span class="hs-identifier hs-var">curr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+</span><a href="#local-6989586621679089327"><span class="hs-identifier hs-var">prev</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Cell [Edit a]
+</span><a href="#local-6989586621679089324"><span class="hs-identifier hs-var">cellL</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span>        </span><span class="annot"><span class="annottext">MutableArray (PrimState (ST s)) (Cell [Edit a])
+-&gt; Int -&gt; ST s (Cell [Edit a])
+forall (m :: * -&gt; *) a.
+PrimMonad m =&gt;
+MutableArray (PrimState m) a -&gt; Int -&gt; m a
+</span><a href="../../../../primitive/html/src"><span class="hs-identifier hs-var">P.readArray</span></a></span><span> </span><span class="annot"><span class="annottext">MutableArray s (Cell [Edit a])
+MutableArray (PrimState (ST s)) (Cell [Edit a])
+</span><a href="#local-6989586621679089330"><span class="hs-identifier hs-var">buf1final</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089346"><span class="hs-identifier hs-var">yn</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-127"></span><span>
+</span><span id="line-128"></span><span>    </span><span id="local-6989586621679089402"><span id="local-6989586621679089403"><span class="annot"><a href="#local-6989586621679089329"><span class="hs-identifier hs-type">xLoop</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679089403"><span class="hs-identifier hs-type">acc</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679089403"><span class="hs-identifier hs-type">acc</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089402"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089403"><span class="hs-identifier hs-type">acc</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089402"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089403"><span class="hs-identifier hs-type">acc</span></a></span></span></span><span>
+</span><span id="line-129"></span><span>    </span><span id="local-6989586621679089329"><span class="annot"><span class="annottext">xLoop :: acc -&gt; (Int -&gt; acc -&gt; ST s acc) -&gt; ST s acc
+</span><a href="#local-6989586621679089329"><span class="hs-identifier hs-var hs-var">xLoop</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089307"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089307"><span class="hs-identifier hs-var">acc0</span></a></span></span><span> </span><span id="local-6989586621679089306"><span class="annot"><span class="annottext">Int -&gt; acc -&gt; ST s acc
+</span><a href="#local-6989586621679089306"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">acc -&gt; Int -&gt; ST s acc
+</span><a href="#local-6989586621679089305"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089307"><span class="hs-identifier hs-var">acc0</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-130"></span><span>        </span><span id="local-6989586621679089305"><span class="annot"><span class="annottext">go :: acc -&gt; Int -&gt; ST s acc
+</span><a href="#local-6989586621679089305"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089304"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089304"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089303"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089303"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089303"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089348"><span class="hs-identifier hs-var">xn</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-131"></span><span>            </span><span id="local-6989586621679089301"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089301"><span class="hs-identifier hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int -&gt; acc -&gt; ST s acc
+</span><a href="#local-6989586621679089306"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089303"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089304"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-132"></span><span>            </span><span class="annot"><span class="annottext">acc -&gt; Int -&gt; ST s acc
+</span><a href="#local-6989586621679089305"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089301"><span class="hs-identifier hs-var">acc'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089303"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-133"></span><span>        </span><span class="annot"><a href="#local-6989586621679089305"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089300"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089300"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">acc -&gt; ST s acc
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089300"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-134"></span><span>
+</span><span id="line-135"></span><span>    </span><span id="local-6989586621679089410"><span id="local-6989586621679089411"><span class="annot"><a href="#local-6989586621679089338"><span class="hs-identifier hs-type">yLoop</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679089411"><span class="hs-identifier hs-type">acc</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679089411"><span class="hs-identifier hs-type">acc</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089410"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089411"><span class="hs-identifier hs-type">acc</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">ST</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089410"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-136"></span><span>    </span><span id="local-6989586621679089338"><span class="annot"><span class="annottext">yLoop :: acc -&gt; (Int -&gt; acc -&gt; ST s acc) -&gt; ST s ()
+</span><a href="#local-6989586621679089338"><span class="hs-identifier hs-var hs-var">yLoop</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089299"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089299"><span class="hs-identifier hs-var">acc0</span></a></span></span><span> </span><span id="local-6989586621679089298"><span class="annot"><span class="annottext">Int -&gt; acc -&gt; ST s acc
+</span><a href="#local-6989586621679089298"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">acc -&gt; Int -&gt; ST s ()
+</span><a href="#local-6989586621679089297"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089299"><span class="hs-identifier hs-var">acc0</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-137"></span><span>        </span><span id="local-6989586621679089297"><span class="annot"><span class="annottext">go :: acc -&gt; Int -&gt; ST s ()
+</span><a href="#local-6989586621679089297"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089296"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089296"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679089295"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089295"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089295"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089346"><span class="hs-identifier hs-var">yn</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-138"></span><span>            </span><span id="local-6989586621679089294"><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089294"><span class="hs-identifier hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int -&gt; acc -&gt; ST s acc
+</span><a href="#local-6989586621679089298"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089295"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089296"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-139"></span><span>            </span><span class="annot"><span class="annottext">acc -&gt; Int -&gt; ST s ()
+</span><a href="#local-6989586621679089297"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><a href="#local-6989586621679089294"><span class="hs-identifier hs-var">acc'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089295"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">+</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span><span>        </span><span class="annot"><a href="#local-6989586621679089297"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">acc
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">() -&gt; ST s ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>
+</span><span id="line-142"></span><span class="hs-keyword">data</span><span> </span><span id="Cell"><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span></span><span> </span><span id="local-6989586621679089412"><span class="annot"><a href="#local-6989586621679089412"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Cell"><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679089412"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679089288"><span id="local-6989586621679089290"><span id="local-6989586621679089292"><span class="annot"><span class="annottext">Int -&gt; Cell a -&gt; ShowS
+[Cell a] -&gt; ShowS
+Cell a -&gt; String
+(Int -&gt; Cell a -&gt; ShowS)
+-&gt; (Cell a -&gt; String) -&gt; ([Cell a] -&gt; ShowS) -&gt; Show (Cell a)
+forall a. Show a =&gt; Int -&gt; Cell a -&gt; ShowS
+forall a. Show a =&gt; [Cell a] -&gt; ShowS
+forall a. Show a =&gt; Cell a -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [Cell a] -&gt; ShowS
+$cshowList :: forall a. Show a =&gt; [Cell a] -&gt; ShowS
+show :: Cell a -&gt; String
+$cshow :: forall a. Show a =&gt; Cell a -&gt; String
+showsPrec :: Int -&gt; Cell a -&gt; ShowS
+$cshowsPrec :: forall a. Show a =&gt; Int -&gt; Cell a -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span>
+</span><span id="line-143"></span><span>
+</span><span id="line-144"></span><span id="local-6989586621679089429"><span class="annot"><a href="Data.TreeDiff.List.html#getCell"><span class="hs-identifier hs-type">getCell</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089429"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679089429"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-145"></span><span id="getCell"><span class="annot"><span class="annottext">getCell :: Cell a -&gt; a
+</span><a href="Data.TreeDiff.List.html#getCell"><span class="hs-identifier hs-var hs-var">getCell</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679089287"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089287"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089287"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span id="local-6989586621679089396"><span class="annot"><a href="Data.TreeDiff.List.html#bestOfThree"><span class="hs-identifier hs-type">bestOfThree</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089396"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089396"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089396"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089396"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-148"></span><span id="bestOfThree"><span class="annot"><span class="annottext">bestOfThree :: Cell a -&gt; Cell a -&gt; Cell a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#bestOfThree"><span class="hs-identifier hs-var hs-var">bestOfThree</span></a></span></span><span> </span><span id="local-6989586621679089286"><span class="annot"><span class="annottext">a :: Cell a
+</span><a href="#local-6989586621679089286"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span id="local-6989586621679089285"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089285"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679089284"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089284"><span class="hs-identifier hs-var">_x</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679089283"><span class="annot"><span class="annottext">b :: Cell a
+</span><a href="#local-6989586621679089283"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span id="local-6989586621679089282"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089282"><span class="hs-identifier hs-var">j</span></a></span></span><span> </span><span id="local-6989586621679089281"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089281"><span class="hs-identifier hs-var">_y</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679089280"><span class="annot"><span class="annottext">c :: Cell a
+</span><a href="#local-6989586621679089280"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span id="local-6989586621679089279"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089279"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679089278"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089278"><span class="hs-identifier hs-var">_z</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-149"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089285"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089282"><span class="hs-identifier hs-var">j</span></a></span><span>
+</span><span id="line-150"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089285"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089279"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Cell a
+</span><a href="#local-6989586621679089286"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Cell a
+</span><a href="#local-6989586621679089280"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span>
+</span><span id="line-153"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089282"><span class="hs-identifier hs-var">j</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089279"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Cell a
+</span><a href="#local-6989586621679089283"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Cell a
+</span><a href="#local-6989586621679089280"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-154"></span><span>
+</span><span id="line-155"></span><span id="local-6989586621679089398"><span id="local-6989586621679089399"><span class="annot"><a href="Data.TreeDiff.List.html#bimap"><span class="hs-identifier hs-type">bimap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679089399"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679089398"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089399"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679089398"><span class="hs-identifier hs-type">b</span></a></span></span></span><span>
+</span><span id="line-156"></span><span id="bimap"><span class="annot"><span class="annottext">bimap :: (Int -&gt; Int) -&gt; (a -&gt; b) -&gt; Cell a -&gt; Cell b
+</span><a href="Data.TreeDiff.List.html#bimap"><span class="hs-identifier hs-var hs-var">bimap</span></a></span></span><span> </span><span id="local-6989586621679089276"><span class="annot"><span class="annottext">Int -&gt; Int
+</span><a href="#local-6989586621679089276"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679089275"><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679089275"><span class="hs-identifier hs-var">g</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-type">Cell</span></a></span><span> </span><span id="local-6989586621679089274"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089274"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679089273"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089273"><span class="hs-identifier hs-var">x</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; b -&gt; Cell b
+forall a. Int -&gt; a -&gt; Cell a
+</span><a href="Data.TreeDiff.List.html#Cell"><span class="hs-identifier hs-var">Cell</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int
+</span><a href="#local-6989586621679089276"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679089274"><span class="hs-identifier hs-var">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679089275"><span class="hs-identifier hs-var">g</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679089273"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-157"></span></pre></body></html>

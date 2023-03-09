@@ -1,0 +1,97 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Copyright: &#169; 2018-2020 IOHK</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- License: Apache-2.0</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Portability: POSIX</span><span>
+</span><span id="line-5"></span><span class="hs-comment">--</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Cardano.Startup.POSIX</span><span>
+</span><span id="line-8"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Cardano.Startup.POSIX.html#installSignalHandlers"><span class="hs-identifier">installSignalHandlers</span></a></span><span>
+</span><span id="line-9"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Startup.POSIX.html#setDefaultFilePermissions"><span class="hs-identifier">setDefaultFilePermissions</span></a></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Startup.POSIX.html#restrictFileMode"><span class="hs-identifier">restrictFileMode</span></a></span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Cardano.Startup.POSIX.html#killProcess"><span class="hs-identifier">killProcess</span></a></span><span>
+</span><span id="line-12"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">void</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Bits</span></a></span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator">(.|.)</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">System.Posix.Files</span></a></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">groupModes</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">otherModes</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">ownerReadMode</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">setFileCreationMask</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">setFileMode</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">System.Posix.Signals</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">Handler</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">installHandler</span></a></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">keyboardSignal</span></a></span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">raiseSignal</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">sigKILL</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">signalProcess</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../unix/html/src"><span class="hs-identifier">softwareTermination</span></a></span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../process/html/src"><span class="hs-identifier">System.Process</span></a></span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../process/html/src"><span class="hs-identifier">Pid</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- | Convert any SIGTERM received to SIGINT, for which the runtime system has</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- handlers that will correctly clean up sub-processes.</span><span>
+</span><span id="line-36"></span><span class="annot"><a href="Cardano.Startup.POSIX.html#installSignalHandlers"><span class="hs-identifier hs-type">installSignalHandlers</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span id="installSignalHandlers"><span class="annot"><span class="annottext">installSignalHandlers :: IO () -&gt; IO ()
+</span><a href="Cardano.Startup.POSIX.html#installSignalHandlers"><span class="hs-identifier hs-var hs-var">installSignalHandlers</span></a></span></span><span> </span><span id="local-6989586621679097608"><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679097608"><span class="hs-identifier hs-var">notify</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO Handler -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Handler -&gt; IO ()) -&gt; IO Handler -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-38"></span><span>    </span><span class="annot"><span class="annottext">Signal -&gt; Handler -&gt; Maybe SignalSet -&gt; IO Handler
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">installHandler</span></a></span><span> </span><span class="annot"><span class="annottext">Signal
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">softwareTermination</span></a></span><span> </span><span class="annot"><span class="annottext">Handler
+</span><a href="#local-6989586621679097607"><span class="hs-identifier hs-var">termHandler</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe SignalSet
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-40"></span><span>        </span><span id="local-6989586621679097607"><span class="annot"><span class="annottext">termHandler :: Handler
+</span><a href="#local-6989586621679097607"><span class="hs-identifier hs-var hs-var">termHandler</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; Handler
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">CatchOnce</span></a></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Handler) -&gt; IO () -&gt; Handler
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-41"></span><span>            </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679097608"><span class="hs-identifier hs-var">notify</span></a></span><span>
+</span><span id="line-42"></span><span>            </span><span class="annot"><span class="annottext">Signal -&gt; IO ()
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">raiseSignal</span></a></span><span> </span><span class="annot"><span class="annottext">Signal
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">keyboardSignal</span></a></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- | Restricts the process umask so that any files created are only readable by</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- their owner.</span><span>
+</span><span id="line-46"></span><span class="annot"><a href="Cardano.Startup.POSIX.html#setDefaultFilePermissions"><span class="hs-identifier hs-type">setDefaultFilePermissions</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span id="setDefaultFilePermissions"><span class="annot"><span class="annottext">setDefaultFilePermissions :: IO ()
+</span><a href="Cardano.Startup.POSIX.html#setDefaultFilePermissions"><span class="hs-identifier hs-var hs-var">setDefaultFilePermissions</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO FileMode -&gt; IO ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(IO FileMode -&gt; IO ()) -&gt; IO FileMode -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FileMode -&gt; IO FileMode
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">setFileCreationMask</span></a></span><span> </span><span class="annot"><span class="annottext">FileMode
+</span><a href="#local-6989586621679097605"><span class="hs-identifier hs-var">mask</span></a></span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679097605"><span class="annot"><span class="annottext">mask :: FileMode
+</span><a href="#local-6989586621679097605"><span class="hs-identifier hs-var hs-var">mask</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FileMode
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">groupModes</span></a></span><span> </span><span class="annot"><span class="annottext">FileMode -&gt; FileMode -&gt; FileMode
+forall a. Bits a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.|.</span></a></span><span> </span><span class="annot"><span class="annottext">FileMode
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">otherModes</span></a></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- | Changes permissions of an existing file so that only the owner can read</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- them.</span><span>
+</span><span id="line-52"></span><span class="annot"><a href="Cardano.Startup.POSIX.html#restrictFileMode"><span class="hs-identifier hs-type">restrictFileMode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span><span id="restrictFileMode"><span class="annot"><span class="annottext">restrictFileMode :: FilePath -&gt; IO ()
+</span><a href="Cardano.Startup.POSIX.html#restrictFileMode"><span class="hs-identifier hs-var hs-var">restrictFileMode</span></a></span></span><span> </span><span id="local-6989586621679097604"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679097604"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FileMode -&gt; IO ()
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">setFileMode</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679097604"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">FileMode
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">ownerReadMode</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- | Kill a process with signal 9. This is used only after previous attempts to</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- terminate the process did not work.</span><span>
+</span><span id="line-57"></span><span class="annot"><a href="Cardano.Startup.POSIX.html#killProcess"><span class="hs-identifier hs-type">killProcess</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../process/html/src"><span class="hs-identifier hs-type">Pid</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span id="killProcess"><span class="annot"><span class="annottext">killProcess :: Pid -&gt; IO ()
+</span><a href="Cardano.Startup.POSIX.html#killProcess"><span class="hs-identifier hs-var hs-var">killProcess</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Signal -&gt; Pid -&gt; IO ()
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">signalProcess</span></a></span><span> </span><span class="annot"><span class="annottext">Signal
+</span><a href="../../../../unix/html/src"><span class="hs-identifier hs-var">sigKILL</span></a></span><span>
+</span><span id="line-59"></span></pre></body></html>

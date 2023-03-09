@@ -1,0 +1,665 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# OPTIONS_GHC -Wall #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE CPP, BangPatterns, TupleSections #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE Safe #-}</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Module      :  Data.IntervalMap.Base</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Copyright   :  (c) Masahiro Sakai 2016</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- License     :  BSD-style</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- Maintainer  :  masahiro.sakai@gmail.com</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Stability   :  provisional</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- Portability :  non-portable (BangPatterns, TupleSections)</span><span>
+</span><span id="line-13"></span><span class="hs-comment">--</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- Mapping from intervals to values.</span><span>
+</span><span id="line-15"></span><span class="hs-comment">--</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- API of this module is strict in both the keys and the values.</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- If you need value-lazy maps, use &quot;Data.IntervalMap.Lazy&quot; instead.</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- The 'IntervalMap' type itself is shared between the lazy and strict modules,</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- meaning that the same 'IntervalMap' value can be passed to functions in</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- both modules (although that is rarely needed).</span><span>
+</span><span id="line-21"></span><span class="hs-comment">--</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- These modules are intended to be imported qualified, to avoid name</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- clashes with Prelude functions, e.g.</span><span>
+</span><span id="line-24"></span><span class="hs-comment">--</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- &gt;  import Data.IntervalMap.Strict (IntervalMap)</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- &gt;  import qualified Data.IntervalMap.Strict as IntervalMap</span><span>
+</span><span id="line-27"></span><span class="hs-comment">--</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Data.IntervalMap.Strict</span><span>
+</span><span id="line-30"></span><span>  </span><span class="hs-special">(</span><span>
+</span><span id="line-31"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Strictness properties</span></span><span>
+</span><span id="line-32"></span><span>  </span><span class="annot"><span class="hs-comment">-- $strictness</span></span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span>  </span><span class="annot"><span class="hs-comment">-- * IntervalMap type</span></span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier">IntervalMap</span></a></span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="../../../../extended-reals/html/src"><span class="hs-identifier">Data.ExtendedReal</span></a></span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Operators</span></span><span>
+</span><span id="line-39"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">!</span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#%5C%5C"><span class="hs-operator">(\\)</span></a></span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Query</span></span><span>
+</span><span id="line-43"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#null"><span class="hs-identifier">null</span></a></span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#member"><span class="hs-identifier">member</span></a></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#notMember"><span class="hs-identifier">notMember</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#lookup"><span class="hs-identifier">lookup</span></a></span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#findWithDefault"><span class="hs-identifier">findWithDefault</span></a></span><span>
+</span><span id="line-48"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#span"><span class="hs-identifier">span</span></a></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Construction</span></span><span>
+</span><span id="line-51"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#whole"><span class="hs-identifier">whole</span></a></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#empty"><span class="hs-identifier">empty</span></a></span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#singleton"><span class="hs-identifier">singleton</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** Insertion</span></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#insert"><span class="hs-identifier">insert</span></a></span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#insertWith"><span class="hs-identifier">insertWith</span></a></span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** Delete\/Update</span></span><span>
+</span><span id="line-60"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#delete"><span class="hs-identifier">delete</span></a></span><span>
+</span><span id="line-61"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#adjust"><span class="hs-identifier">adjust</span></a></span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#update"><span class="hs-identifier">update</span></a></span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#alter"><span class="hs-identifier">alter</span></a></span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Combine</span></span><span>
+</span><span id="line-66"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#union"><span class="hs-identifier">union</span></a></span><span>
+</span><span id="line-67"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#unionWith"><span class="hs-identifier">unionWith</span></a></span><span>
+</span><span id="line-68"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#unions"><span class="hs-identifier">unions</span></a></span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#unionsWith"><span class="hs-identifier">unionsWith</span></a></span><span>
+</span><span id="line-70"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#intersection"><span class="hs-identifier">intersection</span></a></span><span>
+</span><span id="line-71"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#intersectionWith"><span class="hs-identifier">intersectionWith</span></a></span><span>
+</span><span id="line-72"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#difference"><span class="hs-identifier">difference</span></a></span><span>
+</span><span id="line-73"></span><span>
+</span><span id="line-74"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Traversal</span></span><span>
+</span><span id="line-75"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#map"><span class="hs-identifier">map</span></a></span><span>
+</span><span id="line-76"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#mapKeysMonotonic"><span class="hs-identifier">mapKeysMonotonic</span></a></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Conversion</span></span><span>
+</span><span id="line-79"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#elems"><span class="hs-identifier">elems</span></a></span><span>
+</span><span id="line-80"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#keys"><span class="hs-identifier">keys</span></a></span><span>
+</span><span id="line-81"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#assocs"><span class="hs-identifier">assocs</span></a></span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#keysSet"><span class="hs-identifier">keysSet</span></a></span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** List</span></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#fromList"><span class="hs-identifier">fromList</span></a></span><span>
+</span><span id="line-86"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Strict.html#fromListWith"><span class="hs-identifier">fromListWith</span></a></span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#toList"><span class="hs-identifier">toList</span></a></span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span>  </span><span class="annot"><span class="hs-comment">-- ** Ordered List</span></span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#toAscList"><span class="hs-identifier">toAscList</span></a></span><span>
+</span><span id="line-91"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#toDescList"><span class="hs-identifier">toDescList</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Filter</span></span><span>
+</span><span id="line-94"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#filter"><span class="hs-identifier">filter</span></a></span><span>
+</span><span id="line-95"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#split"><span class="hs-identifier">split</span></a></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span>  </span><span class="annot"><span class="hs-comment">-- * Submap</span></span><span>
+</span><span id="line-98"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#isSubmapOf"><span class="hs-identifier">isSubmapOf</span></a></span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#isSubmapOfBy"><span class="hs-identifier">isSubmapOfBy</span></a></span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#isProperSubmapOf"><span class="hs-identifier">isProperSubmapOf</span></a></span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#isProperSubmapOfBy"><span class="hs-identifier">isProperSubmapOfBy</span></a></span><span>
+</span><span id="line-102"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">null</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">lookup</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">map</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">filter</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">span</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-107"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../extended-reals/html/src"><span class="hs-identifier">Data.ExtendedReal</span></a></span><span>
+</span><span id="line-108"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.Interval.html"><span class="hs-identifier">Data.Interval</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier">Interval</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Data.Interval.html"><span class="hs-identifier">Data.Interval</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Interval</span></span><span>
+</span><span id="line-110"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html"><span class="hs-identifier">Data.IntervalMap.Base</span></a></span><span> </span><span class="hs-keyword">hiding</span><span>
+</span><span id="line-111"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#whole"><span class="hs-identifier">whole</span></a></span><span>
+</span><span id="line-112"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#singleton"><span class="hs-identifier">singleton</span></a></span><span>
+</span><span id="line-113"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#insert"><span class="hs-identifier">insert</span></a></span><span>
+</span><span id="line-114"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#insertWith"><span class="hs-identifier">insertWith</span></a></span><span>
+</span><span id="line-115"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#adjust"><span class="hs-identifier">adjust</span></a></span><span>
+</span><span id="line-116"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#update"><span class="hs-identifier">update</span></a></span><span>
+</span><span id="line-117"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#alter"><span class="hs-identifier">alter</span></a></span><span>
+</span><span id="line-118"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#unionWith"><span class="hs-identifier">unionWith</span></a></span><span>
+</span><span id="line-119"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#unionsWith"><span class="hs-identifier">unionsWith</span></a></span><span>
+</span><span id="line-120"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#intersectionWith"><span class="hs-identifier">intersectionWith</span></a></span><span>
+</span><span id="line-121"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#map"><span class="hs-identifier">map</span></a></span><span>
+</span><span id="line-122"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#fromList"><span class="hs-identifier">fromList</span></a></span><span>
+</span><span id="line-123"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#fromListWith"><span class="hs-identifier">fromListWith</span></a></span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html"><span class="hs-identifier">Data.IntervalMap.Base</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">B</span></span><span>
+</span><span id="line-126"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Data.IntervalSet.html"><span class="hs-identifier">Data.IntervalSet</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">IntervalSet</span></span><span>
+</span><span id="line-127"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">foldl'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-128"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../containers/html/src"><span class="hs-identifier">Data.Map.Strict</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span class="hs-cpp">
+#if __GLASGOW_HASKELL__ &lt; 710
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Control.Applicative</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="hs-operator">&lt;$&gt;</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- $strictness</span><span>
+</span><span id="line-134"></span><span class="hs-comment">--</span><span>
+</span><span id="line-135"></span><span class="hs-comment">-- This module satisfies the following strictness properties:</span><span>
+</span><span id="line-136"></span><span class="hs-comment">--</span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- 1. Key arguments are evaluated to WHNF;</span><span>
+</span><span id="line-138"></span><span class="hs-comment">--</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- 2. Keys and values are evaluated to WHNF before they are stored in</span><span>
+</span><span id="line-140"></span><span class="hs-comment">--    the map.</span><span>
+</span><span id="line-141"></span><span class="hs-comment">--</span><span>
+</span><span id="line-142"></span><span class="hs-comment">-- Here's an example illustrating the first property:</span><span>
+</span><span id="line-143"></span><span class="hs-comment">--</span><span>
+</span><span id="line-144"></span><span class="hs-comment">-- &gt; delete undefined m  ==  undefined</span><span>
+</span><span id="line-145"></span><span class="hs-comment">--</span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- Here are some examples that illustrate the second property:</span><span>
+</span><span id="line-147"></span><span class="hs-comment">--</span><span>
+</span><span id="line-148"></span><span class="hs-comment">-- &gt; map (\ v -&gt; undefined) m  ==  undefined      -- m is not empty</span><span>
+</span><span id="line-149"></span><span class="hs-comment">-- &gt; mapKeysMonotonic (\ k -&gt; undefined) m  ==  undefined  -- m is not empty</span><span>
+</span><span id="line-150"></span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- | The map that maps whole range of k to a.</span><span>
+</span><span id="line-152"></span><span id="local-6989586621679096146"><span id="local-6989586621679096147"><span class="annot"><a href="Data.IntervalMap.Strict.html#whole"><span class="hs-identifier hs-type">whole</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096147"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096146"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096147"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096146"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-153"></span><span id="whole"><span class="annot"><span class="annottext">whole :: a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#whole"><span class="hs-identifier hs-var hs-var">whole</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679096145"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096145"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; IntervalMap k a
+forall k a. Ord k =&gt; a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#whole"><span class="hs-identifier hs-var">B.whole</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096145"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-154"></span><span>
+</span><span id="line-155"></span><span class="hs-comment">-- | A map with a single interval.</span><span>
+</span><span id="line-156"></span><span id="local-6989586621679096143"><span id="local-6989586621679096144"><span class="annot"><a href="Data.IntervalMap.Strict.html#singleton"><span class="hs-identifier hs-type">singleton</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096144"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096144"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096143"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096144"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096143"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-157"></span><span id="singleton"><span class="annot"><span class="annottext">singleton :: Interval k -&gt; a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#singleton"><span class="hs-identifier hs-var hs-var">singleton</span></a></span></span><span> </span><span id="local-6989586621679096142"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096142"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679096141"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096141"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; a -&gt; IntervalMap k a
+forall k a. Ord k =&gt; Interval k -&gt; a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#singleton"><span class="hs-identifier hs-var">B.singleton</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096142"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096141"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- | insert a new key and value in the map.</span><span>
+</span><span id="line-160"></span><span class="hs-comment">-- If the key is already present in the map, the associated value is</span><span>
+</span><span id="line-161"></span><span class="hs-comment">-- replaced with the supplied value.</span><span>
+</span><span id="line-162"></span><span id="local-6989586621679096139"><span id="local-6989586621679096140"><span class="annot"><a href="Data.IntervalMap.Strict.html#insert"><span class="hs-identifier hs-type">insert</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096140"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096140"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096139"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096140"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096139"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096140"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096139"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-163"></span><span id="insert"><span class="annot"><span class="annottext">insert :: Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#insert"><span class="hs-identifier hs-var hs-var">insert</span></a></span></span><span> </span><span id="local-6989586621679096138"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096138"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679096137"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096137"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679096136"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096136"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#insert"><span class="hs-identifier hs-var">B.insert</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096138"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096137"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096136"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-164"></span><span>
+</span><span id="line-165"></span><span class="hs-comment">-- | Insert with a function, combining new value and old value.</span><span>
+</span><span id="line-166"></span><span class="hs-comment">-- @'insertWith' f key value mp@ will insert the pair (interval, value) into @mp@.</span><span>
+</span><span id="line-167"></span><span class="hs-comment">-- If the interval overlaps with existing entries, the value for the entry is replace</span><span>
+</span><span id="line-168"></span><span class="hs-comment">-- with @(f new_value old_value)@.</span><span>
+</span><span id="line-169"></span><span id="local-6989586621679096243"><span id="local-6989586621679096244"><span class="annot"><a href="Data.IntervalMap.Strict.html#insertWith"><span class="hs-identifier hs-type">insertWith</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096244"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096243"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096243"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096243"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096244"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096243"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096244"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096243"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096244"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096243"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-170"></span><span id="insertWith"><span class="annot"><span class="annottext">insertWith :: (a -&gt; a -&gt; a)
+-&gt; Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#insertWith"><span class="hs-identifier hs-var hs-var">insertWith</span></a></span></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679096135"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096135"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="annot"><span class="annottext">a
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679096134"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096134"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; Bool
+forall r. Ord r =&gt; Interval r -&gt; Bool
+</span><a href="Data.Interval.html#null"><span class="hs-identifier hs-var">Interval.null</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096135"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096134"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-171"></span><span class="annot"><a href="Data.IntervalMap.Strict.html#insertWith"><span class="hs-identifier hs-var">insertWith</span></a></span><span> </span><span id="local-6989586621679096132"><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096132"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679096131"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096131"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679096130"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096130"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679096129"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096129"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Maybe a -&gt; Maybe a)
+-&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+(Maybe a -&gt; Maybe a)
+-&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#alter"><span class="hs-identifier hs-var">alter</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; Maybe a
+</span><a href="#local-6989586621679096128"><span class="hs-identifier hs-var">g</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096131"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096129"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-172"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-173"></span><span>    </span><span id="local-6989586621679096128"><span class="annot"><span class="annottext">g :: Maybe a -&gt; Maybe a
+</span><a href="#local-6989586621679096128"><span class="hs-identifier hs-var hs-var">g</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096130"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-174"></span><span>    </span><span class="annot"><a href="#local-6989586621679096128"><span class="hs-identifier hs-var">g</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679096127"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096127"><span class="hs-identifier hs-var">a'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; Maybe a) -&gt; a -&gt; Maybe a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096132"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096130"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096127"><span class="hs-identifier hs-var">a'</span></a></span><span>
+</span><span id="line-175"></span><span>
+</span><span id="line-176"></span><span class="hs-comment">-- | Update a value at a specific interval with the result of the provided function.</span><span>
+</span><span id="line-177"></span><span class="hs-comment">-- When the interval does not overlatp with the map, the original map is returned.</span><span>
+</span><span id="line-178"></span><span id="local-6989586621679096124"><span id="local-6989586621679096125"><span class="annot"><a href="Data.IntervalMap.Strict.html#adjust"><span class="hs-identifier hs-type">adjust</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096125"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096124"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096124"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096125"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096125"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096124"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096125"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096124"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-179"></span><span id="adjust"><span class="annot"><span class="annottext">adjust :: (a -&gt; a) -&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#adjust"><span class="hs-identifier hs-var hs-var">adjust</span></a></span></span><span> </span><span id="local-6989586621679096123"><span class="annot"><span class="annottext">a -&gt; a
+</span><a href="#local-6989586621679096123"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; Maybe a) -&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+(a -&gt; Maybe a) -&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#update"><span class="hs-identifier hs-var">update</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; Maybe a) -&gt; (a -&gt; a) -&gt; a -&gt; Maybe a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a
+</span><a href="#local-6989586621679096123"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-180"></span><span>
+</span><span id="line-181"></span><span class="hs-comment">-- | The expression (@'update' f i map@) updates the value @x@</span><span>
+</span><span id="line-182"></span><span class="hs-comment">-- at @i@ (if it is in the map). If (@f x@) is 'Nothing', the element is</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- deleted. If it is (@'Just' y@), the key @i@ is bound to the new value @y@.</span><span>
+</span><span id="line-184"></span><span id="local-6989586621679096284"><span id="local-6989586621679096285"><span class="annot"><a href="Data.IntervalMap.Strict.html#update"><span class="hs-identifier hs-type">update</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096285"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096284"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096284"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096285"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096285"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096284"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096285"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096284"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-185"></span><span id="update"><span class="annot"><span class="annottext">update :: (a -&gt; Maybe a) -&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#update"><span class="hs-identifier hs-var hs-var">update</span></a></span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679096121"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096121"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679096120"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096120"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; Bool
+forall r. Ord r =&gt; Interval r -&gt; Bool
+</span><a href="Data.Interval.html#null"><span class="hs-identifier hs-var">Interval.null</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096121"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096120"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-186"></span><span class="annot"><a href="Data.IntervalMap.Strict.html#update"><span class="hs-identifier hs-var">update</span></a></span><span> </span><span id="local-6989586621679096119"><span class="annot"><span class="annottext">a -&gt; Maybe a
+</span><a href="#local-6989586621679096119"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679096118"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096118"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679096117"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096117"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-187"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Interval k
+-&gt; IntervalMap k a
+-&gt; (IntervalMap k a, IntervalMap k a, IntervalMap k a)
+forall k a.
+Ord k =&gt;
+Interval k
+-&gt; IntervalMap k a
+-&gt; (IntervalMap k a, IntervalMap k a, IntervalMap k a)
+</span><a href="Data.IntervalMap.Base.html#split"><span class="hs-identifier hs-var">split</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096118"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096117"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-188"></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096115"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096115"><span class="hs-identifier hs-var">m1</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096114"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096114"><span class="hs-identifier hs-var">m2</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096113"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096113"><span class="hs-identifier hs-var">m3</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-189"></span><span>      </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a) -&gt; IntervalMap k a
+forall r a. Map (LB r) (Interval r, a) -&gt; IntervalMap r a
+</span><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-var">IntervalMap</span></a></span><span> </span><span class="annot"><span class="annottext">(Map (LB k) (Interval k, a) -&gt; IntervalMap k a)
+-&gt; Map (LB k) (Interval k, a) -&gt; IntervalMap k a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Map (LB k) (Interval k, a)] -&gt; Map (LB k) (Interval k, a)
+forall (f :: * -&gt; *) k a.
+(Foldable f, Ord k) =&gt;
+f (Map k a) -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.unions</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096115"><span class="hs-identifier hs-var">m1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">((Interval k, a) -&gt; Maybe (Interval k, a))
+-&gt; Map (LB k) (Interval k, a) -&gt; Map (LB k) (Interval k, a)
+forall a b k. (a -&gt; Maybe b) -&gt; Map k a -&gt; Map k b
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.mapMaybe</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679096110"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096110"><span class="hs-identifier hs-var">j</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679096109"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096109"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679096108"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096108"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; (Interval k, a) -&gt; (Interval k, a)
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">seq</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096108"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096110"><span class="hs-identifier hs-var">j</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096108"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(a -&gt; (Interval k, a)) -&gt; Maybe a -&gt; Maybe (Interval k, a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+</span><a href="#local-6989586621679096119"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096109"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096114"><span class="hs-identifier hs-var">m2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096113"><span class="hs-identifier hs-var">m3</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-190"></span><span>
+</span><span id="line-191"></span><span class="hs-comment">-- | The expression (@'alter' f i map@) alters the value @x@ at @i@, or absence thereof.</span><span>
+</span><span id="line-192"></span><span class="hs-comment">-- 'alter' can be used to insert, delete, or update a value in a 'IntervalMap'.</span><span>
+</span><span id="line-193"></span><span id="local-6989586621679096292"><span id="local-6989586621679096293"><span class="annot"><a href="Data.IntervalMap.Strict.html#alter"><span class="hs-identifier hs-type">alter</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096293"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096292"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096292"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096293"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096293"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096292"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096293"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096292"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-194"></span><span id="alter"><span class="annot"><span class="annottext">alter :: (Maybe a -&gt; Maybe a)
+-&gt; Interval k -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#alter"><span class="hs-identifier hs-var hs-var">alter</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; Maybe a
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679096106"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096106"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679096105"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096105"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; Bool
+forall r. Ord r =&gt; Interval r -&gt; Bool
+</span><a href="Data.Interval.html#null"><span class="hs-identifier hs-var">Interval.null</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096106"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096105"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-195"></span><span class="annot"><a href="Data.IntervalMap.Strict.html#alter"><span class="hs-identifier hs-var">alter</span></a></span><span> </span><span id="local-6989586621679096104"><span class="annot"><span class="annottext">Maybe a -&gt; Maybe a
+</span><a href="#local-6989586621679096104"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679096103"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096103"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679096102"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096102"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-196"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Interval k
+-&gt; IntervalMap k a
+-&gt; (IntervalMap k a, IntervalMap k a, IntervalMap k a)
+forall k a.
+Ord k =&gt;
+Interval k
+-&gt; IntervalMap k a
+-&gt; (IntervalMap k a, IntervalMap k a, IntervalMap k a)
+</span><a href="Data.IntervalMap.Base.html#split"><span class="hs-identifier hs-var">split</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096103"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096102"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-197"></span><span>    </span><span class="hs-special">(</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096101"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096101"><span class="hs-identifier hs-var">m1</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096100"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096100"><span class="hs-identifier hs-var">m2</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096099"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096099"><span class="hs-identifier hs-var">m3</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-198"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679096098"><span class="annot"><span class="annottext">m2' :: Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096098"><span class="hs-identifier hs-var hs-var">m2'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Interval k, a) -&gt; Maybe (Interval k, a))
+-&gt; Map (LB k) (Interval k, a) -&gt; Map (LB k) (Interval k, a)
+forall a b k. (a -&gt; Maybe b) -&gt; Map k a -&gt; Map k b
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.mapMaybe</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679096097"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096097"><span class="hs-identifier hs-var">j</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679096096"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096096"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679096095"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096095"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; (Interval k, a) -&gt; (Interval k, a)
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">seq</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096095"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096097"><span class="hs-identifier hs-var">j</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096095"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(a -&gt; (Interval k, a)) -&gt; Maybe a -&gt; Maybe (Interval k, a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; Maybe a
+</span><a href="#local-6989586621679096104"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096096"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096100"><span class="hs-identifier hs-var">m2</span></a></span><span>
+</span><span id="line-199"></span><span>          </span><span id="local-6989586621679096094"><span class="annot"><span class="annottext">js :: IntervalSet k
+</span><a href="#local-6989586621679096094"><span class="hs-identifier hs-var hs-var">js</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; IntervalSet k
+forall r. Ord r =&gt; Interval r -&gt; IntervalSet r
+</span><a href="Data.IntervalSet.html#singleton"><span class="hs-identifier hs-var">IntervalSet.singleton</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096103"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalSet k -&gt; IntervalSet k -&gt; IntervalSet k
+forall r. Ord r =&gt; IntervalSet r -&gt; IntervalSet r -&gt; IntervalSet r
+</span><a href="Data.IntervalSet.html#difference"><span class="hs-operator hs-var">`IntervalSet.difference`</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a -&gt; IntervalSet k
+forall k a. Ord k =&gt; IntervalMap k a -&gt; IntervalSet k
+</span><a href="Data.IntervalMap.Base.html#keysSet"><span class="hs-identifier hs-var">keysSet</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a) -&gt; IntervalMap k a
+forall r a. Map (LB r) (Interval r, a) -&gt; IntervalMap r a
+</span><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-var">IntervalMap</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096100"><span class="hs-identifier hs-var">m2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-200"></span><span>          </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096091"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096091"><span class="hs-identifier hs-var">m2''</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-201"></span><span>            </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe a -&gt; Maybe a
+</span><a href="#local-6989586621679096104"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-202"></span><span>              </span><span class="annot"><span class="annottext">Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+forall k a. Ord k =&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#empty"><span class="hs-identifier hs-var">empty</span></a></span><span>
+</span><span id="line-203"></span><span>              </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679096090"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096090"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[(Interval k, a)] -&gt; IntervalMap k a
+forall k a. Ord k =&gt; [(Interval k, a)] -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#fromList"><span class="hs-identifier hs-var">B.fromList</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096089"><span class="hs-identifier hs-var">j</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096090"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679096089"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096089"><span class="hs-identifier hs-var">j</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IntervalSet k -&gt; [Interval k]
+forall r. Ord r =&gt; IntervalSet r -&gt; [Interval r]
+</span><a href="Data.IntervalSet.html#toList"><span class="hs-identifier hs-var">IntervalSet.toList</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalSet k
+</span><a href="#local-6989586621679096094"><span class="hs-identifier hs-var">js</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-204"></span><span>      </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a) -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">seq</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096098"><span class="hs-identifier hs-var">m2'</span></a></span><span> </span><span class="annot"><span class="annottext">(IntervalMap k a -&gt; IntervalMap k a)
+-&gt; IntervalMap k a -&gt; IntervalMap k a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a) -&gt; IntervalMap k a
+forall r a. Map (LB r) (Interval r, a) -&gt; IntervalMap r a
+</span><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-var">IntervalMap</span></a></span><span> </span><span class="annot"><span class="annottext">(Map (LB k) (Interval k, a) -&gt; IntervalMap k a)
+-&gt; Map (LB k) (Interval k, a) -&gt; IntervalMap k a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Map (LB k) (Interval k, a)] -&gt; Map (LB k) (Interval k, a)
+forall (f :: * -&gt; *) k a.
+(Foldable f, Ord k) =&gt;
+f (Map k a) -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.unions</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096101"><span class="hs-identifier hs-var">m1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096098"><span class="hs-identifier hs-var">m2'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096091"><span class="hs-identifier hs-var">m2''</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096099"><span class="hs-identifier hs-var">m3</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-205"></span><span>
+</span><span id="line-206"></span><span class="hs-comment">-- ------------------------------------------------------------------------</span><span>
+</span><span id="line-207"></span><span class="hs-comment">-- Combine</span><span>
+</span><span id="line-208"></span><span>
+</span><span id="line-209"></span><span class="hs-comment">-- | Union with a combining function.</span><span>
+</span><span id="line-210"></span><span id="local-6989586621679096237"><span id="local-6989586621679096238"><span class="annot"><a href="Data.IntervalMap.Strict.html#unionWith"><span class="hs-identifier hs-type">unionWith</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096238"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096237"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096237"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096237"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096238"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096237"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096238"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096237"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096238"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096237"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-211"></span><span id="unionWith"><span class="annot"><span class="annottext">unionWith :: (a -&gt; a -&gt; a)
+-&gt; IntervalMap k a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#unionWith"><span class="hs-identifier hs-var hs-var">unionWith</span></a></span></span><span> </span><span id="local-6989586621679096087"><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096087"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679096086"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096086"><span class="hs-identifier hs-var">m1</span></a></span></span><span> </span><span id="local-6989586621679096085"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096085"><span class="hs-identifier hs-var">m2</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-212"></span><span>  </span><span class="annot"><span class="annottext">(IntervalMap k a -&gt; (Interval k, a) -&gt; IntervalMap k a)
+-&gt; IntervalMap k a -&gt; [(Interval k, a)] -&gt; IntervalMap k a
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679096084"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096084"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679096083"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096083"><span class="hs-identifier hs-var">i</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679096082"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096082"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a)
+-&gt; Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+(a -&gt; a -&gt; a)
+-&gt; Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#insertWith"><span class="hs-identifier hs-var">insertWith</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096087"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096083"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096082"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096084"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096085"><span class="hs-identifier hs-var">m2</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IntervalMap k a -&gt; [(Interval k, a)]
+forall k a. IntervalMap k a -&gt; [(Interval k, a)]
+</span><a href="Data.IntervalMap.Base.html#toList"><span class="hs-identifier hs-var">toList</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096086"><span class="hs-identifier hs-var">m1</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-213"></span><span>
+</span><span id="line-214"></span><span class="hs-comment">-- | The union of a list of maps, with a combining operation:</span><span>
+</span><span id="line-215"></span><span class="hs-comment">--   (@'unionsWith' f == 'Prelude.foldl' ('unionWith' f) 'empty'@).</span><span>
+</span><span id="line-216"></span><span id="local-6989586621679096080"><span id="local-6989586621679096081"><span class="annot"><a href="Data.IntervalMap.Strict.html#unionsWith"><span class="hs-identifier hs-type">unionsWith</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096081"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096080"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096080"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096080"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096081"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096080"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096081"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096080"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-217"></span><span id="unionsWith"><span class="annot"><span class="annottext">unionsWith :: (a -&gt; a -&gt; a) -&gt; [IntervalMap k a] -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#unionsWith"><span class="hs-identifier hs-var hs-var">unionsWith</span></a></span></span><span> </span><span id="local-6989586621679096079"><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096079"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(IntervalMap k a -&gt; IntervalMap k a -&gt; IntervalMap k a)
+-&gt; IntervalMap k a -&gt; [IntervalMap k a] -&gt; IntervalMap k a
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a)
+-&gt; IntervalMap k a -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+(a -&gt; a -&gt; a)
+-&gt; IntervalMap k a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#unionWith"><span class="hs-identifier hs-var">unionWith</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096079"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+forall k a. Ord k =&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#empty"><span class="hs-identifier hs-var">empty</span></a></span><span>
+</span><span id="line-218"></span><span>
+</span><span id="line-219"></span><span class="hs-comment">-- | Intersection with a combining function.</span><span>
+</span><span id="line-220"></span><span id="local-6989586621679096075"><span id="local-6989586621679096076"><span id="local-6989586621679096077"><span id="local-6989586621679096078"><span class="annot"><a href="Data.IntervalMap.Strict.html#intersectionWith"><span class="hs-identifier hs-type">intersectionWith</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096078"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096077"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096076"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096075"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096078"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096077"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096078"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096076"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096078"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096075"><span class="hs-identifier hs-type">c</span></a></span></span></span></span></span><span>
+</span><span id="line-221"></span><span id="intersectionWith"><span class="annot"><span class="annottext">intersectionWith :: (a -&gt; b -&gt; c)
+-&gt; IntervalMap k a -&gt; IntervalMap k b -&gt; IntervalMap k c
+</span><a href="Data.IntervalMap.Strict.html#intersectionWith"><span class="hs-identifier hs-var hs-var">intersectionWith</span></a></span></span><span> </span><span id="local-6989586621679096074"><span class="annot"><span class="annottext">a -&gt; b -&gt; c
+</span><a href="#local-6989586621679096074"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679096073"><span class="annot"><span class="annottext">im1 :: IntervalMap k a
+</span><a href="#local-6989586621679096073"><span class="hs-identifier hs-var">im1</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096072"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096072"><span class="hs-identifier hs-var">m1</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679096071"><span class="annot"><span class="annottext">im2 :: IntervalMap k b
+</span><a href="#local-6989586621679096071"><span class="hs-identifier hs-var">im2</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096070"><span class="annot"><span class="annottext">Map (LB k) (Interval k, b)
+</span><a href="#local-6989586621679096070"><span class="hs-identifier hs-var">m2</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-222"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a) -&gt; Int
+forall k a. Map k a -&gt; Int
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.size</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096072"><span class="hs-identifier hs-var">m1</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, b) -&gt; Int
+forall k a. Map k a -&gt; Int
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.size</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, b)
+</span><a href="#local-6989586621679096070"><span class="hs-identifier hs-var">m2</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; b -&gt; c)
+-&gt; IntervalMap k a -&gt; IntervalMap k b -&gt; IntervalMap k c
+forall k a b c.
+Ord k =&gt;
+(a -&gt; b -&gt; c)
+-&gt; IntervalMap k a -&gt; IntervalMap k b -&gt; IntervalMap k c
+</span><a href="#local-6989586621679096068"><span class="hs-identifier hs-var">g</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; b -&gt; c
+</span><a href="#local-6989586621679096074"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096073"><span class="hs-identifier hs-var">im1</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k b
+</span><a href="#local-6989586621679096071"><span class="hs-identifier hs-var">im2</span></a></span><span>
+</span><span id="line-223"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(b -&gt; a -&gt; c)
+-&gt; IntervalMap k b -&gt; IntervalMap k a -&gt; IntervalMap k c
+forall k a b c.
+Ord k =&gt;
+(a -&gt; b -&gt; c)
+-&gt; IntervalMap k a -&gt; IntervalMap k b -&gt; IntervalMap k c
+</span><a href="#local-6989586621679096068"><span class="hs-identifier hs-var">g</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; b -&gt; c
+</span><a href="#local-6989586621679096074"><span class="hs-identifier hs-var">f</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IntervalMap k b
+</span><a href="#local-6989586621679096071"><span class="hs-identifier hs-var">im2</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096073"><span class="hs-identifier hs-var">im1</span></a></span><span>
+</span><span id="line-224"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-225"></span><span>    </span><span id="local-6989586621679096226"><span id="local-6989586621679096227"><span id="local-6989586621679096228"><span id="local-6989586621679096229"><span class="annot"><a href="#local-6989586621679096068"><span class="hs-identifier hs-type">g</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096229"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096228"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096227"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096226"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096229"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096228"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096229"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096227"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096229"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096226"><span class="hs-identifier hs-type">c</span></a></span></span></span></span></span><span>
+</span><span id="line-226"></span><span>    </span><span id="local-6989586621679096068"><span class="annot"><span class="annottext">g :: (a -&gt; b -&gt; c)
+-&gt; IntervalMap k a -&gt; IntervalMap k b -&gt; IntervalMap k c
+</span><a href="#local-6989586621679096068"><span class="hs-identifier hs-var hs-var">g</span></a></span></span><span> </span><span id="local-6989586621679096066"><span class="annot"><span class="annottext">a -&gt; b -&gt; c
+</span><a href="#local-6989586621679096066"><span class="hs-identifier hs-var">h</span></a></span></span><span> </span><span id="local-6989586621679096065"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096065"><span class="hs-identifier hs-var">jm1</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096064"><span class="annot"><span class="annottext">Map (LB k) (Interval k, b)
+</span><a href="#local-6989586621679096064"><span class="hs-identifier hs-var">m3</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, c) -&gt; IntervalMap k c
+forall r a. Map (LB r) (Interval r, a) -&gt; IntervalMap r a
+</span><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-var">IntervalMap</span></a></span><span> </span><span class="annot"><span class="annottext">(Map (LB k) (Interval k, c) -&gt; IntervalMap k c)
+-&gt; Map (LB k) (Interval k, c) -&gt; IntervalMap k c
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Map (LB k) (Interval k, c)] -&gt; Map (LB k) (Interval k, c)
+forall (f :: * -&gt; *) k a.
+(Foldable f, Ord k) =&gt;
+f (Map k a) -&gt; Map k a
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.unions</span></a></span><span> </span><span class="annot"><span class="annottext">([Map (LB k) (Interval k, c)] -&gt; Map (LB k) (Interval k, c))
+-&gt; [Map (LB k) (Interval k, c)] -&gt; Map (LB k) (Interval k, c)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+-&gt; [(Interval k, b)] -&gt; [Map (LB k) (Interval k, c)]
+forall k.
+Ord k =&gt;
+IntervalMap k a
+-&gt; [(Interval k, b)] -&gt; [Map (LB k) (Interval k, c)]
+</span><a href="#local-6989586621679096063"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096065"><span class="hs-identifier hs-var">jm1</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map (LB k) (Interval k, b) -&gt; [(Interval k, b)]
+forall k a. Map k a -&gt; [a]
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.elems</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, b)
+</span><a href="#local-6989586621679096064"><span class="hs-identifier hs-var">m3</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-227"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-228"></span><span>        </span><span id="local-6989586621679096063"><span class="annot"><span class="annottext">go :: IntervalMap k a
+-&gt; [(Interval k, b)] -&gt; [Map (LB k) (Interval k, c)]
+</span><a href="#local-6989586621679096063"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-229"></span><span>        </span><span class="annot"><a href="#local-6989586621679096063"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span id="local-6989586621679096061"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096061"><span class="hs-identifier hs-var">im</span></a></span></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span id="local-6989586621679096060"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096060"><span class="hs-identifier hs-var">i</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679096059"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679096059"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span> </span><span id="local-6989586621679096058"><span class="annot"><span class="annottext">[(Interval k, b)]
+</span><a href="#local-6989586621679096058"><span class="hs-identifier hs-var">xs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-230"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Interval k
+-&gt; IntervalMap k a
+-&gt; (IntervalMap k a, IntervalMap k a, IntervalMap k a)
+forall k a.
+Ord k =&gt;
+Interval k
+-&gt; IntervalMap k a
+-&gt; (IntervalMap k a, IntervalMap k a, IntervalMap k a)
+</span><a href="Data.IntervalMap.Base.html#split"><span class="hs-identifier hs-var">split</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096060"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096061"><span class="hs-identifier hs-var">im</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-231"></span><span>            </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IntervalMap k a
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096057"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096057"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679096056"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096056"><span class="hs-identifier hs-var">jm2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-232"></span><span>              </span><span class="annot"><span class="annottext">((Interval k, a) -&gt; (Interval k, c))
+-&gt; Map (LB k) (Interval k, a) -&gt; Map (LB k) (Interval k, c)
+forall a b k. (a -&gt; b) -&gt; Map k a -&gt; Map k b
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.map</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679096054"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096054"><span class="hs-identifier hs-var">j</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679096053"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096053"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096054"><span class="hs-identifier hs-var">j</span></a></span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(c -&gt; (Interval k, c)) -&gt; c -&gt; (Interval k, c)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; b -&gt; c
+</span><a href="#local-6989586621679096066"><span class="hs-identifier hs-var">h</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096053"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679096059"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096057"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, c)
+-&gt; [Map (LB k) (Interval k, c)] -&gt; [Map (LB k) (Interval k, c)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+-&gt; [(Interval k, b)] -&gt; [Map (LB k) (Interval k, c)]
+</span><a href="#local-6989586621679096063"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096056"><span class="hs-identifier hs-var">jm2</span></a></span><span> </span><span class="annot"><span class="annottext">[(Interval k, b)]
+</span><a href="#local-6989586621679096058"><span class="hs-identifier hs-var">xs</span></a></span><span>
+</span><span id="line-233"></span><span>
+</span><span id="line-234"></span><span class="hs-comment">-- ------------------------------------------------------------------------</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- Traversal</span><span>
+</span><span id="line-236"></span><span>
+</span><span id="line-237"></span><span class="hs-comment">-- | Map a function over all values in the map.</span><span>
+</span><span id="line-238"></span><span id="local-6989586621679096050"><span id="local-6989586621679096051"><span id="local-6989586621679096052"><span class="annot"><a href="Data.IntervalMap.Strict.html#map"><span class="hs-identifier hs-type">map</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096052"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096051"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096050"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096052"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096050"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096051"><span class="hs-identifier hs-type">b</span></a></span></span></span></span><span>
+</span><span id="line-239"></span><span id="map"><span class="annot"><span class="annottext">map :: (a -&gt; b) -&gt; IntervalMap k a -&gt; IntervalMap k b
+</span><a href="Data.IntervalMap.Strict.html#map"><span class="hs-identifier hs-var hs-var">map</span></a></span></span><span> </span><span id="local-6989586621679096049"><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679096049"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span id="local-6989586621679096048"><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096048"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, b) -&gt; IntervalMap k b
+forall r a. Map (LB r) (Interval r, a) -&gt; IntervalMap r a
+</span><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-var">IntervalMap</span></a></span><span> </span><span class="annot"><span class="annottext">(Map (LB k) (Interval k, b) -&gt; IntervalMap k b)
+-&gt; Map (LB k) (Interval k, b) -&gt; IntervalMap k b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">((Interval k, a) -&gt; (Interval k, b))
+-&gt; Map (LB k) (Interval k, a) -&gt; Map (LB k) (Interval k, b)
+forall a b k. (a -&gt; b) -&gt; Map k a -&gt; Map k b
+</span><a href="../../../../containers/html/src"><span class="hs-identifier hs-var">Map.map</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679096047"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096047"><span class="hs-identifier hs-var">i</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679096046"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096046"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096047"><span class="hs-identifier hs-var">i</span></a></span><span class="hs-special">,</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(b -&gt; (Interval k, b)) -&gt; b -&gt; (Interval k, b)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$!</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679096049"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096046"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map (LB k) (Interval k, a)
+</span><a href="#local-6989586621679096048"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-240"></span><span>
+</span><span id="line-241"></span><span class="hs-comment">-- ------------------------------------------------------------------------</span><span>
+</span><span id="line-242"></span><span class="hs-comment">-- Conversion</span><span>
+</span><span id="line-243"></span><span>
+</span><span id="line-244"></span><span class="hs-comment">-- | Build a map from a list of key\/value pairs.</span><span>
+</span><span id="line-245"></span><span class="hs-comment">-- If the list contains more than one value for the same key, the last value</span><span>
+</span><span id="line-246"></span><span class="hs-comment">-- for the key is retained.</span><span>
+</span><span id="line-247"></span><span id="local-6989586621679096044"><span id="local-6989586621679096045"><span class="annot"><a href="Data.IntervalMap.Strict.html#fromList"><span class="hs-identifier hs-type">fromList</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096045"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096045"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679096044"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096045"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096044"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-248"></span><span id="fromList"><span class="annot"><span class="annottext">fromList :: [(Interval k, a)] -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#fromList"><span class="hs-identifier hs-var hs-var">fromList</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(IntervalMap k a -&gt; (Interval k, a) -&gt; IntervalMap k a)
+-&gt; IntervalMap k a -&gt; [(Interval k, a)] -&gt; IntervalMap k a
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679096043"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096043"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679096042"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096042"><span class="hs-identifier hs-var">i</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679096041"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096041"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#insert"><span class="hs-identifier hs-var">insert</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096042"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096041"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096043"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+forall k a. Ord k =&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#empty"><span class="hs-identifier hs-var">empty</span></a></span><span>
+</span><span id="line-249"></span><span>
+</span><span id="line-250"></span><span class="hs-comment">-- | Build a map from a list of key\/value pairs with a combining function.</span><span>
+</span><span id="line-251"></span><span id="local-6989586621679096039"><span id="local-6989586621679096040"><span class="annot"><a href="Data.IntervalMap.Strict.html#fromListWith"><span class="hs-identifier hs-type">fromListWith</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Ord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096040"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679096039"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096039"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679096039"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="Data.Interval.Internal.html#Interval"><span class="hs-identifier hs-type">Interval</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096040"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679096039"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Data.IntervalMap.Base.html#IntervalMap"><span class="hs-identifier hs-type">IntervalMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096040"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679096039"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-252"></span><span id="fromListWith"><span class="annot"><span class="annottext">fromListWith :: (a -&gt; a -&gt; a) -&gt; [(Interval k, a)] -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#fromListWith"><span class="hs-identifier hs-var hs-var">fromListWith</span></a></span></span><span> </span><span id="local-6989586621679096038"><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096038"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(IntervalMap k a -&gt; (Interval k, a) -&gt; IntervalMap k a)
+-&gt; IntervalMap k a -&gt; [(Interval k, a)] -&gt; IntervalMap k a
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679096037"><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096037"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679096036"><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096036"><span class="hs-identifier hs-var">i</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679096035"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096035"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a)
+-&gt; Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+forall k a.
+Ord k =&gt;
+(a -&gt; a -&gt; a)
+-&gt; Interval k -&gt; a -&gt; IntervalMap k a -&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Strict.html#insertWith"><span class="hs-identifier hs-var">insertWith</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+</span><a href="#local-6989586621679096038"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Interval k
+</span><a href="#local-6989586621679096036"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679096035"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+</span><a href="#local-6989586621679096037"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IntervalMap k a
+forall k a. Ord k =&gt; IntervalMap k a
+</span><a href="Data.IntervalMap.Base.html#empty"><span class="hs-identifier hs-var">empty</span></a></span><span>
+</span><span id="line-253"></span></pre></body></html>

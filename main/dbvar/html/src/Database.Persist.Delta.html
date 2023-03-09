@@ -1,0 +1,617 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE TypeOperators #-}</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Database.Persist.Delta</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Synopsis</span></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-comment">-- | Manipulating SQL database tables using delta encodings</span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-comment">-- via the &quot;persistent&quot; package.</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Store</span></span><span>
+</span><span id="line-14"></span><span>    </span><span class="annot"><a href="Database.Persist.Delta.html#newEntityStore"><span class="hs-identifier">newEntityStore</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Persist.Delta.html#newSqlStore"><span class="hs-identifier">newSqlStore</span></a></span><span>
+</span><span id="line-15"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-16"></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span> </span><span class="hs-keyword">hiding</span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">all</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forM_</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">void</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad.IO.Class</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">MonadIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">liftIO</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Bifunctor</span></a></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">first</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.DBVar.html"><span class="hs-identifier">Data.DBVar</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Data.DBVar.html#Store"><span class="hs-identifier">Store</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.Delta.html"><span class="hs-identifier">Data.Delta</span></a></span><span>
+</span><span id="line-29"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Data.Delta.html#Delta"><span class="hs-identifier">Delta</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Proxy</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Proxy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Data.Table.html"><span class="hs-identifier">Data.Table</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Data.Table.html#DeltaDB"><span class="hs-identifier">DeltaDB</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Table.html#Pile"><span class="hs-identifier">Pile</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.Table.html#Table"><span class="hs-identifier">Table</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Database.Persist</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Filter</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Key</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">PersistRecordBackend</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">ToBackendKey</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Database.Persist.Sql</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">SqlBackend</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">SqlPersistM</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">fromSqlKey</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">toSqlKey</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Database.Schema.html"><span class="hs-identifier">Database.Schema</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Database.Schema.html#%3A."><span class="hs-operator">(:.)</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier">Col</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Schema.html#IsRow"><span class="hs-identifier">IsRow</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier">Primary</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../say/html/src"><span class="hs-identifier">Say</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../say/html/src"><span class="hs-identifier">say</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../say/html/src"><span class="hs-identifier">sayShow</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- FIXME: Replace with IOSim stuff later.</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.IORef</span></a></span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">newIORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">readIORef</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">writeIORef</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Data.Table.html"><span class="hs-identifier">Data.Table</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Table</span></span><span>
+</span><span id="line-48"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier">Database.Persist</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Persist</span></span><span>
+</span><span id="line-49"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Database.Schema.html"><span class="hs-identifier">Database.Schema</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Sql</span></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    Database operations
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- | Helper abstraction for a Database backend</span><span>
+</span><span id="line-55"></span><span class="hs-keyword">data</span><span> </span><span id="Database"><span class="annot"><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-var">Database</span></a></span></span><span> </span><span id="local-6989586621679211314"><span class="annot"><a href="#local-6989586621679211314"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679211313"><span class="annot"><a href="#local-6989586621679211313"><span class="hs-identifier hs-type">key</span></a></span></span><span> </span><span id="local-6989586621679211312"><span class="annot"><a href="#local-6989586621679211312"><span class="hs-identifier hs-type">row</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Database"><span class="annot"><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-var">Database</span></a></span></span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="selectAll"><span class="annot"><span class="annottext">Database m key row -&gt; m [(key, row)]
+</span><a href="Database.Persist.Delta.html#selectAll"><span class="hs-identifier hs-var hs-var">selectAll</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679211314"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211313"><span class="hs-identifier hs-type">key</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679211312"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="deleteAll"><span class="annot"><span class="annottext">Database m key row -&gt; m ()
+</span><a href="Database.Persist.Delta.html#deleteAll"><span class="hs-identifier hs-var hs-var">deleteAll</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679211314"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="repsertMany"><span class="annot"><span class="annottext">Database m key row -&gt; [(key, row)] -&gt; m ()
+</span><a href="Database.Persist.Delta.html#repsertMany"><span class="hs-identifier hs-var hs-var">repsertMany</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211313"><span class="hs-identifier hs-type">key</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679211312"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679211314"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="deleteOne"><span class="annot"><span class="annottext">Database m key row -&gt; key -&gt; m ()
+</span><a href="Database.Persist.Delta.html#deleteOne"><span class="hs-identifier hs-var hs-var">deleteOne</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679211313"><span class="hs-identifier hs-type">key</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679211314"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="updateOne"><span class="annot"><span class="annottext">Database m key row -&gt; (key, row) -&gt; m ()
+</span><a href="Database.Persist.Delta.html#updateOne"><span class="hs-identifier hs-var hs-var">updateOne</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211313"><span class="hs-identifier hs-type">key</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679211312"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679211314"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- | Database table for 'Entity'.</span><span>
+</span><span id="line-64"></span><span class="annot"><a href="Database.Persist.Delta.html#persistDB"><span class="hs-identifier hs-type">persistDB</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679211228"><span class="annot"><a href="#local-6989586621679211228"><span class="hs-identifier hs-type">row</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">PersistRecordBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211228"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlBackend</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">ToBackendKey</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211228"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-type">Database</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistM</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211228"><span class="hs-identifier hs-type">row</span></a></span><span>
+</span><span id="line-68"></span><span id="persistDB"><span class="annot"><span class="annottext">persistDB :: Database SqlPersistM Int row
+</span><a href="Database.Persist.Delta.html#persistDB"><span class="hs-identifier hs-var hs-var">persistDB</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Database :: forall (m :: * -&gt; *) key row.
+m [(key, row)]
+-&gt; m ()
+-&gt; ([(key, row)] -&gt; m ())
+-&gt; (key -&gt; m ())
+-&gt; ((key, row) -&gt; m ())
+-&gt; Database m key row
+</span><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-type">Database</span></a></span><span>
+</span><span id="line-69"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">selectAll :: SqlPersistM [(Int, row)]
+</span><a href="Database.Persist.Delta.html#selectAll"><span class="hs-identifier hs-var">selectAll</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Entity row -&gt; (Int, row)) -&gt; [Entity row] -&gt; [(Int, row)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">Entity row -&gt; (Int, row)
+</span><a href="#local-6989586621679211162"><span class="hs-identifier hs-var">toPair</span></a></span><span> </span><span class="annot"><span class="annottext">([Entity row] -&gt; [(Int, row)])
+-&gt; ReaderT SqlBackend (NoLoggingT (ResourceT IO)) [Entity row]
+-&gt; SqlPersistM [(Int, row)]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter row]
+-&gt; [SelectOpt row]
+-&gt; ReaderT SqlBackend (NoLoggingT (ResourceT IO)) [Entity row]
+forall record backend (m :: * -&gt; *).
+(MonadIO m, PersistQueryRead backend,
+ PersistRecordBackend record backend) =&gt;
+[Filter record]
+-&gt; [SelectOpt record] -&gt; ReaderT backend m [Entity record]
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">Persist.selectList</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter row]
+</span><a href="#local-6989586621679211159"><span class="hs-identifier hs-var">all</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">deleteAll :: SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#deleteAll"><span class="hs-identifier hs-var">deleteAll</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Filter row] -&gt; SqlPersistM ()
+forall backend (m :: * -&gt; *) record.
+(PersistQueryWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[Filter record] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">Persist.deleteWhere</span></a></span><span> </span><span class="annot"><span class="annottext">[Filter row]
+</span><a href="#local-6989586621679211159"><span class="hs-identifier hs-var">all</span></a></span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">repsertMany :: [(Int, row)] -&gt; SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#repsertMany"><span class="hs-identifier hs-var">repsertMany</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(Key row, row)] -&gt; SqlPersistM ()
+forall backend record (m :: * -&gt; *).
+(PersistStoreWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+[(Key record, record)] -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">Persist.repsertMany</span></a></span><span> </span><span class="annot"><span class="annottext">([(Key row, row)] -&gt; SqlPersistM ())
+-&gt; ([(Int, row)] -&gt; [(Key row, row)])
+-&gt; [(Int, row)]
+-&gt; SqlPersistM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">((Int, row) -&gt; (Key row, row)) -&gt; [(Int, row)] -&gt; [(Key row, row)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Int -&gt; Key row) -&gt; (Int, row) -&gt; (Key row, row)
+forall (p :: * -&gt; * -&gt; *) a b c.
+Bifunctor p =&gt;
+(a -&gt; b) -&gt; p a c -&gt; p b c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">first</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Key row
+</span><a href="#local-6989586621679211155"><span class="hs-identifier hs-var">toKey</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">deleteOne :: Int -&gt; SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#deleteOne"><span class="hs-identifier hs-var">deleteOne</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Key row -&gt; SqlPersistM ()
+forall backend record (m :: * -&gt; *).
+(PersistStoreWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+Key record -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">Persist.delete</span></a></span><span> </span><span class="annot"><span class="annottext">(Key row -&gt; SqlPersistM ())
+-&gt; (Int -&gt; Key row) -&gt; Int -&gt; SqlPersistM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Key row
+</span><a href="#local-6989586621679211155"><span class="hs-identifier hs-var">toKey</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">updateOne :: (Int, row) -&gt; SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#updateOne"><span class="hs-identifier hs-var">updateOne</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679211153"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679211153"><span class="hs-identifier hs-var">key</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679211152"><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211152"><span class="hs-identifier hs-var">val</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Key row -&gt; row -&gt; SqlPersistM ()
+forall backend record (m :: * -&gt; *).
+(PersistStoreWrite backend, MonadIO m,
+ PersistRecordBackend record backend) =&gt;
+Key record -&gt; record -&gt; ReaderT backend m ()
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">Persist.replace</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Key row
+</span><a href="#local-6989586621679211155"><span class="hs-identifier hs-var">toKey</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679211153"><span class="hs-identifier hs-var">key</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211152"><span class="hs-identifier hs-var">val</span></a></span><span>
+</span><span id="line-74"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-75"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-76"></span><span>    </span><span id="local-6989586621679211159"><span class="annot"><span class="annottext">all :: [Filter row]
+</span><a href="#local-6989586621679211159"><span class="hs-identifier hs-var hs-var">all</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">Filter</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211228"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span>    </span><span id="local-6989586621679211162"><span class="annot"><span class="annottext">toPair :: Entity row -&gt; (Int, row)
+</span><a href="#local-6989586621679211162"><span class="hs-identifier hs-var hs-var">toPair</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">Persist.Entity</span></a></span><span> </span><span id="local-6989586621679211149"><span class="annot"><span class="annottext">Key row
+</span><a href="#local-6989586621679211149"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span id="local-6989586621679211148"><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211148"><span class="hs-identifier hs-var">val</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Key row -&gt; Int
+</span><a href="#local-6989586621679211147"><span class="hs-identifier hs-var">fromKey</span></a></span><span> </span><span class="annot"><span class="annottext">Key row
+</span><a href="#local-6989586621679211149"><span class="hs-identifier hs-var">key</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211148"><span class="hs-identifier hs-var">val</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>
+</span><span id="line-80"></span><span>    </span><span id="local-6989586621679211147"><span class="annot"><span class="annottext">fromKey :: Key row -&gt; Int
+</span><a href="#local-6989586621679211147"><span class="hs-identifier hs-var hs-var">fromKey</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Int
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(Int64 -&gt; Int) -&gt; (Key row -&gt; Int64) -&gt; Key row -&gt; Int
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Key row -&gt; Int64
+forall record.
+ToBackendKey SqlBackend record =&gt;
+Key record -&gt; Int64
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">fromSqlKey</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><a href="#local-6989586621679211155"><span class="hs-identifier hs-type">toKey</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">Key</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211228"><span class="hs-identifier hs-type">row</span></a></span><span>
+</span><span id="line-82"></span><span>    </span><span id="local-6989586621679211155"><span class="annot"><span class="annottext">toKey :: Int -&gt; Key row
+</span><a href="#local-6989586621679211155"><span class="hs-identifier hs-var hs-var">toKey</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int64 -&gt; Key row
+forall record.
+ToBackendKey SqlBackend record =&gt;
+Int64 -&gt; Key record
+</span><a href="../../../../persistent/html/src"><span class="hs-identifier hs-var">toSqlKey</span></a></span><span> </span><span class="annot"><span class="annottext">(Int64 -&gt; Key row) -&gt; (Int -&gt; Int64) -&gt; Int -&gt; Key row
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int64
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- | SQL database backend</span><span>
+</span><span id="line-85"></span><span class="annot"><a href="Database.Persist.Delta.html#sqlDB"><span class="hs-identifier hs-type">sqlDB</span></a></span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679211231"><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Schema.html#IsRow"><span class="hs-identifier hs-type">IsRow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Schema.html#IsRow"><span class="hs-identifier hs-type">IsRow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#%3A."><span class="hs-operator hs-type">:.</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier hs-type">Col</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;id&quot;</span></span><span> </span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-type">Primary</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-type">Database</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistM</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span>
+</span><span id="line-88"></span><span id="sqlDB"><span class="annot"><span class="annottext">sqlDB :: Database SqlPersistM Int row
+</span><a href="Database.Persist.Delta.html#sqlDB"><span class="hs-identifier hs-var hs-var">sqlDB</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Database :: forall (m :: * -&gt; *) key row.
+m [(key, row)]
+-&gt; m ()
+-&gt; ([(key, row)] -&gt; m ())
+-&gt; (key -&gt; m ())
+-&gt; ((key, row) -&gt; m ())
+-&gt; Database m key row
+</span><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-type">Database</span></a></span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">selectAll :: SqlPersistM [(Int, row)]
+</span><a href="Database.Persist.Delta.html#selectAll"><span class="hs-identifier hs-var">selectAll</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((row :. Col &quot;id&quot; Primary) -&gt; (Int, row))
+-&gt; [row :. Col &quot;id&quot; Primary] -&gt; [(Int, row)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">(row :. Col &quot;id&quot; Primary) -&gt; (Int, row)
+</span><a href="#local-6989586621679211145"><span class="hs-identifier hs-var">toPair</span></a></span><span> </span><span class="annot"><span class="annottext">([row :. Col &quot;id&quot; Primary] -&gt; [(Int, row)])
+-&gt; ReaderT
+     SqlBackend (NoLoggingT (ResourceT IO)) [row :. Col &quot;id&quot; Primary]
+-&gt; SqlPersistM [(Int, row)]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Query (row :. Col &quot;id&quot; Primary)
+-&gt; ReaderT
+     SqlBackend (NoLoggingT (ResourceT IO)) [row :. Col &quot;id&quot; Primary]
+forall (m :: * -&gt; *) row.
+(MonadIO m, IsRow row) =&gt;
+Query row -&gt; SqlPersistT m [row]
+</span><a href="Database.Schema.html#callSql"><span class="hs-identifier hs-var">Sql.callSql</span></a></span><span> </span><span class="annot"><span class="annottext">Query (row :. Col &quot;id&quot; Primary)
+forall row. IsRow row =&gt; Query row
+</span><a href="Database.Schema.html#selectAll"><span class="hs-identifier hs-var">Sql.selectAll</span></a></span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">deleteAll :: SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#deleteAll"><span class="hs-identifier hs-var">deleteAll</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Query () -&gt; SqlPersistM ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Query () -&gt; SqlPersistT m ()
+</span><a href="Database.Schema.html#runSql"><span class="hs-identifier hs-var">Sql.runSql</span></a></span><span> </span><span class="annot"><span class="annottext">(Query () -&gt; SqlPersistM ()) -&gt; Query () -&gt; SqlPersistM ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy row -&gt; Query ()
+forall row. IsRow row =&gt; Proxy row -&gt; Query ()
+</span><a href="Database.Schema.html#deleteAll"><span class="hs-identifier hs-var">Sql.deleteAll</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy row
+</span><a href="#local-6989586621679211140"><span class="hs-identifier hs-var">proxy</span></a></span><span>
+</span><span id="line-91"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">repsertMany :: [(Int, row)] -&gt; SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#repsertMany"><span class="hs-identifier hs-var">repsertMany</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679211139"><span class="annot"><span class="annottext">[(Int, row)]
+</span><a href="#local-6989586621679211139"><span class="hs-identifier hs-var">zs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[(Int, row)] -&gt; ((Int, row) -&gt; SqlPersistM ()) -&gt; SqlPersistM ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM_</span></a></span><span> </span><span class="annot"><span class="annottext">[(Int, row)]
+</span><a href="#local-6989586621679211139"><span class="hs-identifier hs-var">zs</span></a></span><span> </span><span class="annot"><span class="annottext">(((Int, row) -&gt; SqlPersistM ()) -&gt; SqlPersistM ())
+-&gt; ((Int, row) -&gt; SqlPersistM ()) -&gt; SqlPersistM ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>
+</span><span id="line-92"></span><span>        </span><span class="annot"><span class="annottext">Query () -&gt; SqlPersistM ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Query () -&gt; SqlPersistT m ()
+</span><a href="Database.Schema.html#runSql"><span class="hs-identifier hs-var">Sql.runSql</span></a></span><span> </span><span class="annot"><span class="annottext">(Query () -&gt; SqlPersistM ())
+-&gt; ((Int, row) -&gt; Query ()) -&gt; (Int, row) -&gt; SqlPersistM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(row :. Col &quot;id&quot; Primary) -&gt; Query ()
+forall row. IsRow row =&gt; (row :. Col &quot;id&quot; Primary) -&gt; Query ()
+</span><a href="Database.Schema.html#repsertOne"><span class="hs-identifier hs-var">Sql.repsertOne</span></a></span><span> </span><span class="annot"><span class="annottext">((row :. Col &quot;id&quot; Primary) -&gt; Query ())
+-&gt; ((Int, row) -&gt; row :. Col &quot;id&quot; Primary)
+-&gt; (Int, row)
+-&gt; Query ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Int, row) -&gt; row :. Col &quot;id&quot; Primary
+</span><a href="#local-6989586621679211137"><span class="hs-identifier hs-var">fromPair</span></a></span><span>
+</span><span id="line-93"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">deleteOne :: Int -&gt; SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#deleteOne"><span class="hs-identifier hs-var">deleteOne</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Query () -&gt; SqlPersistM ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Query () -&gt; SqlPersistT m ()
+</span><a href="Database.Schema.html#runSql"><span class="hs-identifier hs-var">Sql.runSql</span></a></span><span> </span><span class="annot"><span class="annottext">(Query () -&gt; SqlPersistM ())
+-&gt; (Int -&gt; Query ()) -&gt; Int -&gt; SqlPersistM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy row -&gt; Col &quot;id&quot; Primary -&gt; Query ()
+forall row. IsRow row =&gt; Proxy row -&gt; Col &quot;id&quot; Primary -&gt; Query ()
+</span><a href="Database.Schema.html#deleteOne"><span class="hs-identifier hs-var">Sql.deleteOne</span></a></span><span> </span><span class="annot"><span class="annottext">Proxy row
+</span><a href="#local-6989586621679211140"><span class="hs-identifier hs-var">proxy</span></a></span><span> </span><span class="annot"><span class="annottext">(Col &quot;id&quot; Primary -&gt; Query ())
+-&gt; (Int -&gt; Col &quot;id&quot; Primary) -&gt; Int -&gt; Query ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Primary -&gt; Col &quot;id&quot; Primary
+forall (name :: Symbol) a. a -&gt; Col name a
+</span><a href="Database.Schema.html#Col"><span class="hs-identifier hs-var">Col</span></a></span><span> </span><span class="annot"><span class="annottext">(Primary -&gt; Col &quot;id&quot; Primary)
+-&gt; (Int -&gt; Primary) -&gt; Int -&gt; Col &quot;id&quot; Primary
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Primary
+</span><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-var">Primary</span></a></span><span>
+</span><span id="line-94"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">updateOne :: (Int, row) -&gt; SqlPersistM ()
+</span><a href="Database.Persist.Delta.html#updateOne"><span class="hs-identifier hs-var">updateOne</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Query () -&gt; SqlPersistM ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Query () -&gt; SqlPersistT m ()
+</span><a href="Database.Schema.html#runSql"><span class="hs-identifier hs-var">Sql.runSql</span></a></span><span> </span><span class="annot"><span class="annottext">(Query () -&gt; SqlPersistM ())
+-&gt; ((Int, row) -&gt; Query ()) -&gt; (Int, row) -&gt; SqlPersistM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(row :. Col &quot;id&quot; Primary) -&gt; Query ()
+forall row. IsRow row =&gt; (row :. Col &quot;id&quot; Primary) -&gt; Query ()
+</span><a href="Database.Schema.html#updateOne"><span class="hs-identifier hs-var">Sql.updateOne</span></a></span><span> </span><span class="annot"><span class="annottext">((row :. Col &quot;id&quot; Primary) -&gt; Query ())
+-&gt; ((Int, row) -&gt; row :. Col &quot;id&quot; Primary)
+-&gt; (Int, row)
+-&gt; Query ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Int, row) -&gt; row :. Col &quot;id&quot; Primary
+</span><a href="#local-6989586621679211137"><span class="hs-identifier hs-var">fromPair</span></a></span><span>
+</span><span id="line-95"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-97"></span><span>    </span><span id="local-6989586621679211140"><span class="annot"><span class="annottext">proxy :: Proxy row
+</span><a href="#local-6989586621679211140"><span class="hs-identifier hs-var hs-var">proxy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Proxy row
+forall k (t :: k). Proxy t
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Proxy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Proxy</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span>    </span><span class="annot"><a href="#local-6989586621679211137"><span class="hs-identifier hs-type">fromPair</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#%3A."><span class="hs-operator hs-type">:.</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier hs-type">Col</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;id&quot;</span></span><span> </span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-type">Primary</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-100"></span><span>    </span><span id="local-6989586621679211137"><span class="annot"><span class="annottext">fromPair :: (Int, row) -&gt; row :. Col &quot;id&quot; Primary
+</span><a href="#local-6989586621679211137"><span class="hs-identifier hs-var hs-var">fromPair</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679211131"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679211131"><span class="hs-identifier hs-var">key</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679211130"><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211130"><span class="hs-identifier hs-var">row</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211130"><span class="hs-identifier hs-var">row</span></a></span><span> </span><span class="annot"><span class="annottext">row -&gt; Col &quot;id&quot; Primary -&gt; row :. Col &quot;id&quot; Primary
+forall a b. a -&gt; b -&gt; a :. b
+</span><a href="Database.Schema.html#%3A."><span class="hs-operator hs-var">:.</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Primary -&gt; Col &quot;id&quot; Primary
+forall (name :: Symbol) a. a -&gt; Col name a
+</span><a href="Database.Schema.html#Col"><span class="hs-identifier hs-var">Col</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Primary
+</span><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-var">Primary</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679211131"><span class="hs-identifier hs-var">key</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier hs-type">Col</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;id&quot;</span></span><span> </span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-type">Primary</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-101"></span><span>
+</span><span id="line-102"></span><span>    </span><span class="annot"><a href="#local-6989586621679211145"><span class="hs-identifier hs-type">toPair</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#%3A."><span class="hs-operator hs-type">:.</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier hs-type">Col</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;id&quot;</span></span><span> </span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-type">Primary</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679211231"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621679211145"><span class="annot"><span class="annottext">toPair :: (row :. Col &quot;id&quot; Primary) -&gt; (Int, row)
+</span><a href="#local-6989586621679211145"><span class="hs-identifier hs-var hs-var">toPair</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679211128"><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211128"><span class="hs-identifier hs-var">row</span></a></span></span><span> </span><span class="annot"><a href="Database.Schema.html#%3A."><span class="hs-operator hs-type">:.</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier hs-type">Col</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-type">Primary</span></a></span><span> </span><span id="local-6989586621679211127"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679211127"><span class="hs-identifier hs-var">key</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679211127"><span class="hs-identifier hs-var">key</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">row
+</span><a href="#local-6989586621679211128"><span class="hs-identifier hs-var">row</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span class="hs-comment">{-------------------------------------------------------------------------------
+    Database operations
+-------------------------------------------------------------------------------}</span><span>
+</span><span id="line-108"></span><span class="hs-comment">-- | Construct a 'Store' from an SQL table.</span><span>
+</span><span id="line-109"></span><span class="hs-comment">--</span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- The unique IDs will be stored in a column &quot;id&quot; at the end of</span><span>
+</span><span id="line-111"></span><span class="hs-comment">-- each row in the database table.</span><span>
+</span><span id="line-112"></span><span id="local-6989586621679211125"><span id="local-6989586621679211126"><span class="annot"><a href="Database.Persist.Delta.html#newSqlStore"><span class="hs-identifier hs-type">newSqlStore</span></a></span><span>
+</span><span id="line-113"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">MonadIO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211126"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Schema.html#IsRow"><span class="hs-identifier hs-type">IsRow</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211125"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Database.Schema.html#IsRow"><span class="hs-identifier hs-type">IsRow</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679211125"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#%3A."><span class="hs-operator hs-type">:.</span></a></span><span> </span><span class="annot"><a href="Database.Schema.html#Col"><span class="hs-identifier hs-type">Col</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;id&quot;</span></span><span> </span><span class="annot"><a href="Database.Schema.html#Primary"><span class="hs-identifier hs-type">Primary</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211125"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679211126"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.DBVar.html#Store"><span class="hs-identifier hs-type">Store</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistM</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.Table.html#DeltaDB"><span class="hs-identifier hs-type">DeltaDB</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211125"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-115"></span><span id="newSqlStore"><span class="annot"><span class="annottext">newSqlStore :: m (Store SqlPersistM [DeltaDB Int row])
+</span><a href="Database.Persist.Delta.html#newSqlStore"><span class="hs-identifier hs-var hs-var">newSqlStore</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Database SqlPersistM Int row
+-&gt; m (Store SqlPersistM [DeltaDB Int row])
+forall (m :: * -&gt; *) (n :: * -&gt; *) row.
+(MonadIO m, MonadIO n, Show row) =&gt;
+Database m Int row -&gt; n (Store m [DeltaDB Int row])
+</span><a href="Database.Persist.Delta.html#newDatabaseStore"><span class="hs-identifier hs-var">newDatabaseStore</span></a></span><span> </span><span class="annot"><span class="annottext">Database SqlPersistM Int row
+forall row.
+(IsRow row, IsRow (row :. Col &quot;id&quot; Primary)) =&gt;
+Database SqlPersistM Int row
+</span><a href="Database.Persist.Delta.html#sqlDB"><span class="hs-identifier hs-var">sqlDB</span></a></span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- | Construct a 'Store' for 'Entity'.</span><span>
+</span><span id="line-118"></span><span class="hs-comment">--</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- FIXME: This function should also do \&quot;migrations\&quot;, i.e.</span><span>
+</span><span id="line-120"></span><span class="hs-comment">-- create the database table in the first place.</span><span>
+</span><span id="line-121"></span><span class="annot"><a href="Database.Persist.Delta.html#newEntityStore"><span class="hs-identifier hs-type">newEntityStore</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679211123"><span class="annot"><a href="#local-6989586621679211123"><span class="hs-identifier hs-type">row</span></a></span></span><span> </span><span id="local-6989586621679211122"><span class="annot"><a href="#local-6989586621679211122"><span class="hs-identifier hs-type">m</span></a></span></span><span class="hs-operator">.</span><span>
+</span><span id="line-123"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">PersistRecordBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211123"><span class="hs-identifier hs-type">row</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlBackend</span></a></span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">ToBackendKey</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlBackend</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211123"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211123"><span class="hs-identifier hs-type">row</span></a></span><span>
+</span><span id="line-125"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">MonadIO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211122"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-126"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679211122"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.DBVar.html#Store"><span class="hs-identifier hs-type">Store</span></a></span><span> </span><span class="annot"><a href="../../../../persistent/html/src"><span class="hs-identifier hs-type">SqlPersistM</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.Table.html#DeltaDB"><span class="hs-identifier hs-type">DeltaDB</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211123"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-127"></span><span id="newEntityStore"><span class="annot"><span class="annottext">newEntityStore :: m (Store SqlPersistM [DeltaDB Int row])
+</span><a href="Database.Persist.Delta.html#newEntityStore"><span class="hs-identifier hs-var hs-var">newEntityStore</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Database SqlPersistM Int row
+-&gt; m (Store SqlPersistM [DeltaDB Int row])
+forall (m :: * -&gt; *) (n :: * -&gt; *) row.
+(MonadIO m, MonadIO n, Show row) =&gt;
+Database m Int row -&gt; n (Store m [DeltaDB Int row])
+</span><a href="Database.Persist.Delta.html#newDatabaseStore"><span class="hs-identifier hs-var">newDatabaseStore</span></a></span><span> </span><span class="annot"><span class="annottext">Database SqlPersistM Int row
+forall row.
+(PersistRecordBackend row SqlBackend,
+ ToBackendKey SqlBackend row) =&gt;
+Database SqlPersistM Int row
+</span><a href="Database.Persist.Delta.html#persistDB"><span class="hs-identifier hs-var">persistDB</span></a></span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- | Helper function to create a 'Store' using a 'Database' backend.</span><span>
+</span><span id="line-130"></span><span class="annot"><a href="Database.Persist.Delta.html#newDatabaseStore"><span class="hs-identifier hs-type">newDatabaseStore</span></a></span><span>
+</span><span id="line-131"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679211234"><span class="annot"><a href="#local-6989586621679211234"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679211233"><span class="annot"><a href="#local-6989586621679211233"><span class="hs-identifier hs-type">n</span></a></span></span><span> </span><span id="local-6989586621679211232"><span class="annot"><a href="#local-6989586621679211232"><span class="hs-identifier hs-type">row</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">MonadIO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211234"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">MonadIO</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211233"><span class="hs-identifier hs-type">n</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Show</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211232"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Database.Persist.Delta.html#Database"><span class="hs-identifier hs-type">Database</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211234"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211232"><span class="hs-identifier hs-type">row</span></a></span><span>
+</span><span id="line-133"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679211233"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.DBVar.html#Store"><span class="hs-identifier hs-type">Store</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211234"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Data.Table.html#DeltaDB"><span class="hs-identifier hs-type">DeltaDB</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679211232"><span class="hs-identifier hs-type">row</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-134"></span><span id="newDatabaseStore"><span class="annot"><span class="annottext">newDatabaseStore :: Database m Int row -&gt; n (Store m [DeltaDB Int row])
+</span><a href="Database.Persist.Delta.html#newDatabaseStore"><span class="hs-identifier hs-var hs-var">newDatabaseStore</span></a></span></span><span> </span><span id="local-6989586621679211121"><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-135"></span><span>    </span><span id="local-6989586621679211120"><span class="annot"><span class="annottext">IORef (Maybe Supply)
+</span><a href="#local-6989586621679211120"><span class="hs-identifier hs-var">ref</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (IORef (Maybe Supply)) -&gt; n (IORef (Maybe Supply))
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO (IORef (Maybe Supply)) -&gt; n (IORef (Maybe Supply)))
+-&gt; IO (IORef (Maybe Supply)) -&gt; n (IORef (Maybe Supply))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Supply -&gt; IO (IORef (Maybe Supply))
+forall a. a -&gt; IO (IORef a)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">newIORef</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Supply
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-136"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679211119"><span class="annot"><span class="annottext">rememberSupply :: Table row -&gt; m ()
+</span><a href="#local-6989586621679211119"><span class="hs-identifier hs-var hs-var">rememberSupply</span></a></span></span><span> </span><span id="local-6989586621679211118"><span class="annot"><span class="annottext">Table row
+</span><a href="#local-6989586621679211118"><span class="hs-identifier hs-var">table</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; m ()) -&gt; IO () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">IORef (Maybe Supply) -&gt; Maybe Supply -&gt; IO ()
+forall a. IORef a -&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">writeIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef (Maybe Supply)
+</span><a href="#local-6989586621679211120"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe Supply -&gt; IO ()) -&gt; Maybe Supply -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Supply -&gt; Maybe Supply
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(Supply -&gt; Maybe Supply) -&gt; Supply -&gt; Maybe Supply
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Table row -&gt; Supply
+forall row. Table row -&gt; Supply
+</span><a href="Data.Table.html#uids"><span class="hs-identifier hs-var hs-var">uids</span></a></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><a href="#local-6989586621679211118"><span class="hs-identifier hs-var">table</span></a></span><span>
+</span><span id="line-137"></span><span>    </span><span class="annot"><span class="annottext">Store m [DeltaDB Int row] -&gt; n (Store m [DeltaDB Int row])
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Store m [DeltaDB Int row] -&gt; n (Store m [DeltaDB Int row]))
+-&gt; Store m [DeltaDB Int row] -&gt; n (Store m [DeltaDB Int row])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Store :: forall (m :: * -&gt; *) da.
+m (Either SomeException (Base da))
+-&gt; (Base da -&gt; m ()) -&gt; (Base da -&gt; da -&gt; m ()) -&gt; Store m da
+</span><a href="Data.DBVar.html#Store"><span class="hs-identifier hs-type">Store</span></a></span><span>
+</span><span id="line-138"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">loadS :: m (Either SomeException (Base [DeltaDB Int row]))
+</span><a href="#local-6989586621679211115"><span class="hs-identifier hs-var">loadS</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-139"></span><span>            </span><span class="annot"><span class="annottext">m () -&gt; m ()
+forall (f :: * -&gt; *). Applicative f =&gt; f () -&gt; f ()
+</span><a href="#local-6989586621679211114"><span class="hs-identifier hs-var">debug</span></a></span><span> </span><span class="annot"><span class="annottext">(m () -&gt; m ()) -&gt; m () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-140"></span><span>                </span><span class="annot"><span class="annottext">Text -&gt; m ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">say</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;\n** loadS&quot;</span></span><span>
+</span><span id="line-141"></span><span>                </span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; m ()) -&gt; ([(Int, row)] -&gt; IO ()) -&gt; [(Int, row)] -&gt; m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">[(Int, row)] -&gt; IO ()
+forall a. Show a =&gt; a -&gt; IO ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">print</span></a></span><span> </span><span class="annot"><span class="annottext">([(Int, row)] -&gt; m ()) -&gt; m [(Int, row)] -&gt; m ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; (a -&gt; m b) -&gt; m a -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">=&lt;&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row -&gt; m [(Int, row)]
+forall (m :: * -&gt; *) key row. Database m key row -&gt; m [(key, row)]
+</span><a href="Database.Persist.Delta.html#selectAll"><span class="hs-identifier hs-var hs-var">selectAll</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-142"></span><span>            </span><span class="hs-comment">-- read database table, preserve keys</span><span>
+</span><span id="line-143"></span><span>            </span><span id="local-6989586621679211112"><span class="annot"><span class="annottext">Table row
+</span><a href="#local-6989586621679211112"><span class="hs-identifier hs-var">table</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[(Int, row)] -&gt; Table row
+forall row. [(Int, row)] -&gt; Table row
+</span><a href="Data.Table.html#fromRows"><span class="hs-identifier hs-var">Table.fromRows</span></a></span><span> </span><span class="annot"><span class="annottext">([(Int, row)] -&gt; Table row) -&gt; m [(Int, row)] -&gt; m (Table row)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row -&gt; m [(Int, row)]
+forall (m :: * -&gt; *) key row. Database m key row -&gt; m [(key, row)]
+</span><a href="Database.Persist.Delta.html#selectAll"><span class="hs-identifier hs-var hs-var">selectAll</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-144"></span><span>            </span><span class="hs-comment">-- but use our own unique ID supply</span><span>
+</span><span id="line-145"></span><span>            </span><span class="annot"><span class="annottext">IO (Maybe Supply) -&gt; m (Maybe Supply)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">liftIO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IORef (Maybe Supply) -&gt; IO (Maybe Supply)
+forall a. IORef a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">readIORef</span></a></span><span> </span><span class="annot"><span class="annottext">IORef (Maybe Supply)
+</span><a href="#local-6989586621679211120"><span class="hs-identifier hs-var">ref</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">m (Maybe Supply)
+-&gt; (Maybe Supply -&gt; m (Either SomeException (Table row)))
+-&gt; m (Either SomeException (Table row))
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-146"></span><span>                </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679211110"><span class="annot"><span class="annottext">Supply
+</span><a href="#local-6989586621679211110"><span class="hs-identifier hs-var">supply</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either SomeException (Table row)
+-&gt; m (Either SomeException (Table row))
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Table row)
+ -&gt; m (Either SomeException (Table row)))
+-&gt; Either SomeException (Table row)
+-&gt; m (Either SomeException (Table row))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Table row -&gt; Either SomeException (Table row)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><a href="#local-6989586621679211112"><span class="hs-identifier hs-var">table</span></a></span><span class="hs-special">{</span><span class="annot"><span class="annottext">uids :: Supply
+</span><a href="Data.Table.html#uids"><span class="hs-identifier hs-var">uids</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Supply
+</span><a href="#local-6989586621679211110"><span class="hs-identifier hs-var">supply</span></a></span><span class="hs-special">}</span><span>
+</span><span id="line-147"></span><span>                </span><span class="annot"><span class="annottext">Maybe Supply
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-148"></span><span>                    </span><span class="annot"><span class="annottext">Table row -&gt; m ()
+</span><a href="#local-6989586621679211119"><span class="hs-identifier hs-var">rememberSupply</span></a></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><a href="#local-6989586621679211112"><span class="hs-identifier hs-var">table</span></a></span><span>
+</span><span id="line-149"></span><span>                    </span><span class="annot"><span class="annottext">Either SomeException (Table row)
+-&gt; m (Either SomeException (Table row))
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Table row)
+ -&gt; m (Either SomeException (Table row)))
+-&gt; Either SomeException (Table row)
+-&gt; m (Either SomeException (Table row))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Table row -&gt; Either SomeException (Table row)
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><a href="#local-6989586621679211112"><span class="hs-identifier hs-var">table</span></a></span><span>
+</span><span id="line-150"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">writeS :: Base [DeltaDB Int row] -&gt; m ()
+</span><a href="#local-6989586621679211109"><span class="hs-identifier hs-var">writeS</span></a></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679211108"><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+</span><a href="#local-6989586621679211108"><span class="hs-identifier hs-var">table</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">m () -&gt; m ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(m () -&gt; m ()) -&gt; m () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-151"></span><span>            </span><span class="annot"><span class="annottext">Database m Int row -&gt; m ()
+forall (m :: * -&gt; *) key row. Database m key row -&gt; m ()
+</span><a href="Database.Persist.Delta.html#deleteAll"><span class="hs-identifier hs-var hs-var">deleteAll</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="hs-comment">-- delete any old data in the table first</span><span>
+</span><span id="line-152"></span><span>            </span><span class="annot"><span class="annottext">Database m Int row -&gt; [(Int, row)] -&gt; m ()
+forall (m :: * -&gt; *) key row.
+Database m key row -&gt; [(key, row)] -&gt; m ()
+</span><a href="Database.Persist.Delta.html#repsertMany"><span class="hs-identifier hs-var hs-var">repsertMany</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">([(Int, row)] -&gt; m ()) -&gt; [(Int, row)] -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Pile (Int, row) -&gt; [(Int, row)]
+forall a. Pile a -&gt; [a]
+</span><a href="Data.Table.html#getPile"><span class="hs-identifier hs-var hs-var">getPile</span></a></span><span> </span><span class="annot"><span class="annottext">(Pile (Int, row) -&gt; [(Int, row)])
+-&gt; Pile (Int, row) -&gt; [(Int, row)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Table row -&gt; Pile (Int, row)
+forall row. Table row -&gt; Pile (Int, row)
+</span><a href="Data.Table.html#toRows"><span class="hs-identifier hs-var">Table.toRows</span></a></span><span> </span><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+Table row
+</span><a href="#local-6989586621679211108"><span class="hs-identifier hs-var">table</span></a></span><span>
+</span><span id="line-153"></span><span>            </span><span class="annot"><span class="annottext">Table row -&gt; m ()
+</span><a href="#local-6989586621679211119"><span class="hs-identifier hs-var">rememberSupply</span></a></span><span> </span><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+Table row
+</span><a href="#local-6989586621679211108"><span class="hs-identifier hs-var">table</span></a></span><span>
+</span><span id="line-154"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">updateS :: Base [DeltaDB Int row] -&gt; [DeltaDB Int row] -&gt; m ()
+</span><a href="Data.DBVar.html#updateS"><span class="hs-identifier hs-var">updateS</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679211104"><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+</span><a href="#local-6989586621679211104"><span class="hs-identifier hs-var">table</span></a></span></span><span> </span><span id="local-6989586621679211103"><span class="annot"><span class="annottext">[DeltaDB Int row]
+</span><a href="#local-6989586621679211103"><span class="hs-identifier hs-var">ds</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-155"></span><span>            </span><span class="annot"><span class="annottext">m () -&gt; m ()
+forall (f :: * -&gt; *). Applicative f =&gt; f () -&gt; f ()
+</span><a href="#local-6989586621679211114"><span class="hs-identifier hs-var">debug</span></a></span><span> </span><span class="annot"><span class="annottext">(m () -&gt; m ()) -&gt; m () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-156"></span><span>                </span><span class="annot"><span class="annottext">Text -&gt; m ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">say</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;\n** updateS table deltas&quot;</span></span><span>
+</span><span id="line-157"></span><span>                </span><span class="annot"><span class="annottext">Table row -&gt; m ()
+forall (m :: * -&gt; *) a. (MonadIO m, Show a) =&gt; a -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayShow</span></a></span><span> </span><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+Table row
+</span><a href="#local-6989586621679211104"><span class="hs-identifier hs-var">table</span></a></span><span>
+</span><span id="line-158"></span><span>                </span><span class="annot"><span class="annottext">[DeltaDB Int row] -&gt; m ()
+forall (m :: * -&gt; *) a. (MonadIO m, Show a) =&gt; a -&gt; m ()
+</span><a href="../../../../say/html/src"><span class="hs-identifier hs-var">sayShow</span></a></span><span> </span><span class="annot"><span class="annottext">[DeltaDB Int row]
+</span><a href="#local-6989586621679211103"><span class="hs-identifier hs-var">ds</span></a></span><span>
+</span><span id="line-159"></span><span>            </span><span class="annot"><span class="annottext">(DeltaDB Int row -&gt; m ()) -&gt; [DeltaDB Int row] -&gt; m ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM_</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Table row -&gt; DeltaDB Int row -&gt; m ()
+</span><a href="#local-6989586621679211101"><span class="hs-identifier hs-var">update1</span></a></span><span> </span><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+Table row
+</span><a href="#local-6989586621679211104"><span class="hs-identifier hs-var">table</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[DeltaDB Int row]
+</span><a href="#local-6989586621679211103"><span class="hs-identifier hs-var">ds</span></a></span><span>
+</span><span id="line-160"></span><span>            </span><span class="annot"><span class="annottext">Table row -&gt; m ()
+</span><a href="#local-6989586621679211119"><span class="hs-identifier hs-var">rememberSupply</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[DeltaDB Int row]
+-&gt; Base [DeltaDB Int row] -&gt; Base [DeltaDB Int row]
+forall delta. Delta delta =&gt; delta -&gt; Base delta -&gt; Base delta
+</span><a href="Data.Delta.html#apply"><span class="hs-identifier hs-var">apply</span></a></span><span> </span><span class="annot"><span class="annottext">[DeltaDB Int row]
+</span><a href="#local-6989586621679211103"><span class="hs-identifier hs-var">ds</span></a></span><span> </span><span class="annot"><span class="annottext">Base [DeltaDB Int row]
+</span><a href="#local-6989586621679211104"><span class="hs-identifier hs-var">table</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- need to use updated supply</span><span>
+</span><span id="line-161"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-162"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621679211114"><span class="annot"><span class="annottext">debug :: f () -&gt; f ()
+</span><a href="#local-6989586621679211114"><span class="hs-identifier hs-var hs-var">debug</span></a></span></span><span> </span><span id="local-6989586621679211099"><span class="annot"><span class="annottext">f ()
+</span><a href="#local-6989586621679211099"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">f ()
+</span><a href="#local-6989586621679211099"><span class="hs-identifier hs-var">m</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">() -&gt; f ()
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-164"></span><span>
+</span><span id="line-165"></span><span>    </span><span id="local-6989586621679211101"><span class="annot"><span class="annottext">update1 :: Table row -&gt; DeltaDB Int row -&gt; m ()
+</span><a href="#local-6989586621679211101"><span class="hs-identifier hs-var hs-var">update1</span></a></span></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Table.html#InsertManyDB"><span class="hs-identifier hs-type">InsertManyDB</span></a></span><span> </span><span id="local-6989586621679211097"><span class="annot"><span class="annottext">[(Int, row)]
+</span><a href="#local-6989586621679211097"><span class="hs-identifier hs-var">zs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m () -&gt; m ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">void</span></a></span><span> </span><span class="annot"><span class="annottext">(m () -&gt; m ()) -&gt; m () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row -&gt; [(Int, row)] -&gt; m ()
+forall (m :: * -&gt; *) key row.
+Database m key row -&gt; [(key, row)] -&gt; m ()
+</span><a href="Database.Persist.Delta.html#repsertMany"><span class="hs-identifier hs-var hs-var">repsertMany</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span> </span><span class="annot"><span class="annottext">[(Int, row)]
+</span><a href="#local-6989586621679211097"><span class="hs-identifier hs-var">zs</span></a></span><span>
+</span><span id="line-166"></span><span>    </span><span class="annot"><a href="#local-6989586621679211101"><span class="hs-identifier hs-var">update1</span></a></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Table.html#DeleteManyDB"><span class="hs-identifier hs-type">DeleteManyDB</span></a></span><span> </span><span id="local-6989586621679211095"><span class="annot"><span class="annottext">[Int]
+</span><a href="#local-6989586621679211095"><span class="hs-identifier hs-var">ks</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Int] -&gt; (Int -&gt; m ()) -&gt; m ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM_</span></a></span><span> </span><span class="annot"><span class="annottext">[Int]
+</span><a href="#local-6989586621679211095"><span class="hs-identifier hs-var">ks</span></a></span><span> </span><span class="annot"><span class="annottext">((Int -&gt; m ()) -&gt; m ()) -&gt; (Int -&gt; m ()) -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row -&gt; Int -&gt; m ()
+forall (m :: * -&gt; *) key row. Database m key row -&gt; key -&gt; m ()
+</span><a href="Database.Persist.Delta.html#deleteOne"><span class="hs-identifier hs-var hs-var">deleteOne</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-167"></span><span>    </span><span class="annot"><a href="#local-6989586621679211101"><span class="hs-identifier hs-var">update1</span></a></span><span> </span><span class="annot"><span class="annottext">Table row
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Data.Table.html#UpdateManyDB"><span class="hs-identifier hs-type">UpdateManyDB</span></a></span><span> </span><span id="local-6989586621679211093"><span class="annot"><span class="annottext">[(Int, row)]
+</span><a href="#local-6989586621679211093"><span class="hs-identifier hs-var">zs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(Int, row)] -&gt; ((Int, row) -&gt; m ()) -&gt; m ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM_</span></a></span><span> </span><span class="annot"><span class="annottext">[(Int, row)]
+</span><a href="#local-6989586621679211093"><span class="hs-identifier hs-var">zs</span></a></span><span> </span><span class="annot"><span class="annottext">(((Int, row) -&gt; m ()) -&gt; m ()) -&gt; ((Int, row) -&gt; m ()) -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row -&gt; (Int, row) -&gt; m ()
+forall (m :: * -&gt; *) key row.
+Database m key row -&gt; (key, row) -&gt; m ()
+</span><a href="Database.Persist.Delta.html#updateOne"><span class="hs-identifier hs-var hs-var">updateOne</span></a></span><span> </span><span class="annot"><span class="annottext">Database m Int row
+</span><a href="#local-6989586621679211121"><span class="hs-identifier hs-var">db</span></a></span><span>
+</span><span id="line-168"></span><span>
+</span><span id="line-169"></span><span class="hs-comment">{- Note [Unique ID supply in newDBStore]
+
+We expect that updating the store and loading the value
+is the same as first loading the value and then apply the delta,
+i.e. we expect that the two actions
+
+    loadS &gt;&gt;= \a -&gt; updateS a da &gt;&gt;= loadS
+    loadS &gt;&gt;= \a -&gt; pure $ apply da a
+
+are operationally equivalent.
+However, this is only the case if we keep track of the supply
+of unique IDs for the table! Otherwise, loading the table
+from the database again can mess up the supply.
+-}</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- FIXME: For clarity, we may want to implement this in terms</span><span>
+</span><span id="line-184"></span><span class="hs-comment">-- of a product of stores (&quot;semidirect product&quot;).</span><span>
+</span><span id="line-185"></span></pre></body></html>

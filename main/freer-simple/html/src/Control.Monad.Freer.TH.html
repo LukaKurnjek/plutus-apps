@@ -1,0 +1,494 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE TemplateHaskell #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Originally ported from code written by Sandy Maguire (@isovector), available</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- at https://github.com/IxpertaSolutions/freer-effects/pull/28.</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-comment">{-|
+This module provides Template Haskell functions for automatically generating
+effect operation functions (that is, functions that use 'send') from a given
+effect algebra. For example, using the @FileSystem@ effect from the example in
+the module documentation for &quot;Control.Monad.Freer&quot;, we can write the following:
+
+@
+data FileSystem r where
+  ReadFile :: 'FilePath' -&gt; FileSystem 'String'
+  WriteFile :: 'FilePath' -&gt; 'String' -&gt; FileSystem ()
+'makeEffect' ''FileSystem
+@
+
+This will automatically generate the following functions:
+
+@
+readFile :: 'Member' FileSystem effs =&gt; 'FilePath' -&gt; 'Eff' effs 'String'
+readFile a = 'send' (ReadFile a)
+
+writeFile :: 'Member' FileSystem effs =&gt; 'FilePath' -&gt; 'String' -&gt; 'Eff' effs ()
+writeFile a b = 'send' (WriteFile a b)
+@
+-}</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Control.Monad.Freer.TH</span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Control.Monad.Freer.TH.html#makeEffect"><span class="hs-identifier">makeEffect</span></a></span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.TH.html#makeEffect_"><span class="hs-identifier">makeEffect_</span></a></span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Monad</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">forM</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">unless</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Control.Monad.Freer.html"><span class="hs-identifier">Control.Monad.Freer</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Control.Monad.Freer.Internal.html#send"><span class="hs-identifier">send</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Data.OpenUnion.Internal.html#Member"><span class="hs-identifier">Member</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Control.Monad.Freer.Internal.html#Eff"><span class="hs-identifier">Eff</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Char</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">toLower</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier">Language.Haskell.TH</span></a></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Prelude</span></a></span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- | If @T@ is a GADT representing an effect algebra, as described in the module</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- documentation for &quot;Control.Monad.Freer&quot;, @$('makeEffect' ''T)@ automatically</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- generates a function that uses 'send' with each operation. For more</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- information, see the module documentation for &quot;Control.Monad.Freer.TH&quot;.</span><span>
+</span><span id="line-48"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#makeEffect"><span class="hs-identifier hs-type">makeEffect</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-49"></span><span id="makeEffect"><span class="annot"><span class="annottext">makeEffect :: Name -&gt; Q [Dec]
+</span><a href="Control.Monad.Freer.TH.html#makeEffect"><span class="hs-identifier hs-var hs-var">makeEffect</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Name -&gt; Q [Dec]
+</span><a href="Control.Monad.Freer.TH.html#genFreer"><span class="hs-identifier hs-var">genFreer</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">True</span></a></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- | Like 'makeEffect', but does not provide type signatures. This can be used</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- to attach Haddock comments to individual arguments for each generated</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- function.</span><span>
+</span><span id="line-54"></span><span class="hs-comment">--</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- data Lang x where</span><span>
+</span><span id="line-57"></span><span class="hs-comment">--   Output :: String -&gt; Lang ()</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- makeEffect_ ''Lang</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- -- | Output a string.</span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- output :: Member Lang effs</span><span>
+</span><span id="line-63"></span><span class="hs-comment">--        =&gt; String    -- ^ String to output.</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--        -&gt; Eff effs ()  -- ^ No result.</span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--</span><span>
+</span><span id="line-67"></span><span class="hs-comment">-- Note that 'makeEffect_' must be used /before/ the explicit type signatures.</span><span>
+</span><span id="line-68"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#makeEffect_"><span class="hs-identifier hs-type">makeEffect_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-69"></span><span id="makeEffect_"><span class="annot"><span class="annottext">makeEffect_ :: Name -&gt; Q [Dec]
+</span><a href="Control.Monad.Freer.TH.html#makeEffect_"><span class="hs-identifier hs-var hs-var">makeEffect_</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Name -&gt; Q [Dec]
+</span><a href="Control.Monad.Freer.TH.html#genFreer"><span class="hs-identifier hs-var">genFreer</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-var">False</span></a></span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- | Generates declarations and possibly signatures for functions to lift GADT</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- constructors into 'Eff' actions.</span><span>
+</span><span id="line-73"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genFreer"><span class="hs-identifier hs-type">genFreer</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Bool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-74"></span><span id="genFreer"><span class="annot"><span class="annottext">genFreer :: Bool -&gt; Name -&gt; Q [Dec]
+</span><a href="Control.Monad.Freer.TH.html#genFreer"><span class="hs-identifier hs-var hs-var">genFreer</span></a></span></span><span> </span><span id="local-6989586621679067036"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679067036"><span class="hs-identifier hs-var">makeSigs</span></a></span></span><span> </span><span id="local-6989586621679067035"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679067035"><span class="hs-identifier hs-var">tcName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-75"></span><span>  </span><span class="hs-comment">-- The signatures for the generated definitions require FlexibleContexts.</span><span>
+</span><span id="line-76"></span><span>  </span><span class="annot"><span class="annottext">Extension -&gt; Q Bool
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">isExtEnabled</span></a></span><span> </span><span class="annot"><span class="annottext">Extension
+</span><a href="../../../../ghc/html/libraries/ghc-boot-th-8.10.7/src"><span class="hs-identifier hs-var">FlexibleContexts</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="annot"><span class="annottext">Q Bool -&gt; (Bool -&gt; Q ()) -&gt; Q ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Q () -&gt; Q ()) -&gt; Q () -&gt; Bool -&gt; Q ()
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Q () -&gt; Q ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">unless</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; Q ()
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;makeEffect requires FlexibleContexts to be enabled&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span>  </span><span class="annot"><span class="annottext">Name -&gt; Q Info
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">reify</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679067035"><span class="hs-identifier hs-var">tcName</span></a></span><span> </span><span class="annot"><span class="annottext">Q Info -&gt; (Info -&gt; Q [Dec]) -&gt; Q [Dec]
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-80"></span><span>    </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">TyConI</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">DataD</span></a></span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Name
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Maybe Kind
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679067028"><span class="annot"><span class="annottext">[Con]
+</span><a href="#local-6989586621679067028"><span class="hs-identifier hs-var">cons</span></a></span></span><span> </span><span class="annot"><span class="annottext">[DerivClause]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-81"></span><span>      </span><span id="local-6989586621679067027"><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679067027"><span class="hs-identifier hs-var">sigs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Dec -&gt; Bool) -&gt; [Dec] -&gt; [Dec]
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">filter</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Dec -&gt; Bool
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679067036"><span class="hs-identifier hs-var">makeSigs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">([Dec] -&gt; [Dec]) -&gt; Q [Dec] -&gt; Q [Dec]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">(Con -&gt; Q Dec) -&gt; [Con] -&gt; Q [Dec]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM</span></a></span><span> </span><span class="annot"><span class="annottext">Con -&gt; Q Dec
+</span><a href="Control.Monad.Freer.TH.html#genSig"><span class="hs-identifier hs-var">genSig</span></a></span><span> </span><span class="annot"><span class="annottext">[Con]
+</span><a href="#local-6989586621679067028"><span class="hs-identifier hs-var">cons</span></a></span><span>
+</span><span id="line-82"></span><span>      </span><span id="local-6989586621679067022"><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679067022"><span class="hs-identifier hs-var">decs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Con -&gt; Q Dec) -&gt; [Con] -&gt; Q [Dec]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">mapM</span></a></span><span> </span><span class="annot"><span class="annottext">Con -&gt; Q Dec
+</span><a href="Control.Monad.Freer.TH.html#genDecl"><span class="hs-identifier hs-var">genDecl</span></a></span><span> </span><span class="annot"><span class="annottext">[Con]
+</span><a href="#local-6989586621679067028"><span class="hs-identifier hs-var">cons</span></a></span><span>
+</span><span id="line-83"></span><span>      </span><span class="annot"><span class="annottext">[Dec] -&gt; Q [Dec]
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">([Dec] -&gt; Q [Dec]) -&gt; [Dec] -&gt; Q [Dec]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679067027"><span class="hs-identifier hs-var">sigs</span></a></span><span> </span><span class="annot"><span class="annottext">[Dec] -&gt; [Dec] -&gt; [Dec]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">[Dec]
+</span><a href="#local-6989586621679067022"><span class="hs-identifier hs-var">decs</span></a></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span>    </span><span class="annot"><span class="annottext">Info
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; Q [Dec]
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;makeEffect expects a type constructor&quot;</span></span><span>
+</span><span id="line-86"></span><span>
+</span><span id="line-87"></span><span class="hs-comment">-- | Given the name of a GADT constructor, return the name of the corresponding</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- lifted function.</span><span>
+</span><span id="line-89"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#getDeclName"><span class="hs-identifier hs-type">getDeclName</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Name</span></a></span><span>
+</span><span id="line-90"></span><span id="getDeclName"><span class="annot"><span class="annottext">getDeclName :: Name -&gt; Name
+</span><a href="Control.Monad.Freer.TH.html#getDeclName"><span class="hs-identifier hs-var hs-var">getDeclName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Name
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">mkName</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Name) -&gt; (Name -&gt; String) -&gt; Name -&gt; Name
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Char) -&gt; String -&gt; String
+forall a. (a -&gt; a) -&gt; [a] -&gt; [a]
+</span><a href="#local-6989586621679067018"><span class="hs-identifier hs-var">overFirst</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">toLower</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; String) -&gt; (Name -&gt; String) -&gt; Name -&gt; String
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; String
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">nameBase</span></a></span><span>
+</span><span id="line-91"></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-92"></span><span>  </span><span id="local-6989586621679067018"><span class="annot"><span class="annottext">overFirst :: (a -&gt; a) -&gt; [a] -&gt; [a]
+</span><a href="#local-6989586621679067018"><span class="hs-identifier hs-var hs-var">overFirst</span></a></span></span><span> </span><span id="local-6989586621679067016"><span class="annot"><span class="annottext">a -&gt; a
+</span><a href="#local-6989586621679067016"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679067015"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679067015"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-type">:</span></a></span><span> </span><span id="local-6989586621679067014"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679067014"><span class="hs-keyword hs-var">as</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; a
+</span><a href="#local-6989586621679067016"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679067015"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; [a] -&gt; [a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-glyph hs-var">:</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679067014"><span class="hs-keyword hs-var">as</span></a></span><span>
+</span><span id="line-93"></span><span>  </span><span class="annot"><a href="#local-6989586621679067018"><span class="hs-identifier hs-var">overFirst</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679067013"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679067013"><span class="hs-keyword hs-var">as</span></a></span></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679067013"><span class="hs-keyword hs-var">as</span></a></span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- | Builds a function definition of the form @x a b c = send $ X a b c@.</span><span>
+</span><span id="line-96"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genDecl"><span class="hs-identifier hs-type">genDecl</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Con</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span>
+</span><span id="line-97"></span><span id="genDecl"><span class="annot"><span class="annottext">genDecl :: Con -&gt; Q Dec
+</span><a href="Control.Monad.Freer.TH.html#genDecl"><span class="hs-identifier hs-var hs-var">genDecl</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallC</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr]
+</span><span class="hs-identifier">_</span></span><span>       </span><span class="annot"><span class="annottext">Cxt
+</span><span class="hs-identifier">_</span></span><span>     </span><span id="local-6989586621679067011"><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679067011"><span class="hs-identifier hs-var">con</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Con -&gt; Q Dec
+</span><a href="Control.Monad.Freer.TH.html#genDecl"><span class="hs-identifier hs-var">genDecl</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679067011"><span class="hs-identifier hs-var">con</span></a></span><span>
+</span><span id="line-98"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genDecl"><span class="hs-identifier hs-var">genDecl</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">GadtC</span></a></span><span>   </span><span class="hs-special">[</span><span id="local-6989586621679067009"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679067009"><span class="hs-identifier hs-var">cName</span></a></span></span><span class="hs-special">]</span><span> </span><span id="local-6989586621679067008"><span class="annot"><span class="annottext">[BangType]
+</span><a href="#local-6989586621679067008"><span class="hs-identifier hs-var">tArgs</span></a></span></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><span class="hs-identifier">_</span></span><span>  </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679067007"><span class="annot"><span class="annottext">fnName :: Name
+</span><a href="#local-6989586621679067007"><span class="hs-identifier hs-var hs-var">fnName</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Name
+</span><a href="Control.Monad.Freer.TH.html#getDeclName"><span class="hs-identifier hs-var">getDeclName</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679067009"><span class="hs-identifier hs-var">cName</span></a></span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679067006"><span class="annot"><span class="annottext">arity :: Int
+</span><a href="#local-6989586621679067006"><span class="hs-identifier hs-var hs-var">arity</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[BangType] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">length</span></a></span><span> </span><span class="annot"><span class="annottext">[BangType]
+</span><a href="#local-6989586621679067008"><span class="hs-identifier hs-var">tArgs</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-glyph hs-var">-</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-101"></span><span>  </span><span id="local-6989586621679067004"><span class="annot"><span class="annottext">[Name]
+</span><a href="#local-6989586621679067004"><span class="hs-identifier hs-var">dTypeVars</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Int] -&gt; (Int -&gt; Q Name) -&gt; Q [Name]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+t a -&gt; (a -&gt; m b) -&gt; m (t b)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">forM</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">..</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679067006"><span class="hs-identifier hs-var">arity</span></a></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">((Int -&gt; Q Name) -&gt; Q [Name]) -&gt; (Int -&gt; Q Name) -&gt; Q [Name]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Q Name -&gt; Int -&gt; Q Name
+forall a b. a -&gt; b -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">const</span></a></span><span> </span><span class="annot"><span class="annottext">(Q Name -&gt; Int -&gt; Q Name) -&gt; Q Name -&gt; Int -&gt; Q Name
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; Q Name
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">newName</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;a&quot;</span></span><span>
+</span><span id="line-102"></span><span>  </span><span class="annot"><span class="annottext">Dec -&gt; Q Dec
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span> </span><span class="annot"><span class="annottext">(Dec -&gt; Q Dec) -&gt; Dec -&gt; Q Dec
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; [Clause] -&gt; Dec
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">FunD</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679067007"><span class="hs-identifier hs-var">fnName</span></a></span><span> </span><span class="annot"><span class="annottext">([Clause] -&gt; Dec) -&gt; (Clause -&gt; [Clause]) -&gt; Clause -&gt; Dec
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Clause -&gt; [Clause]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Clause -&gt; Dec) -&gt; Clause -&gt; Dec
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Pat] -&gt; Body -&gt; [Dec] -&gt; Clause
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">Clause</span></a></span><span>
+</span><span id="line-103"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; Pat
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">VarP</span></a></span><span> </span><span class="annot"><span class="annottext">(Name -&gt; Pat) -&gt; [Name] -&gt; [Pat]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">[Name]
+</span><a href="#local-6989586621679067004"><span class="hs-identifier hs-var">dTypeVars</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-104"></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Exp -&gt; Body
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">NormalB</span></a></span><span> </span><span class="annot"><span class="annottext">(Exp -&gt; Body) -&gt; (Exp -&gt; Exp) -&gt; Exp -&gt; Body
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Exp -&gt; Exp -&gt; Exp
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppE</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; Exp
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">VarE</span></a></span><span> </span><span class="hs-special">'</span><span class="hs-identifier">send</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Exp -&gt; Body) -&gt; Exp -&gt; Body
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(Exp -&gt; Name -&gt; Exp) -&gt; Exp -&gt; [Name] -&gt; Exp
+forall (t :: * -&gt; *) b a.
+Foldable t =&gt;
+(b -&gt; a -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldl</span></a></span><span>
+</span><span id="line-105"></span><span>      </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679066996"><span class="annot"><span class="annottext">Exp
+</span><a href="#local-6989586621679066996"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Exp -&gt; Exp -&gt; Exp
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppE</span></a></span><span> </span><span class="annot"><span class="annottext">Exp
+</span><a href="#local-6989586621679066996"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(Exp -&gt; Exp) -&gt; (Name -&gt; Exp) -&gt; Name -&gt; Exp
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Exp
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">VarE</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; Exp
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ConE</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679067009"><span class="hs-identifier hs-var">cName</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-107"></span><span>      </span><span class="annot"><span class="annottext">[Name]
+</span><a href="#local-6989586621679067004"><span class="hs-identifier hs-var">dTypeVars</span></a></span><span>
+</span><span id="line-108"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span>    </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-110"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genDecl"><span class="hs-identifier hs-var">genDecl</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Q Dec
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;genDecl expects a GADT constructor&quot;</span></span><span>
+</span><span id="line-111"></span><span>
+</span><span id="line-112"></span><span class="hs-comment">-- | Generates a function type from the corresponding GADT type constructor</span><span>
+</span><span id="line-113"></span><span class="hs-comment">-- @x :: Member (Effect e) effs =&gt; a -&gt; b -&gt; c -&gt; Eff effs r@.</span><span>
+</span><span id="line-114"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genType"><span class="hs-identifier hs-type">genType</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Con</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-115"></span><span id="genType"><span class="annot"><span class="annottext">genType :: Con -&gt; Q Kind
+</span><a href="Control.Monad.Freer.TH.html#genType"><span class="hs-identifier hs-var hs-var">genType</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallC</span></a></span><span> </span><span id="local-6989586621679066993"><span class="annot"><span class="annottext">[TyVarBndr]
+</span><a href="#local-6989586621679066993"><span class="hs-identifier hs-var">tyVarBindings</span></a></span></span><span> </span><span id="local-6989586621679066992"><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679066992"><span class="hs-identifier hs-var">conCtx</span></a></span></span><span> </span><span id="local-6989586621679066991"><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066991"><span class="hs-identifier hs-var">con</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-116"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[TyVarBndr] -&gt; Cxt -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ForallT</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr]
+</span><a href="#local-6989586621679066993"><span class="hs-identifier hs-var">tyVarBindings</span></a></span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679066992"><span class="hs-identifier hs-var">conCtx</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind) -&gt; Q Kind -&gt; Q Kind
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Con -&gt; Q Kind
+</span><a href="Control.Monad.Freer.TH.html#genType"><span class="hs-identifier hs-var">genType</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066991"><span class="hs-identifier hs-var">con</span></a></span><span>
+</span><span id="line-117"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genType"><span class="hs-identifier hs-var">genType</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">GadtC</span></a></span><span>   </span><span class="annot"><span class="annottext">[Name]
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679066989"><span class="annot"><span class="annottext">[BangType]
+</span><a href="#local-6989586621679066989"><span class="hs-identifier hs-var">tArgs'</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppT</span></a></span><span> </span><span id="local-6989586621679066987"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066987"><span class="hs-identifier hs-var">eff</span></a></span></span><span> </span><span id="local-6989586621679066986"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066986"><span class="hs-identifier hs-var">tRet</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-118"></span><span>  </span><span id="local-6989586621679066985"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066985"><span class="hs-identifier hs-var">effs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">String -&gt; Q Name
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">newName</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;effs&quot;</span></span><span>
+</span><span id="line-119"></span><span>  </span><span class="hs-keyword">let</span><span>
+</span><span id="line-120"></span><span>    </span><span id="local-6989586621679066984"><span class="annot"><span class="annottext">tArgs :: Cxt
+</span><a href="#local-6989586621679066984"><span class="hs-identifier hs-var hs-var">tArgs</span></a></span></span><span>            </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(BangType -&gt; Kind) -&gt; [BangType] -&gt; Cxt
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">BangType -&gt; Kind
+forall a b. (a, b) -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">snd</span></a></span><span> </span><span class="annot"><span class="annottext">[BangType]
+</span><a href="#local-6989586621679066989"><span class="hs-identifier hs-var">tArgs'</span></a></span><span>
+</span><span id="line-121"></span><span>    </span><span id="local-6989586621679066983"><span class="annot"><span class="annottext">memberConstraint :: Kind
+</span><a href="#local-6989586621679066983"><span class="hs-identifier hs-var hs-var">memberConstraint</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ConT</span></a></span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Member</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-operator hs-var">`AppT`</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066987"><span class="hs-identifier hs-var">eff</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-operator hs-var">`AppT`</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">VarT</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066985"><span class="hs-identifier hs-var">effs</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span id="local-6989586621679066980"><span class="annot"><span class="annottext">resultType :: Kind
+</span><a href="#local-6989586621679066980"><span class="hs-identifier hs-var hs-var">resultType</span></a></span></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ConT</span></a></span><span> </span><span class="hs-special">''</span><span class="hs-identifier">Eff</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-operator hs-var">`AppT`</span></a></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">VarT</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066985"><span class="hs-identifier hs-var">effs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-operator hs-var">`AppT`</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066986"><span class="hs-identifier hs-var">tRet</span></a></span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span>  </span><span class="annot"><span class="annottext">Kind -&gt; Q Kind
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">return</span></a></span><span class="hs-cpp">
+#if MIN_VERSION_template_haskell(2,17,0)
+</span><span>    </span><span class="hs-operator">.</span><span>  </span><span class="hs-identifier">ForallT</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">PlainTV</span><span> </span><span class="hs-identifier">effs</span><span> </span><span class="hs-identifier">SpecifiedSpec</span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="hs-identifier">memberConstraint</span><span class="hs-special">]</span><span class="hs-cpp">
+#else
+</span><span>    </span><span class="annot"><span class="annottext">(Kind -&gt; Q Kind) -&gt; (Cxt -&gt; Kind) -&gt; Cxt -&gt; Q Kind
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span>  </span><span class="annot"><span class="annottext">[TyVarBndr] -&gt; Cxt -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ForallT</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Name -&gt; TyVarBndr
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">PlainTV</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066985"><span class="hs-identifier hs-var">effs</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066983"><span class="hs-identifier hs-var">memberConstraint</span></a></span><span class="hs-special">]</span><span class="hs-cpp">
+#endif
+</span><span>    </span><span class="annot"><span class="annottext">(Kind -&gt; Kind) -&gt; (Cxt -&gt; Kind) -&gt; Cxt -&gt; Kind
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span>  </span><span class="annot"><span class="annottext">Cxt -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#foldArrows"><span class="hs-identifier hs-var">foldArrows</span></a></span><span>
+</span><span id="line-131"></span><span>    </span><span class="annot"><span class="annottext">(Cxt -&gt; Q Kind) -&gt; Cxt -&gt; Q Kind
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span>  </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679066984"><span class="hs-identifier hs-var">tArgs</span></a></span><span>
+</span><span id="line-132"></span><span>    </span><span class="annot"><span class="annottext">Cxt -&gt; Cxt -&gt; Cxt
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066980"><span class="hs-identifier hs-var">resultType</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- TODO: Although this should never happen, we obviously need a better error message below.</span><span>
+</span><span id="line-134"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genType"><span class="hs-identifier hs-var">genType</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><span class="hs-identifier">_</span></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Q Kind
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;genSig expects a GADT constructor&quot;</span></span><span>
+</span><span id="line-135"></span><span>
+</span><span id="line-136"></span><span class="hs-comment">-- | Turn all (KindedTV tv StarT) into (PlainTV tv) in the given type</span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- This can prevent the need for KindSignatures</span><span>
+</span><span id="line-138"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-type">simplifyBndrs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-139"></span><span id="simplifyBndrs"><span class="annot"><span class="annottext">simplifyBndrs :: Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var hs-var">simplifyBndrs</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallT</span></a></span><span> </span><span id="local-6989586621679066976"><span class="annot"><span class="annottext">[TyVarBndr]
+</span><a href="#local-6989586621679066976"><span class="hs-identifier hs-var">bndrs</span></a></span></span><span> </span><span id="local-6989586621679066975"><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679066975"><span class="hs-identifier hs-var">tcxt</span></a></span></span><span> </span><span id="local-6989586621679066974"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066974"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[TyVarBndr] -&gt; Cxt -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ForallT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(TyVarBndr -&gt; TyVarBndr) -&gt; [TyVarBndr] -&gt; [TyVarBndr]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">map</span></a></span><span> </span><span class="annot"><span class="annottext">TyVarBndr -&gt; TyVarBndr
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndr"><span class="hs-identifier hs-var">simplifyBndr</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr]
+</span><a href="#local-6989586621679066976"><span class="hs-identifier hs-var">bndrs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><a href="#local-6989586621679066975"><span class="hs-identifier hs-var">tcxt</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066974"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">AppT</span></a></span><span> </span><span id="local-6989586621679066972"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066972"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679066971"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066971"><span class="hs-identifier hs-var">t2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066972"><span class="hs-identifier hs-var">t1</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066971"><span class="hs-identifier hs-var">t2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">SigT</span></a></span><span> </span><span id="local-6989586621679066969"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066969"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679066968"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066968"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">SigT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066969"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066968"><span class="hs-identifier hs-var">k</span></a></span><span>
+</span><span id="line-142"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">InfixT</span></a></span><span> </span><span id="local-6989586621679066966"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066966"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679066965"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066965"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679066964"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066964"><span class="hs-identifier hs-var">t2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Name -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">InfixT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066966"><span class="hs-identifier hs-var">t1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066965"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066964"><span class="hs-identifier hs-var">t2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-143"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">UInfixT</span></a></span><span> </span><span id="local-6989586621679066962"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066962"><span class="hs-identifier hs-var">t1</span></a></span></span><span> </span><span id="local-6989586621679066961"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066961"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679066960"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066960"><span class="hs-identifier hs-var">t2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Name -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">InfixT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066962"><span class="hs-identifier hs-var">t1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066961"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066960"><span class="hs-identifier hs-var">t2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-144"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ParensT</span></a></span><span> </span><span id="local-6989586621679066958"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066958"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ParensT</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066958"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-145"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span id="local-6989586621679066957"><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066957"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="#local-6989586621679066957"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span class="hs-comment">-- | Turn TvVarBndrs of the form (KindedTV tv StarT) into (PlainTV tv)</span><span>
+</span><span id="line-148"></span><span class="hs-comment">-- This can prevent the need for KindSignatures</span><span class="hs-cpp">
+#if MIN_VERSION_template_haskell(2,17,0)
+</span><span class="hs-identifier">simplifyBndr</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-identifier">TyVarBndrSpec</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-identifier">TyVarBndrSpec</span><span>
+</span><span id="line-151"></span><span class="hs-identifier">simplifyBndr</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">KindedTV</span><span> </span><span class="hs-identifier">tv</span><span> </span><span class="hs-identifier">f</span><span> </span><span class="hs-identifier">StarT</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-identifier">PlainTV</span><span> </span><span class="hs-identifier">tv</span><span> </span><span class="hs-identifier">f</span><span class="hs-cpp">
+#else
+</span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndr"><span class="hs-identifier hs-type">simplifyBndr</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">TyVarBndr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">TyVarBndr</span></a></span><span>
+</span><span id="line-154"></span><span id="simplifyBndr"><span class="annot"><span class="annottext">simplifyBndr :: TyVarBndr -&gt; TyVarBndr
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndr"><span class="hs-identifier hs-var hs-var">simplifyBndr</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">KindedTV</span></a></span><span> </span><span id="local-6989586621679066955"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066955"><span class="hs-identifier hs-var">tv</span></a></span></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">StarT</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Name -&gt; TyVarBndr
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">PlainTV</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066955"><span class="hs-identifier hs-var">tv</span></a></span><span class="hs-cpp">
+#endif
+</span><span class="annot"><a href="Control.Monad.Freer.TH.html#simplifyBndr"><span class="hs-identifier hs-var">simplifyBndr</span></a></span><span> </span><span id="local-6989586621679066953"><span class="annot"><span class="annottext">TyVarBndr
+</span><a href="#local-6989586621679066953"><span class="hs-identifier hs-var">bndr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TyVarBndr
+</span><a href="#local-6989586621679066953"><span class="hs-identifier hs-var">bndr</span></a></span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="hs-comment">-- | Generates a type signature of the form</span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- @x :: Member (Effect e) effs =&gt; a -&gt; b -&gt; c -&gt; Eff effs r@.</span><span>
+</span><span id="line-160"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#genSig"><span class="hs-identifier hs-type">genSig</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Con</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Q</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Dec</span></a></span><span>
+</span><span id="line-161"></span><span id="genSig"><span class="annot"><span class="annottext">genSig :: Con -&gt; Q Dec
+</span><a href="Control.Monad.Freer.TH.html#genSig"><span class="hs-identifier hs-var hs-var">genSig</span></a></span></span><span> </span><span id="local-6989586621679066952"><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066952"><span class="hs-identifier hs-var">con</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-162"></span><span>  </span><span class="hs-keyword">let</span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621679066951"><span class="annot"><span class="annottext">getConName :: Con -&gt; f Name
+</span><a href="#local-6989586621679066951"><span class="hs-identifier hs-var hs-var">getConName</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">ForallC</span></a></span><span> </span><span class="annot"><span class="annottext">[TyVarBndr]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Cxt
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679066950"><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066950"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Con -&gt; f Name
+</span><a href="#local-6989586621679066951"><span class="hs-identifier hs-var">getConName</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066950"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-164"></span><span>    </span><span class="annot"><a href="#local-6989586621679066951"><span class="hs-identifier hs-var">getConName</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">GadtC</span></a></span><span> </span><span class="hs-special">[</span><span id="local-6989586621679066949"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066949"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">[BangType]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Name -&gt; f Name
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066949"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-165"></span><span>    </span><span class="annot"><a href="#local-6989586621679066951"><span class="hs-identifier hs-var">getConName</span></a></span><span> </span><span id="local-6989586621679066948"><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066948"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; f Name
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fail</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; f Name) -&gt; String -&gt; f Name
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;failed to get GADT name from &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">++</span></a></span><span> </span><span class="annot"><span class="annottext">Con -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066948"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-166"></span><span>  </span><span id="local-6989586621679066946"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066946"><span class="hs-identifier hs-var">conName</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Con -&gt; Q Name
+forall (f :: * -&gt; *). MonadFail f =&gt; Con -&gt; f Name
+</span><a href="#local-6989586621679066951"><span class="hs-identifier hs-var">getConName</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066952"><span class="hs-identifier hs-var">con</span></a></span><span>
+</span><span id="line-167"></span><span>  </span><span class="annot"><span class="annottext">Name -&gt; Kind -&gt; Dec
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">SigD</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; Name
+</span><a href="Control.Monad.Freer.TH.html#getDeclName"><span class="hs-identifier hs-var">getDeclName</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679066946"><span class="hs-identifier hs-var">conName</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Dec) -&gt; (Kind -&gt; Kind) -&gt; Kind -&gt; Dec
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#simplifyBndrs"><span class="hs-identifier hs-var">simplifyBndrs</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Dec) -&gt; Q Kind -&gt; Q Dec
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Con -&gt; Q Kind
+</span><a href="Control.Monad.Freer.TH.html#genType"><span class="hs-identifier hs-var">genType</span></a></span><span> </span><span class="annot"><span class="annottext">Con
+</span><a href="#local-6989586621679066952"><span class="hs-identifier hs-var">con</span></a></span><span>
+</span><span id="line-168"></span><span>
+</span><span id="line-169"></span><span class="hs-comment">-- | Folds a list of 'Type's into a right-associative arrow 'Type'.</span><span>
+</span><span id="line-170"></span><span class="annot"><a href="Control.Monad.Freer.TH.html#foldArrows"><span class="hs-identifier hs-type">foldArrows</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-type">Type</span></a></span><span>
+</span><span id="line-171"></span><span id="foldArrows"><span class="annot"><span class="annottext">foldArrows :: Cxt -&gt; Kind
+</span><a href="Control.Monad.Freer.TH.html#foldArrows"><span class="hs-identifier hs-var hs-var">foldArrows</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind -&gt; Kind) -&gt; Cxt -&gt; Kind
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; a -&gt; a) -&gt; t a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">foldr1</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppT</span></a></span><span> </span><span class="annot"><span class="annottext">(Kind -&gt; Kind -&gt; Kind) -&gt; (Kind -&gt; Kind) -&gt; Kind -&gt; Kind -&gt; Kind
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Kind -&gt; Kind -&gt; Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">AppT</span></a></span><span> </span><span class="annot"><span class="annottext">Kind
+</span><a href="../../../../ghc/html/libraries/template-haskell-2.16.0.0/src"><span class="hs-identifier hs-var">ArrowT</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-172"></span></pre></body></html>

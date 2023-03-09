@@ -1,0 +1,545 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module      : Foundation.Hashing.Hashable</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- License     : BSD-style</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Maintainer  : Vincent Hanquez &lt;vincent@snarc.org&gt;</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Stability   : experimental</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Portability : good</span><span>
+</span><span id="line-7"></span><span class="hs-comment">--</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- provide the SipHash algorithm.</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- reference: &lt;http://131002.net/siphash/siphash.pdf&gt;</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Foundation.Hashing.Hashable</span><span>
+</span><span id="line-12"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier">Hashable</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.Imports</span></a></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.Cast</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">cast</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.Compat.Natural</span></a></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.Types.Word128</span></a></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.Types.Word256</span></a></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.IntegralConv</span></a></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.Numerical.Multiplicative</span></a></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier">Basement.BoxedArray</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">A</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Foundation.Tuple.html"><span class="hs-identifier">Foundation.Tuple</span></a></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Foundation.String.html"><span class="hs-identifier">Foundation.String</span></a></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Foundation.Collection.Foldable.html"><span class="hs-identifier">Foundation.Collection.Foldable</span></a></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Foundation.Hashing.Hasher.html"><span class="hs-identifier">Foundation.Hashing.Hasher</span></a></span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- | Type with the ability to be hashed</span><span>
+</span><span id="line-29"></span><span class="hs-comment">--</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- Hashable doesn't have any specific rules, and it's</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- made for raw speed. More specifically don't expect different</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- type representing the same data to hash to the same value</span><span>
+</span><span id="line-33"></span><span class="hs-comment">--</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- &gt; hashMix (1 :: Integer) /= hashMix (1 :: Word8)</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- True</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">class</span><span> </span><span id="Hashable"><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-var">Hashable</span></a></span></span><span> </span><span id="local-6989586621679165780"><span class="annot"><a href="#local-6989586621679165780"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-37"></span><span>    </span><span id="local-6989586621679165783"><span id="hashMix"><span class="annot"><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-type">hashMix</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hasher.html#Hasher"><span class="hs-identifier hs-type">Hasher</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165783"><span class="hs-identifier hs-type">st</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679165780"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679165783"><span class="hs-identifier hs-type">st</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679165783"><span class="hs-identifier hs-type">st</span></a></span></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- specific type instances</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-41"></span><span>    </span><span id="local-6989586621679165680"><span class="annot"><span class="annottext">hashMix :: Word8 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165680"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165679"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679165679"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679165679"><span class="hs-identifier hs-var">w</span></a></span><span>
+</span><span id="line-42"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word16</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-43"></span><span>    </span><span id="local-6989586621679165676"><span class="annot"><span class="annottext">hashMix :: Word16 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165676"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165675"><span class="annot"><span class="annottext">Word16
+</span><a href="#local-6989586621679165675"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word16 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word16 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix16"><span class="hs-identifier hs-var">hashMix16</span></a></span><span> </span><span class="annot"><span class="annottext">Word16
+</span><a href="#local-6989586621679165675"><span class="hs-identifier hs-var">w</span></a></span><span>
+</span><span id="line-44"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word32</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-45"></span><span>    </span><span id="local-6989586621679165672"><span class="annot"><span class="annottext">hashMix :: Word32 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165672"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165671"><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679165671"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word32 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix32"><span class="hs-identifier hs-var">hashMix32</span></a></span><span> </span><span class="annot"><span class="annottext">Word32
+</span><a href="#local-6989586621679165671"><span class="hs-identifier hs-var">w</span></a></span><span>
+</span><span id="line-46"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word64</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-47"></span><span>    </span><span id="local-6989586621679165668"><span class="annot"><span class="annottext">hashMix :: Word64 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165668"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165667"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165667"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165667"><span class="hs-identifier hs-var">w</span></a></span><span>
+</span><span id="line-48"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">Word128</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-49"></span><span>    </span><span id="local-6989586621679165664"><span class="annot"><span class="annottext">hashMix :: Word128 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165664"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">Word128</span></a></span><span> </span><span id="local-6989586621679165662"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165662"><span class="hs-identifier hs-var">w1</span></a></span></span><span> </span><span id="local-6989586621679165661"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165661"><span class="hs-identifier hs-var">w2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165661"><span class="hs-identifier hs-var">w2</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165662"><span class="hs-identifier hs-var">w1</span></a></span><span>
+</span><span id="line-50"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">Word256</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>    </span><span id="local-6989586621679165658"><span class="annot"><span class="annottext">hashMix :: Word256 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165658"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">Word256</span></a></span><span> </span><span id="local-6989586621679165656"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165656"><span class="hs-identifier hs-var">w1</span></a></span></span><span> </span><span id="local-6989586621679165655"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165655"><span class="hs-identifier hs-var">w2</span></a></span></span><span> </span><span id="local-6989586621679165654"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165654"><span class="hs-identifier hs-var">w3</span></a></span></span><span> </span><span id="local-6989586621679165653"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165653"><span class="hs-identifier hs-var">w4</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165653"><span class="hs-identifier hs-var">w4</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165654"><span class="hs-identifier hs-var">w3</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165655"><span class="hs-identifier hs-var">w2</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679165656"><span class="hs-identifier hs-var">w1</span></a></span><span>
+</span><span id="line-52"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Natural</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-53"></span><span>    </span><span id="local-6989586621679165651"><span class="annot"><span class="annottext">hashMix :: Natural -&gt; st -&gt; st
+</span><a href="#local-6989586621679165651"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165650"><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165650"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679165649"><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165649"><span class="hs-identifier hs-var">iacc</span></a></span></span><span>
+</span><span id="line-54"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165650"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Natural -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">0</span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165649"><span class="hs-identifier hs-var">iacc</span></a></span><span>
+</span><span id="line-55"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; st -&gt; st
+forall st. Hasher st =&gt; Natural -&gt; st -&gt; st
+</span><a href="#local-6989586621679165648"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165650"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165649"><span class="hs-identifier hs-var">iacc</span></a></span><span>
+</span><span id="line-56"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-57"></span><span>        </span><span id="local-6989586621679165648"><span class="annot"><span class="annottext">loop :: Natural -&gt; t -&gt; t
+</span><a href="#local-6989586621679165648"><span class="hs-identifier hs-var hs-var">loop</span></a></span></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">0</span></span><span> </span><span id="local-6989586621679165647"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679165647"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679165647"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-58"></span><span>        </span><span class="annot"><a href="#local-6989586621679165648"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span id="local-6989586621679165646"><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165646"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span id="local-6989586621679165645"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679165645"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-59"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679165644"><span class="annot"><span class="annottext">b :: Word8
+</span><a href="#local-6989586621679165644"><span class="hs-identifier hs-var hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Word8
+forall a b. IntegralDownsize a b =&gt; a -&gt; b
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">integralDownsize</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165646"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Natural</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span>
+</span><span id="line-60"></span><span>             </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; t -&gt; t
+</span><a href="#local-6989586621679165648"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165646"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Natural -&gt; Natural
+forall a. IDivisible a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../basement/html/src"><span class="hs-operator hs-var">`div`</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">256</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word8 -&gt; t -&gt; t
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679165644"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679165645"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int8</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-62"></span><span>    </span><span id="local-6989586621679165640"><span class="annot"><span class="annottext">hashMix :: Int8 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165640"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165639"><span class="annot"><span class="annottext">Int8
+</span><a href="#local-6989586621679165639"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int8 -&gt; Word8
+forall source destination.
+Cast source destination =&gt;
+source -&gt; destination
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">cast</span></a></span><span> </span><span class="annot"><span class="annottext">Int8
+</span><a href="#local-6989586621679165639"><span class="hs-identifier hs-var">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-63"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int16</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-64"></span><span>    </span><span id="local-6989586621679165637"><span class="annot"><span class="annottext">hashMix :: Int16 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165637"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165636"><span class="annot"><span class="annottext">Int16
+</span><a href="#local-6989586621679165636"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word16 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word16 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix16"><span class="hs-identifier hs-var">hashMix16</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int16 -&gt; Word16
+forall source destination.
+Cast source destination =&gt;
+source -&gt; destination
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">cast</span></a></span><span> </span><span class="annot"><span class="annottext">Int16
+</span><a href="#local-6989586621679165636"><span class="hs-identifier hs-var">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int32</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-66"></span><span>    </span><span id="local-6989586621679165634"><span class="annot"><span class="annottext">hashMix :: Int32 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165634"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165633"><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679165633"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word32 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word32 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix32"><span class="hs-identifier hs-var">hashMix32</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int32 -&gt; Word32
+forall source destination.
+Cast source destination =&gt;
+source -&gt; destination
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">cast</span></a></span><span> </span><span class="annot"><span class="annottext">Int32
+</span><a href="#local-6989586621679165633"><span class="hs-identifier hs-var">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Int64</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-68"></span><span>    </span><span id="local-6989586621679165631"><span class="annot"><span class="annottext">hashMix :: Int64 -&gt; st -&gt; st
+</span><a href="#local-6989586621679165631"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165630"><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679165630"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word64 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix64"><span class="hs-identifier hs-var">hashMix64</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int64 -&gt; Word64
+forall source destination.
+Cast source destination =&gt;
+source -&gt; destination
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">cast</span></a></span><span> </span><span class="annot"><span class="annottext">Int64
+</span><a href="#local-6989586621679165630"><span class="hs-identifier hs-var">w</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/integer-gmp-1.0.3.0/src"><span class="hs-identifier hs-type">Integer</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-70"></span><span>    </span><span id="local-6989586621679165628"><span class="annot"><span class="annottext">hashMix :: Integer -&gt; st -&gt; st
+</span><a href="#local-6989586621679165628"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165627"><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679165627"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679165626"><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165626"><span class="hs-identifier hs-var">iacc</span></a></span></span><span>
+</span><span id="line-71"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679165627"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Integer -&gt; Integer -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">==</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><span class="hs-number">0</span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165626"><span class="hs-identifier hs-var">iacc</span></a></span><span>
+</span><span id="line-72"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679165627"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Integer -&gt; Integer -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-operator hs-var">&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><span class="hs-number">0</span></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; st -&gt; st
+forall st. Hasher st =&gt; Natural -&gt; st -&gt; st
+</span><a href="#local-6989586621679165624"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Integer -&gt; Natural
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">integerToNatural</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679165627"><span class="hs-identifier hs-var">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165626"><span class="hs-identifier hs-var">iacc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">otherwise</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; st -&gt; st
+forall st. Hasher st =&gt; Natural -&gt; st -&gt; st
+</span><a href="#local-6989586621679165624"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Integer -&gt; Natural
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">integerToNatural</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679165627"><span class="hs-identifier hs-var">i</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165626"><span class="hs-identifier hs-var">iacc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-75"></span><span>        </span><span id="local-6989586621679165622"><span class="annot"><a href="#local-6989586621679165624"><span class="hs-identifier hs-type">loop</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hasher.html#Hasher"><span class="hs-identifier hs-type">Hasher</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165622"><span class="hs-identifier hs-type">st</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Natural</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679165622"><span class="hs-identifier hs-type">st</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679165622"><span class="hs-identifier hs-type">st</span></a></span></span><span>
+</span><span id="line-76"></span><span>        </span><span id="local-6989586621679165624"><span class="annot"><span class="annottext">loop :: Natural -&gt; st -&gt; st
+</span><a href="#local-6989586621679165624"><span class="hs-identifier hs-var hs-var">loop</span></a></span></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">0</span></span><span> </span><span id="local-6989586621679165621"><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165621"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165621"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-77"></span><span>        </span><span class="annot"><a href="#local-6989586621679165624"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span id="local-6989586621679165620"><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165620"><span class="hs-identifier hs-var">w</span></a></span></span><span> </span><span id="local-6989586621679165619"><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165619"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-78"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679165618"><span class="annot"><span class="annottext">b :: Word8
+</span><a href="#local-6989586621679165618"><span class="hs-identifier hs-var hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Word8
+forall a b. IntegralDownsize a b =&gt; a -&gt; b
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">integralDownsize</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165620"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word8</span></a></span><span>
+</span><span id="line-79"></span><span>             </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Natural -&gt; st -&gt; st
+forall st. Hasher st =&gt; Natural -&gt; st -&gt; st
+</span><a href="#local-6989586621679165624"><span class="hs-identifier hs-var">loop</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Natural
+</span><a href="#local-6989586621679165620"><span class="hs-identifier hs-var">w</span></a></span><span> </span><span class="annot"><span class="annottext">Natural -&gt; Natural -&gt; Natural
+forall a. IDivisible a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../basement/html/src"><span class="hs-operator hs-var">`div`</span></a></span><span> </span><span class="annot"><span class="annottext">Natural
+</span><span class="hs-number">256</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word8 -&gt; st -&gt; st
+forall st. Hasher st =&gt; Word8 -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMix8"><span class="hs-identifier hs-var">hashMix8</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679165618"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165619"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">String</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-82"></span><span>    </span><span id="local-6989586621679165616"><span class="annot"><span class="annottext">hashMix :: String -&gt; st -&gt; st
+</span><a href="#local-6989586621679165616"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165615"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679165615"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">UArray Word8 -&gt; st -&gt; st
+forall st e. (Hasher st, PrimType e) =&gt; UArray e -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMixBytes"><span class="hs-identifier hs-var">hashMixBytes</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Encoding -&gt; String -&gt; UArray Word8
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">toBytes</span></a></span><span> </span><span class="annot"><span class="annottext">Encoding
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">UTF8</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679165615"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-83"></span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- collection type instances</span><span>
+</span><span id="line-85"></span><span id="local-6989586621679165611"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">PrimType</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165611"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">UArray</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165611"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-86"></span><span>    </span><span id="local-6989586621679165609"><span class="annot"><span class="annottext">hashMix :: UArray a -&gt; st -&gt; st
+</span><a href="#local-6989586621679165609"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165608"><span class="annot"><span class="annottext">UArray a
+</span><a href="#local-6989586621679165608"><span class="hs-identifier hs-var">ba</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">UArray a -&gt; st -&gt; st
+forall st e. (Hasher st, PrimType e) =&gt; UArray e -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hasher.html#hashMixBytes"><span class="hs-identifier hs-var">hashMixBytes</span></a></span><span> </span><span class="annot"><span class="annottext">UArray a
+</span><a href="#local-6989586621679165608"><span class="hs-identifier hs-var">ba</span></a></span></span><span>
+</span><span id="line-87"></span><span id="local-6989586621679165607"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165607"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../basement/html/src"><span class="hs-identifier hs-type">A.Array</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165607"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-88"></span><span>    </span><span id="local-6989586621679165605"><span class="annot"><span class="annottext">hashMix :: Array a -&gt; st -&gt; st
+</span><a href="#local-6989586621679165605"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165604"><span class="annot"><span class="annottext">Array a
+</span><a href="#local-6989586621679165604"><span class="hs-identifier hs-var">arr</span></a></span></span><span> </span><span id="local-6989586621679165603"><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165603"><span class="hs-identifier hs-var">st</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(st -&gt; a -&gt; st) -&gt; st -&gt; Array a -&gt; st
+forall a ty. (a -&gt; ty -&gt; a) -&gt; a -&gt; Array ty -&gt; a
+</span><a href="../../../../basement/html/src"><span class="hs-identifier hs-var">A.foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(a -&gt; st -&gt; st) -&gt; st -&gt; a -&gt; st
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165603"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="annot"><span class="annottext">Array a
+</span><a href="#local-6989586621679165604"><span class="hs-identifier hs-var">arr</span></a></span></span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span class="hs-comment">-- combined instances</span><span>
+</span><span id="line-91"></span><span id="local-6989586621679165600"><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165600"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679165600"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-92"></span><span>    </span><span id="local-6989586621679165598"><span class="annot"><span class="annottext">hashMix :: [a] -&gt; st -&gt; st
+</span><a href="#local-6989586621679165598"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span id="local-6989586621679165597"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679165597"><span class="hs-identifier hs-var">ba</span></a></span></span><span> </span><span id="local-6989586621679165596"><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165596"><span class="hs-identifier hs-var">st</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(st -&gt; Element [a] -&gt; st) -&gt; st -&gt; [a] -&gt; st
+forall collection a.
+Foldable collection =&gt;
+(a -&gt; Element collection -&gt; a) -&gt; a -&gt; collection -&gt; a
+</span><a href="Foundation.Collection.Foldable.html#foldl%27"><span class="hs-identifier hs-var">foldl'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(a -&gt; st -&gt; st) -&gt; st -&gt; a -&gt; st
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">st
+</span><a href="#local-6989586621679165596"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679165597"><span class="hs-identifier hs-var">ba</span></a></span></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span id="local-6989586621679165593"><span id="local-6989586621679165594"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165594"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165593"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679165594"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165593"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-95"></span><span>    </span><span id="local-6989586621679165591"><span class="annot"><span class="annottext">hashMix :: (a, b) -&gt; st -&gt; st
+</span><a href="#local-6989586621679165591"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679165590"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165590"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165589"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165589"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165589"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165590"><span class="hs-identifier hs-var">a</span></a></span></span></span><span>
+</span><span id="line-96"></span><span id="local-6989586621679165586"><span id="local-6989586621679165587"><span id="local-6989586621679165588"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165588"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165587"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165586"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679165588"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165587"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165586"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-97"></span><span>    </span><span id="local-6989586621679165584"><span class="annot"><span class="annottext">hashMix :: (a, b, c) -&gt; st -&gt; st
+</span><a href="#local-6989586621679165584"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679165583"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165583"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165582"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165582"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165581"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165581"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">c -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165581"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165582"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165583"><span class="hs-identifier hs-var">a</span></a></span></span></span></span><span>
+</span><span id="line-98"></span><span id="local-6989586621679165577"><span id="local-6989586621679165578"><span id="local-6989586621679165579"><span id="local-6989586621679165580"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165580"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165579"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165578"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165577"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679165580"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165579"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165578"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165577"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-99"></span><span>    </span><span id="local-6989586621679165575"><span class="annot"><span class="annottext">hashMix :: (a, b, c, d) -&gt; st -&gt; st
+</span><a href="#local-6989586621679165575"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679165574"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165574"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165573"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165573"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165572"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165572"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165571"><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165571"><span class="hs-identifier hs-var">d</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">d -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165571"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">c -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165572"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165573"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165574"><span class="hs-identifier hs-var">a</span></a></span></span></span></span></span><span>
+</span><span id="line-100"></span><span id="local-6989586621679165566"><span id="local-6989586621679165567"><span id="local-6989586621679165568"><span id="local-6989586621679165569"><span id="local-6989586621679165570"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165570"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165569"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165568"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165567"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165566"><span class="hs-identifier hs-type">e</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679165570"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165569"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165568"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165567"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165566"><span class="hs-identifier hs-type">e</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-101"></span><span>    </span><span id="local-6989586621679165564"><span class="annot"><span class="annottext">hashMix :: (a, b, c, d, e) -&gt; st -&gt; st
+</span><a href="#local-6989586621679165564"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679165563"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165563"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165562"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165562"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165561"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165561"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165560"><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165560"><span class="hs-identifier hs-var">d</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165559"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679165559"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">e -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679165559"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">d -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165560"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">c -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165561"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165562"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165563"><span class="hs-identifier hs-var">a</span></a></span></span></span></span></span></span><span>
+</span><span id="line-102"></span><span id="local-6989586621679165553"><span id="local-6989586621679165554"><span id="local-6989586621679165555"><span id="local-6989586621679165556"><span id="local-6989586621679165557"><span id="local-6989586621679165558"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165558"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165557"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165556"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165555"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165554"><span class="hs-identifier hs-type">e</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165553"><span class="hs-identifier hs-type">f</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679165558"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165557"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165556"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165555"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165554"><span class="hs-identifier hs-type">e</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679165553"><span class="hs-identifier hs-type">f</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621679165551"><span class="annot"><span class="annottext">hashMix :: (a, b, c, d, e, f) -&gt; st -&gt; st
+</span><a href="#local-6989586621679165551"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679165550"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165550"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165549"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165549"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165548"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165548"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165547"><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165547"><span class="hs-identifier hs-var">d</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165546"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679165546"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679165545"><span class="annot"><span class="annottext">f
+</span><a href="#local-6989586621679165545"><span class="hs-identifier hs-var">f</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">f -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">f
+</span><a href="#local-6989586621679165545"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">e -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679165546"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">d -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165547"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">c -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165548"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165549"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165550"><span class="hs-identifier hs-var">a</span></a></span></span></span></span></span></span></span><span>
+</span><span id="line-104"></span><span id="local-6989586621679165543"><span id="local-6989586621679165544"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165544"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165543"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Tuple.html#Tuple2"><span class="hs-identifier hs-type">Tuple2</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165544"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165543"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-105"></span><span>    </span><span id="local-6989586621679165541"><span class="annot"><span class="annottext">hashMix :: Tuple2 a b -&gt; st -&gt; st
+</span><a href="#local-6989586621679165541"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Tuple.html#Tuple2"><span class="hs-identifier hs-type">Tuple2</span></a></span><span> </span><span id="local-6989586621679165539"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165539"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679165538"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165538"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165538"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165539"><span class="hs-identifier hs-var">a</span></a></span></span></span><span>
+</span><span id="line-106"></span><span id="local-6989586621679165535"><span id="local-6989586621679165536"><span id="local-6989586621679165537"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165537"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165536"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165535"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Tuple.html#Tuple3"><span class="hs-identifier hs-type">Tuple3</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165537"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165536"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165535"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-107"></span><span>    </span><span id="local-6989586621679165533"><span class="annot"><span class="annottext">hashMix :: Tuple3 a b c -&gt; st -&gt; st
+</span><a href="#local-6989586621679165533"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Tuple.html#Tuple3"><span class="hs-identifier hs-type">Tuple3</span></a></span><span> </span><span id="local-6989586621679165531"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165531"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679165530"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165530"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span id="local-6989586621679165529"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165529"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">c -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165529"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165530"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165531"><span class="hs-identifier hs-var">a</span></a></span></span></span></span><span>
+</span><span id="line-108"></span><span id="local-6989586621679165525"><span id="local-6989586621679165526"><span id="local-6989586621679165527"><span id="local-6989586621679165528"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165528"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165527"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165526"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165525"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Foundation.Hashing.Hashable.html#Hashable"><span class="hs-identifier hs-type">Hashable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Tuple.html#Tuple4"><span class="hs-identifier hs-type">Tuple4</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165528"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165527"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165526"><span class="hs-identifier hs-type">c</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679165525"><span class="hs-identifier hs-type">d</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-109"></span><span>    </span><span id="local-6989586621679165523"><span class="annot"><span class="annottext">hashMix :: Tuple4 a b c d -&gt; st -&gt; st
+</span><a href="#local-6989586621679165523"><span class="hs-identifier hs-var hs-var hs-var hs-var">hashMix</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Foundation.Tuple.html#Tuple4"><span class="hs-identifier hs-type">Tuple4</span></a></span><span> </span><span id="local-6989586621679165521"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165521"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span id="local-6989586621679165520"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165520"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span id="local-6989586621679165519"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165519"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span id="local-6989586621679165518"><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165518"><span class="hs-identifier hs-var">d</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">d -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">d
+</span><a href="#local-6989586621679165518"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">c -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679165519"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679165520"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">(st -&gt; st) -&gt; (st -&gt; st) -&gt; st -&gt; st
+forall k (cat :: k -&gt; k -&gt; *) (b :: k) (c :: k) (a :: k).
+Category cat =&gt;
+cat b c -&gt; cat a b -&gt; cat a c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; st -&gt; st
+forall a st. (Hashable a, Hasher st) =&gt; a -&gt; st -&gt; st
+</span><a href="Foundation.Hashing.Hashable.html#hashMix"><span class="hs-identifier hs-var">hashMix</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679165521"><span class="hs-identifier hs-var">a</span></a></span></span></span></span></span><span>
+</span><span id="line-110"></span><span class="hs-comment">{-
+instance (Hashable a, Hashable b, Hashable c, Hashable d, Hashable e) =&gt; Hashable (Tuple5 a b c d e) where
+    hashMix (Tuple5 a b c d e) = hashMix e . hashMix d . hashMix c . hashMix b . hashMix a
+instance (Hashable a, Hashable b, Hashable c, Hashable d, Hashable e, Hashable f) =&gt; Hashable (Tuple6 a b c d e f) where
+    hashMix (Tuple6 a b c d e f) = hashMix f . hashMix e . hashMix d . hashMix c . hashMix b . hashMix a
+-}</span><span>
+</span><span id="line-116"></span></pre></body></html>
