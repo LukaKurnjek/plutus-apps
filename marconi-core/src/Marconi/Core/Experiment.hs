@@ -282,8 +282,9 @@ startRunner chan tokens (Runner ix isRollback extractEvent tracer) = do
           case me of
                Nothing -> pure ()
                Just (point, event) -> do
-                   traceWith tracer (Issue event)
                    indexEvent point event
+                   traceWith tracer (Issue event)
+                   traceWith tracer (Process point)
 
       handleRollback p = do
           indexer <- STM.atomically $ STM.takeTMVar ix
