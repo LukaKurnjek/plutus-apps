@@ -4,22 +4,28 @@
  The point we wanted to address are the folowing:
 
    - 'Storable' implementation is designed in a way that strongly promote indexer that rely on a mix of database and
-     in-memory storage. While this implementation makes sense in most of the case we may occasionnaly want:
+     in-memory storage. We try to propose a more generic design that would allow
 
-        - a full in-memory indexer
+        - full in-memory indexers
         - indexer backed by a simple file
         - mock indexer, for testing purpose, with predefined behaviour
-        - be able to easily move to another kind of storage
+        - group of indexers, synchronised as a single indexer
         - implement in-memory/database storage that rely on other query heuristic
 
    - We want to be able to compose easily indexers to build new ones. For example, the original indexer design can be
      seen as the combination of two indexers, a full in-memory indexer, and a full in database indexer.
 
-   - The original implementation considered the 'StorablePoint' as a data that can be derived from the 'Event', leading
-     to the need of the design of synthetic events to deal with indexer that didn't index enough data.
+   - The original implementation considered the 'StorablePoint' as a data that can be derived from 'Event',
+     leading to the design of synthetic events to deal with indexer that didn't index enough data.
 
-   - In marconi, the original design use an exotic callback design to handle `MVar` modification, we wanted to address
-     this point as well.
+   - In marconi, the original design use an exotic callback design to handle `MVar` modification,
+     we wanted to address this point as well.
+
+What's include in this module:
+
+   - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
+   - A full in-memory indexer, an indexer that compose it with a SQL layer for persistence
+   - A coordinator for indexers, that can be exposed as an itdexer itself
 
 -}
 module Marconi.Core.Experiment where
@@ -291,11 +297,14 @@ startRunner chan tokens (Runner ix isRollback extractEvent tracer) = do
           traceWith tracer (Rollback p)
 
 data Coordinator input point = Coordinator
-  { lastSync :: !(Maybe point) -- ^ the last common sync point for the runners
-  , tokens   :: !QSemN -- ^ use to synchronise the runner
-  , channel  :: !(TChan input) -- ^ to dispatch input to runners
-  , runners  :: !Int -- ^ how many runners are we waiting for
+  { _lastSync  :: !(Maybe point) -- ^ the last common sync point for the runners
+  , _runners   :: ![Runner input point] -- ^ the list of runners managed by this coordinator
+  , _tokens    :: !QSemN -- ^ use to synchronise the runner
+  , _channel   :: !(TChan input) -- ^ to dispatch input to runners
+  , _nbRunners :: !Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
   }
+
+makeLenses 'Coordinator
 
 -- | Get the common syncPoints of a group or runners
 runnerSyncPoints :: Ord point => [Runner input point] -> IO [point]
@@ -315,15 +324,15 @@ runnerSyncPoints (r:rs) = do
 
 -- | create a coordinator with started runners
 start :: Ord point => [Runner input point] -> IO (Coordinator input point)
-start rs = do
-    let nb = length rs
-    tokens <- STM.newQSemN 0
-    channel <- STM.newBroadcastTChanIO
-    startRunners channel tokens
-    pure $ Coordinator Nothing tokens channel nb
+start runners' = do
+    let nb = length runners'
+    tokens' <- STM.newQSemN 0
+    channel' <- STM.newBroadcastTChanIO
+    startRunners channel' tokens'
+    pure $ Coordinator Nothing runners' tokens' channel' nb
     where
-        startRunners channel tokens =
-            traverse_ (startRunner channel tokens) rs
+        startRunners channel' tokens' =
+            traverse_ (startRunner channel' tokens') runners'
 
 -- A coordinator step (send an input, wait for an ack of every runner that it's processed)
 step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
@@ -331,10 +340,9 @@ step getPoint coordinator input = do
     dispatchNewInput
     waitRunners $> setLastSync coordinator
     where
-      waitRunners = Con.waitQSemN (tokens coordinator) (runners coordinator)
-      dispatchNewInput = STM.atomically $ STM.writeTChan (channel coordinator) input
-      setLastSync c =  c {lastSync = Just $ getPoint input}
-
+      waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
+      dispatchNewInput = STM.atomically $ STM.writeTChan (coordinator ^. channel) input
+      setLastSync c =  c & lastSync ?~ getPoint input
 
 
 -- A coordinator can be seen as an indexer
@@ -345,7 +353,29 @@ newtype CoordinatorIndex desc =
 
 makeLenses 'CoordinatorIndex
 
+-- A coordinator can be consider as an indexer that forwards the input to its runner
 instance IsIndex CoordinatorIndex desc IO where
-    insert point event = coordinator $ \x -> step (const point) x event
-    lastSyncPoint indexer = pure $ lastSync $ indexer ^. coordinator
 
+    insert point event = coordinator $ \x -> step (const point) x event
+    lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
+
+
+instance Rewindable CoordinatorIndex desc IO where
+
+    rewind p = runMaybeT . coordinator rewindRunners
+        where
+            rewindRunners ::
+                Coordinator (Event desc) (Point desc) ->
+                MaybeT IO (Coordinator (Event desc) (Point desc))
+            rewindRunners = runners $ traverse $ MaybeT . rewindRunner
+
+            rewindRunner ::
+                Runner (Event desc) (Point desc) ->
+                IO (Maybe (Runner (Event desc) (Point desc)))
+            rewindRunner r@Runner{runnerState} = do
+                indexer <- STM.atomically $ STM.takeTMVar runnerState
+                res <- rewind p indexer
+                maybe
+                    (STM.atomically (STM.putTMVar runnerState indexer) $> Nothing)
+                    ((Just r <$) . STM.atomically . STM.putTMVar runnerState)
+                    res
