@@ -66,6 +66,8 @@ type family Point desc
 type family Event desc
 data family Result query
 
+
+-- | Attach an event to a point in time
 data TimedEvent desc =
      TimedEvent
          { _point :: !(Point desc)
