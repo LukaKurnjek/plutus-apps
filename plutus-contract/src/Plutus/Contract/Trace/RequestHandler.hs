@@ -60,8 +60,8 @@ import Ledger.Tx.CardanoAPI (ToCardanoError)
 import Ledger.Tx.Constraints (UnbalancedTx)
 import Ledger.Tx.Constraints qualified as Constraints
 import Plutus.ChainIndex (ChainIndexQueryEffect)
-import Plutus.ChainIndex.Effects qualified as ChainIndexEff
-import Plutus.ChainIndex.Types (Tip (..))
+import Plutus.ChainIndex.Core.Effects qualified as ChainIndexEff
+import Plutus.ChainIndex.Core.Types (Tip (..))
 import Plutus.Contract.Effects (ChainIndexQuery (..), ChainIndexResponse (..))
 import Wallet.API (WalletAPIError, signTxAndSubmit)
 import Wallet.Effects (NodeClientEffect, WalletEffect, getClientParams, getClientSlot)

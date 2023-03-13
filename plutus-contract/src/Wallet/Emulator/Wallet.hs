@@ -65,7 +65,7 @@ import Ledger.Tx.Constraints.OffChain (UnbalancedTx)
 import Ledger.Tx.Constraints.OffChain qualified as U
 import Plutus.ChainIndex (PageQuery)
 import Plutus.ChainIndex qualified as ChainIndex
-import Plutus.ChainIndex.Api (UtxosResponse (page))
+import Plutus.ChainIndex.Core.Api (UtxosResponse (page))
 import Plutus.ChainIndex.Emulator (ChainIndexEmulatorState, ChainIndexQueryEffect)
 import Plutus.Contract.Checkpoint (CheckpointLogMsg)
 import Plutus.V1.Ledger.Api (ValidatorHash, Value)

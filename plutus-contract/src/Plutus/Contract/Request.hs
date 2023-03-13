@@ -162,8 +162,9 @@ import Data.Foldable (fold)
 import Data.List.NonEmpty qualified as NonEmpty
 import Ledger.Value.CardanoAPI (valueGeq, valueLeq)
 import Plutus.ChainIndex (ChainIndexTx, Page (nextPageQuery, pageItems), PageQuery, txOutRefs)
-import Plutus.ChainIndex.Api (IsUtxoResponse, QueryResponse, TxosResponse, UtxosResponse, collectQueryResponse, paget)
-import Plutus.ChainIndex.Types (RollbackState (Unknown), Tip, TxOutStatus, TxStatus)
+import Plutus.ChainIndex.Core.Api (IsUtxoResponse, QueryResponse, TxosResponse, UtxosResponse, collectQueryResponse,
+                                   paget)
+import Plutus.ChainIndex.Core.Types (RollbackState (Unknown), Tip, TxOutStatus, TxStatus)
 import Plutus.Contract.Error (AsContractError (_ChainIndexContractError, _ConstraintResolutionContractError, _EndpointDecodeContractError, _OtherContractError, _ResumableContractError, _TxToCardanoConvertContractError, _WalletContractError))
 import Plutus.Contract.Resumable (prompt)
 import Plutus.Contract.Types (Contract (Contract), MatchingError (WrongVariantError), Promise (Promise), mapError,

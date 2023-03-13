@@ -52,8 +52,8 @@ import Wallet.Emulator qualified as EM
 import Wallet.Emulator.Wallet (mockWalletAddress)
 
 import Ledger.Value.CardanoAPI qualified as CardanoAPI
-import Plutus.ChainIndex.Types (RollbackState (Committed), TxOutState (Spent, Unspent), TxOutStatus, TxStatus,
-                                TxValidity (TxValid))
+import Plutus.ChainIndex.Core.Types (RollbackState (Committed), TxOutState (Spent, Unspent), TxOutStatus, TxStatus,
+                                     TxValidity (TxValid))
 import Plutus.Contract.Effects (ActiveEndpoint (ActiveEndpoint, aeDescription, aeMetadata))
 
 tests :: TestTree
