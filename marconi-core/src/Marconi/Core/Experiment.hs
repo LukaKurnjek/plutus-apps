@@ -8,6 +8,7 @@
 
         - full in-memory indexers
         - indexer backed by a simple file
+        - indexer transformers, that add capability (logging, caching...) to an indexer
         - mock indexer, for testing purpose, with predefined behaviour
         - group of indexers, synchronised as a single indexer
         - implement in-memory/database storage that rely on other query heuristic
