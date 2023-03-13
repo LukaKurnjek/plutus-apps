@@ -47,7 +47,7 @@ import Data.Semigroup.Generic (GenericSemigroupMonoid (..))
 import GHC.Generics (Generic)
 import Plutus.ChainIndex.ChainIndexError (InsertUtxoFailed (..), RollbackFailed (..))
 import Plutus.ChainIndex.ChainIndexLog (InsertUtxoPosition (..))
-import Plutus.ChainIndex.Types (Depth (..), Point (..), Tip (..), pointsToTip)
+import Plutus.ChainIndex.Core.Types (Depth (..), Point (..), Tip (..), pointsToTip)
 import Prettyprinter (Pretty (..))
 
 -- | UTXO / ledger state, kept in memory. We are only interested in the UTXO set, everything else is stored

@@ -22,9 +22,10 @@ import Data.FingerTree qualified as FT
 import Data.Map qualified as Map
 import Data.Monoid (Last (..), Sum (..))
 import Ledger (OnChainTx, TxId, onChainTxIsValid)
+import Plutus.ChainIndex.Core.Types (BlockNumber (..), Depth (..), Point (..), RollbackState (..), Tip (..),
+                                     TxConfirmedState (..), TxIdState (..), TxStatus, TxStatusFailure (..),
+                                     TxValidity (..))
 import Plutus.ChainIndex.Tx (ChainIndexTx (..), citxTxId, validityFromChainIndex)
-import Plutus.ChainIndex.Types (BlockNumber (..), Depth (..), Point (..), RollbackState (..), Tip (..),
-                                TxConfirmedState (..), TxIdState (..), TxStatus, TxStatusFailure (..), TxValidity (..))
 import Plutus.ChainIndex.UtxoState (RollbackFailed (..), RollbackResult (..), UtxoIndex, UtxoState (..), rollbackWith,
                                     tip, utxoState, viewTip)
 

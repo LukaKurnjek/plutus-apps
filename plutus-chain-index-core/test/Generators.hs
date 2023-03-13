@@ -55,13 +55,13 @@ import Ledger.Slot (Slot (Slot))
 import Ledger.Tx (TxId (TxId), TxIn (TxIn), TxOutRef (TxOutRef))
 import Ledger.Tx.CardanoAPI (toCardanoAddressInEra)
 import Ledger.Value.CardanoAPI (AssetId (AssetId), Lovelace (Lovelace), Value, assetIdValue, lovelaceToValue)
+import Plutus.ChainIndex.Core.Types (BlockId (BlockId), BlockNumber (BlockNumber),
+                                     Tip (Tip, tipBlockId, tipBlockNo, tipSlot), TxIdState, TxOutBalance, TxUtxoBalance)
 import Plutus.ChainIndex.Tx (ChainIndexTx (ChainIndexTx), ChainIndexTxOut (..), ChainIndexTxOutputs (..),
                              OutputDatum (NoOutputDatum), ReferenceScript (ReferenceScriptNone), txOutRefs)
 import Plutus.ChainIndex.TxIdState qualified as TxIdState
 import Plutus.ChainIndex.TxOutBalance qualified as TxOutBalance
 import Plutus.ChainIndex.TxUtxoBalance qualified as TxUtxoBalance
-import Plutus.ChainIndex.Types (BlockId (BlockId), BlockNumber (BlockNumber),
-                                Tip (Tip, tipBlockId, tipBlockNo, tipSlot), TxIdState, TxOutBalance, TxUtxoBalance)
 import PlutusTx.Prelude qualified as PlutusTx
 
 -- | Generate a random tx id

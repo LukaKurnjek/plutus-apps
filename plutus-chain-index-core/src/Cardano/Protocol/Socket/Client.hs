@@ -31,7 +31,7 @@ import Ouroboros.Network.Protocol.ChainSync.Client qualified as ChainSync
 import Cardano.Protocol.Socket.Type hiding (Tip)
 import Ledger (Slot (..))
 import Plutus.ChainIndex.Compatibility (fromCardanoPoint, fromCardanoTip)
-import Plutus.ChainIndex.Types (Point, Tip)
+import Plutus.ChainIndex.Core.Types (Point, Tip)
 
 data ChainSyncHandle event = ChainSyncHandle
     { cshCurrentSlot :: IO Slot

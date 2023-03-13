@@ -30,9 +30,9 @@ import Plutus.ChainIndex (ChainIndexTxOut (citoValue), ChainSyncBlock (Block), P
                           RunRequirements (RunRequirements), Tip (Tip, TipAtGenesis),
                           TxProcessOption (TxProcessOption, tpoStoreTx), appendBlocks, citxTxId, runChainIndexEffects,
                           tipSlot, txFromTxId, txOuts, unspentTxOutFromRef, utxoSetMembership, utxoSetWithCurrency)
-import Plutus.ChainIndex.Api (UtxosResponse (UtxosResponse), isUtxo)
+import Plutus.ChainIndex.Core.Api (UtxosResponse (UtxosResponse), isUtxo)
+import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect, ChainIndexQueryEffect, getTip)
 import Plutus.ChainIndex.DbSchema (checkedSqliteDb)
-import Plutus.ChainIndex.Effects (ChainIndexControlEffect, ChainIndexQueryEffect, getTip)
 import Plutus.Script.Utils.Ada qualified as Ada
 import Plutus.V1.Ledger.Value (AssetClass (AssetClass))
 import Test.Tasty (TestTree, testGroup)

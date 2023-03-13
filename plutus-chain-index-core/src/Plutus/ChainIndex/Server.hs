@@ -22,11 +22,12 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Network.Wai.Handler.Warp qualified as Warp
 import Plutus.ChainIndex (RunRequirements, runChainIndexEffects)
-import Plutus.ChainIndex.Api (API, FromHashAPI, FullAPI, QueryAtAddressRequest (QueryAtAddressRequest),
-                              TxoAtAddressRequest (TxoAtAddressRequest), UtxoAtAddressRequest (UtxoAtAddressRequest),
-                              UtxoWithCurrencyRequest (UtxoWithCurrencyRequest), swagger)
-import Plutus.ChainIndex.Effects (ChainIndexControlEffect, ChainIndexQueryEffect)
-import Plutus.ChainIndex.Effects qualified as E
+import Plutus.ChainIndex.Core.Api (API, FromHashAPI, FullAPI, QueryAtAddressRequest (QueryAtAddressRequest),
+                                   TxoAtAddressRequest (TxoAtAddressRequest),
+                                   UtxoAtAddressRequest (UtxoAtAddressRequest),
+                                   UtxoWithCurrencyRequest (UtxoWithCurrencyRequest), swagger)
+import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect, ChainIndexQueryEffect)
+import Plutus.ChainIndex.Core.Effects qualified as E
 import Servant.API ((:<|>) (..))
 import Servant.API.ContentTypes (NoContent (..))
 import Servant.Server (Handler, ServerError, ServerT, err404, err500, errBody, hoistServer, serve)

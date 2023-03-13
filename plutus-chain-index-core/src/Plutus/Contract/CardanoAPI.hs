@@ -24,7 +24,8 @@ import Data.Either (fromRight)
 import Data.List (sort)
 import Ledger qualified as P
 import Ledger.Tx.CardanoAPI as Export
-import Plutus.ChainIndex.Types (ChainIndexTx (..), ChainIndexTxOut (..), ChainIndexTxOutputs (..), ReferenceScript (..))
+import Plutus.ChainIndex.Core.Types (ChainIndexTx (..), ChainIndexTxOut (..), ChainIndexTxOutputs (..),
+                                     ReferenceScript (..))
 
 fromCardanoBlock :: C.BlockInMode C.CardanoMode -> [ChainIndexTx]
 fromCardanoBlock (C.BlockInMode (C.Block C.BlockHeader {} txs) eraInMode) =

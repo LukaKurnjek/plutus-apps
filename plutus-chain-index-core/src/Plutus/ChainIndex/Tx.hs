@@ -46,7 +46,7 @@ import Data.Tuple (swap)
 import Ledger (CardanoTx (CardanoTx), OnChainTx (..), TxOutRef (..))
 import Ledger.Address (CardanoAddress)
 import Ledger.Scripts (Redeemer, RedeemerHash)
-import Plutus.ChainIndex.Types
+import Plutus.ChainIndex.Core.Types
 import Plutus.Contract.CardanoAPI (fromCardanoTx, setValidity)
 import Plutus.Script.Utils.Scripts (redeemerHash)
 import Plutus.V2.Ledger.Api (Address (..), OutputDatum (..), Value (..))

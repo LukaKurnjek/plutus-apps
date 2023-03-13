@@ -23,6 +23,9 @@ import Hedgehog (Property, annotateShow, assert, failure, forAll, property, (/==
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Ledger (TxOutRef (TxOutRef, txOutRefId))
+import Plutus.ChainIndex.Core.Types (BlockNumber (..), Depth (..), RollbackState (..), Tip (..), TxConfirmedState (..),
+                                     TxIdState (..), TxOutState (..), TxStatusFailure (..), TxUtxoBalance (..),
+                                     liftTxOutStatus, tipAsPoint, txOutStatusTxOutState)
 import Plutus.ChainIndex.Emulator.DiskStateSpec qualified as DiskStateSpec
 import Plutus.ChainIndex.Emulator.HandlersSpec qualified as EmulatorHandlersSpec
 import Plutus.ChainIndex.HandlersSpec qualified as HandlersSpec
@@ -31,9 +34,6 @@ import Plutus.ChainIndex.TxIdState (dropOlder, increaseDepth, transactionStatus)
 import Plutus.ChainIndex.TxIdState qualified as TxIdState
 import Plutus.ChainIndex.TxOutBalance qualified as TxOutBalance
 import Plutus.ChainIndex.TxUtxoBalance qualified as TUB
-import Plutus.ChainIndex.Types (BlockNumber (..), Depth (..), RollbackState (..), Tip (..), TxConfirmedState (..),
-                                TxIdState (..), TxOutState (..), TxStatusFailure (..), TxUtxoBalance (..),
-                                liftTxOutStatus, tipAsPoint, txOutStatusTxOutState)
 import Plutus.ChainIndex.UtxoState (InsertUtxoSuccess (..), RollbackResult (..))
 import Plutus.ChainIndex.UtxoState qualified as UtxoState
 import Test.Tasty

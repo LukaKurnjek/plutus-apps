@@ -9,7 +9,7 @@ import Control.Monad.Freer.Extras.Beam (BeamError)
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 import Ledger.Tx.CardanoAPI.Internal (ToCardanoError)
-import Plutus.ChainIndex.Types (Point (..), Tip (..))
+import Plutus.ChainIndex.Core.Types (Point (..), Tip (..))
 import Prettyprinter (Pretty (..), colon, (<+>))
 
 data ChainIndexError =

@@ -35,13 +35,13 @@ import Data.Proxy (Proxy (..))
 import Ledger (TxId)
 import Ledger.Tx (DecoratedTxOut, TxOutRef, Versioned)
 import Network.HTTP.Types.Status (Status (..))
-import Plutus.ChainIndex.Api (API, IsUtxoResponse, QueryAtAddressRequest (QueryAtAddressRequest), QueryResponse,
-                              TxoAtAddressRequest (TxoAtAddressRequest), TxosResponse,
-                              UtxoAtAddressRequest (UtxoAtAddressRequest),
-                              UtxoWithCurrencyRequest (UtxoWithCurrencyRequest), UtxosResponse)
-import Plutus.ChainIndex.Effects (ChainIndexQueryEffect (..))
+import Plutus.ChainIndex.Core.Api (API, IsUtxoResponse, QueryAtAddressRequest (QueryAtAddressRequest), QueryResponse,
+                                   TxoAtAddressRequest (TxoAtAddressRequest), TxosResponse,
+                                   UtxoAtAddressRequest (UtxoAtAddressRequest),
+                                   UtxoWithCurrencyRequest (UtxoWithCurrencyRequest), UtxosResponse)
+import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect (..))
+import Plutus.ChainIndex.Core.Types (Tip)
 import Plutus.ChainIndex.Tx (ChainIndexTx)
-import Plutus.ChainIndex.Types (Tip)
 import Plutus.V1.Ledger.Api (Datum, DatumHash, MintingPolicy, MintingPolicyHash, Redeemer, RedeemerHash, StakeValidator,
                              StakeValidatorHash, Validator, ValidatorHash)
 import Servant (NoContent, (:<|>) (..))
