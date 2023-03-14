@@ -48,7 +48,7 @@ import Ledger.AddressMap qualified as AM
 import Ledger.Blockchain (Block, OnChainTx (Valid))
 import Ledger.Slot (Slot)
 import Ledger.Tx (CardanoTx)
-import Plutus.ChainIndex (ChainIndexError)
+import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError)
 import Streaming (Stream)
 import Streaming qualified as S
 import Streaming.Prelude (Of)

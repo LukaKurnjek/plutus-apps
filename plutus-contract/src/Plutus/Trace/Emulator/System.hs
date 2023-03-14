@@ -28,8 +28,9 @@ import Wallet.Emulator.MultiAgent (MultiAgentControlEffect, MultiAgentEffect, wa
 
 import Data.String (IsString (..))
 import Ledger (Block, Slot)
-import Plutus.ChainIndex (ChainIndexControlEffect, ChainSyncBlock (Block), Tip (Tip, TipAtGenesis), appendBlocks,
-                          blockId, fromOnChainTx, getTip)
+import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect, appendBlocks, getTip)
+import Plutus.ChainIndex.Core.Tx (fromOnChainTx)
+import Plutus.ChainIndex.Core.Types (ChainSyncBlock (Block), Tip (Tip, TipAtGenesis), blockId)
 import Plutus.Trace.Emulator.Types (EmulatorMessage (..))
 import Plutus.Trace.Scheduler (EmSystemCall, MessageCall (..), Priority (..), Tag, fork, mkSysCall, sleep)
 import Wallet.Emulator.NodeClient (ChainClientNotification (..), clientNotify)

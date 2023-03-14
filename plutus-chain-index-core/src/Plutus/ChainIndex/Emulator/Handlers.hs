@@ -41,18 +41,18 @@ import Ledger.Tx (TxId, TxOutRef (..), Versioned)
 import Ledger.Tx qualified as L (DatumFromQuery (..), DecoratedTxOut, datumInDatumFromQuery, decoratedTxOutDatum,
                                  mkPubkeyDecoratedTxOut, mkScriptDecoratedTxOut)
 import Ledger.Tx.CardanoAPI (toCardanoAssetId)
-import Plutus.ChainIndex.ChainIndexError (ChainIndexError (..))
-import Plutus.ChainIndex.ChainIndexLog (ChainIndexLog (..))
 import Plutus.ChainIndex.Core.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
                                    TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
+import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError (..))
+import Plutus.ChainIndex.Core.ChainIndexLog (ChainIndexLog (..))
 import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect (..), ChainIndexQueryEffect (..))
+import Plutus.ChainIndex.Core.Tx (txOuts)
 import Plutus.ChainIndex.Core.Types (ChainIndexTx, ChainIndexTxOut (..), ChainSyncBlock (..), Diagnostics (..),
                                      Point (PointAtGenesis), Tip (..), TxProcessOption (..), TxUtxoBalance (..),
                                      fromReferenceScript)
 import Plutus.ChainIndex.Emulator.DiskState (DiskState, addressMap, assetClassMap, dataMap, redeemerMap, scriptMap,
                                              txMap)
 import Plutus.ChainIndex.Emulator.DiskState qualified as DiskState
-import Plutus.ChainIndex.Tx (txOuts)
 import Plutus.ChainIndex.TxUtxoBalance qualified as TxUtxoBalance
 import Plutus.ChainIndex.UtxoState (InsertUtxoSuccess (..), RollbackResult (..), UtxoIndex, tip, utxoState)
 import Plutus.ChainIndex.UtxoState qualified as UtxoState

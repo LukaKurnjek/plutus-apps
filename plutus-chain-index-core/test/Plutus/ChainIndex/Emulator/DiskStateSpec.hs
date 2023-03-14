@@ -9,8 +9,8 @@ module Plutus.ChainIndex.Emulator.DiskStateSpec (tests) where
 import Control.Lens
 import Data.Set qualified as Set
 import Ledger.Value.CardanoAPI qualified as Value
+import Plutus.ChainIndex.Core.Tx (ChainIndexTxOut (ChainIndexTxOut, citoValue), txOutsWithRef)
 import Plutus.ChainIndex.Emulator.DiskState qualified as DiskState
-import Plutus.ChainIndex.Tx (ChainIndexTxOut (ChainIndexTxOut, citoValue), txOutsWithRef)
 
 import Generators qualified as Gen
 import Hedgehog (Property, forAll, property, (===))

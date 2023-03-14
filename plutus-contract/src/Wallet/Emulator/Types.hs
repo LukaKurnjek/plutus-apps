@@ -73,7 +73,7 @@ import Control.Monad.Freer.Extras.Log (LogMsg, mapLog)
 import Control.Monad.Freer.State (State)
 
 import Cardano.Node.Emulator.Params (Params)
-import Plutus.ChainIndex (ChainIndexError)
+import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError)
 import Wallet.API (WalletAPIError)
 
 import Cardano.Node.Emulator.Chain (ChainControlEffect, ChainEffect, ChainEvent, ChainState, handleChain,

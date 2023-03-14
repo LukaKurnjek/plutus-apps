@@ -11,7 +11,7 @@
 {-# LANGUAGE TupleSections       #-}
 {-| The chain index' version of a transaction
 -}
-module Plutus.ChainIndex.Tx(
+module Plutus.ChainIndex.Core.Tx(
     ChainIndexTx(..)
     , ChainIndexTxOutputs(..)
     , ChainIndexTxOut(..)

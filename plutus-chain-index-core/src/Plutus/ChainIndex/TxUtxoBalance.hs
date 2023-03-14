@@ -9,8 +9,8 @@ import Control.Lens (view)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Ledger (TxIn (txInRef), TxOutRef (..))
+import Plutus.ChainIndex.Core.Tx (ChainIndexTx (..), citxInputs, txOutsWithRef)
 import Plutus.ChainIndex.Core.Types (Point (..), Tip (..), TxUtxoBalance (..), tubUnspentOutputs)
-import Plutus.ChainIndex.Tx (ChainIndexTx (..), citxInputs, txOutsWithRef)
 import Plutus.ChainIndex.UtxoState (RollbackFailed, RollbackResult, UtxoIndex,
                                     UtxoState (UtxoState, _usTip, _usTxUtxoData), rollbackWith, usTxUtxoData)
 

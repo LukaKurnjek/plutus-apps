@@ -3,7 +3,7 @@
 {-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RecordWildCards    #-}
-module Plutus.ChainIndex.ChainIndexError (ChainIndexError(..), InsertUtxoFailed(..), RollbackFailed(..)) where
+module Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError(..), InsertUtxoFailed(..), RollbackFailed(..)) where
 
 import Control.Monad.Freer.Extras.Beam (BeamError)
 import Data.Aeson (FromJSON, ToJSON)

@@ -93,6 +93,7 @@ module Plutus.Contract.Effects( -- TODO: Move to Requests.Internal
 import Cardano.Node.Emulator.Params (Params)
 import Cardano.Node.Emulator.TimeSlot (SlotConversionError)
 import Control.Lens (Iso', Prism', iso, makePrisms, prism')
+import Control.Monad.Freer.Extras.Pagination (Page (pageItems), PageQuery)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as JSON
 import Data.List.NonEmpty (NonEmpty)
@@ -105,11 +106,10 @@ import Ledger.Slot (Slot, SlotRange)
 import Ledger.Time (POSIXTime, POSIXTimeRange)
 import Ledger.Tx (CardanoTx, DecoratedTxOut, Versioned, getCardanoTxId)
 import Ledger.Tx.Constraints.OffChain (UnbalancedTx)
-import Plutus.ChainIndex (Page (pageItems), PageQuery)
 import Plutus.ChainIndex.Core.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
                                    TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
+import Plutus.ChainIndex.Core.Tx (ChainIndexTx (_citxTxId))
 import Plutus.ChainIndex.Core.Types (Tip, TxOutStatus, TxStatus)
-import Plutus.ChainIndex.Tx (ChainIndexTx (_citxTxId))
 import Plutus.Contract.CardanoAPI (ToCardanoError)
 import Plutus.V1.Ledger.Api (Datum, DatumHash, MintingPolicy, MintingPolicyHash, Redeemer, RedeemerHash, StakeValidator,
                              StakeValidatorHash, TxId, TxOutRef, ValidatorHash)

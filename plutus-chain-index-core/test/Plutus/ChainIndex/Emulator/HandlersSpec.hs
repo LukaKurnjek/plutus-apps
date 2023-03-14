@@ -23,11 +23,11 @@ import Generators qualified as Gen
 import Plutus.ChainIndex (ChainIndexLog, ChainSyncBlock (Block), Page (pageItems), PageQuery (PageQuery),
                           Tip (Tip, TipAtGenesis), TxProcessOption (TxProcessOption, tpoStoreTx), appendBlocks,
                           citxTxId, tipSlot, txFromTxId, unspentTxOutFromRef, utxoSetMembership, utxoSetWithCurrency)
-import Plutus.ChainIndex.ChainIndexError (ChainIndexError)
 import Plutus.ChainIndex.Core.Api (UtxosResponse (UtxosResponse), isUtxo)
+import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError)
 import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect, ChainIndexQueryEffect, getTip)
+import Plutus.ChainIndex.Core.Tx (ChainIndexTxOut (citoValue), txOuts)
 import Plutus.ChainIndex.Emulator.Handlers (ChainIndexEmulatorState, handleControl, handleQuery)
-import Plutus.ChainIndex.Tx (ChainIndexTxOut (citoValue), txOuts)
 import Plutus.V1.Ledger.Value (AssetClass (AssetClass))
 
 import Hedgehog (Property, assert, forAll, property, (===))

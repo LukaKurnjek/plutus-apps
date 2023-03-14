@@ -11,7 +11,7 @@ import Ledger.Credential (Credential)
 import Plutus.ChainIndex (Page (pageItems), PageQuery (PageQuery), utxoSetAtAddress)
 import Plutus.ChainIndex.Core.Api (UtxosResponse (UtxosResponse))
 import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect)
-import Plutus.ChainIndex.Tx (ChainIndexTx, ChainIndexTxOut (ChainIndexTxOut, citoAddress), txOuts)
+import Plutus.ChainIndex.Core.Tx (ChainIndexTx, ChainIndexTxOut (ChainIndexTxOut, citoAddress), txOuts)
 
 -- | Get all address credentials from a block.
 addrCredsFromBlock :: [ChainIndexTx] -> [Credential]

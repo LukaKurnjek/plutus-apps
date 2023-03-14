@@ -12,10 +12,10 @@ import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Ledger (TxIn (txInRef), TxOutRef (..))
+import Plutus.ChainIndex.Core.Tx (ChainIndexTx (..), citxInputs, citxTxId, txOutsWithRef)
 import Plutus.ChainIndex.Core.Types (BlockNumber, Point (..), Tip (..), TxIdState, TxOutBalance (..), TxOutState (..),
                                      TxOutStatus, TxStatusFailure (TxOutBalanceStateInvalid), tobSpentOutputs,
                                      tobUnspentOutputs)
-import Plutus.ChainIndex.Tx (ChainIndexTx (..), citxInputs, citxTxId, txOutsWithRef)
 import Plutus.ChainIndex.TxIdState (transactionStatus)
 import Plutus.ChainIndex.UtxoState (RollbackFailed, RollbackResult, UtxoIndex,
                                     UtxoState (UtxoState, _usTip, _usTxUtxoData), rollbackWith, usTxUtxoData)

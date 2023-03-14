@@ -62,7 +62,7 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Ledger.Value.CardanoAPI (Value, lovelaceValueOf)
-import Plutus.ChainIndex (ChainIndexQueryEffect)
+import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect)
 import Plutus.Contract.Effects (PABReq, PABResp)
 import Plutus.Contract.Effects qualified as E
 import Plutus.Contract.Trace.RequestHandler (RequestHandler, RequestHandlerLogMsg, generalise)

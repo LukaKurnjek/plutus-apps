@@ -114,6 +114,7 @@ module Plutus.Contract.Request(
 import Cardano.Node.Emulator.Params (Params)
 import Control.Lens (Prism', _2, _Just, only, preview, review, to, view)
 import Control.Monad.Freer.Error qualified as E
+import Control.Monad.Freer.Extras.Pagination (Page (nextPageQuery, pageItems), PageQuery)
 import Control.Monad.Trans.State.Strict (StateT (..), evalStateT)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as JSON
@@ -161,9 +162,9 @@ import Cardano.Api qualified as C
 import Data.Foldable (fold)
 import Data.List.NonEmpty qualified as NonEmpty
 import Ledger.Value.CardanoAPI (valueGeq, valueLeq)
-import Plutus.ChainIndex (ChainIndexTx, Page (nextPageQuery, pageItems), PageQuery, txOutRefs)
 import Plutus.ChainIndex.Core.Api (IsUtxoResponse, QueryResponse, TxosResponse, UtxosResponse, collectQueryResponse,
                                    paget)
+import Plutus.ChainIndex.Core.Tx (ChainIndexTx, txOutRefs)
 import Plutus.ChainIndex.Core.Types (RollbackState (Unknown), Tip, TxOutStatus, TxStatus)
 import Plutus.Contract.Error (AsContractError (_ChainIndexContractError, _ConstraintResolutionContractError, _EndpointDecodeContractError, _OtherContractError, _ResumableContractError, _TxToCardanoConvertContractError, _WalletContractError))
 import Plutus.Contract.Resumable (prompt)

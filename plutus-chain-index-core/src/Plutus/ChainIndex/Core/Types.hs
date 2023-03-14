@@ -536,7 +536,7 @@ data Diagnostics =
 data TxStatusFailure
       -- | We couldn't return the status because the 'TxIdState' was in a ...
       -- state ... that we didn't know how to decode in
-      -- 'Plutus.ChainIndex.TxIdState.transactionStatus'.
+      -- 'Plutus.ChainIndex.Core.TxIdState.transactionStatus'.
       = TxIdStateInvalid BlockNumber TxId TxIdState
       -- | We couldn't return the status because the 'TxOutBalance' does not
       -- contain the target tx output.

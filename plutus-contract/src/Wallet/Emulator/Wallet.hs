@@ -32,6 +32,7 @@ import Control.Monad (foldM, (<=<))
 import Control.Monad.Freer (Eff, Member, Members, interpret, type (~>))
 import Control.Monad.Freer.Error (Error, runError, throwError)
 import Control.Monad.Freer.Extras.Log (LogMsg, logInfo, logWarn)
+import Control.Monad.Freer.Extras.Pagination (PageQuery, nextPageQuery, pageItems)
 import Control.Monad.Freer.State (State, get, gets, put)
 import Control.Monad.Freer.TH (makeEffect)
 import Crypto.Hash qualified as Crypto
@@ -63,10 +64,9 @@ import Ledger.Tx.CardanoAPI (fromCardanoValue, getRequiredSigners)
 import Ledger.Tx.CardanoAPI qualified as CardanoAPI
 import Ledger.Tx.Constraints.OffChain (UnbalancedTx)
 import Ledger.Tx.Constraints.OffChain qualified as U
-import Plutus.ChainIndex (PageQuery)
-import Plutus.ChainIndex qualified as ChainIndex
 import Plutus.ChainIndex.Core.Api (UtxosResponse (page))
-import Plutus.ChainIndex.Emulator (ChainIndexEmulatorState, ChainIndexQueryEffect)
+import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect, unspentTxOutFromRef, utxoSetAtAddress)
+import Plutus.ChainIndex.Emulator (ChainIndexEmulatorState)
 import Plutus.Contract.Checkpoint (CheckpointLogMsg)
 import Plutus.V1.Ledger.Api (ValidatorHash, Value)
 import Prettyprinter (Pretty (pretty))
@@ -324,11 +324,10 @@ handleBalance utx = do
     pure $ Tx.CardanoEmulatorEraTx cTx
     where
         handleError utx' (Left (Left (ph, ve))) = do
-            tx' <- either (throwError . WAPI.ToCardanoError)
-                           pure
-                 $ fmap (Tx.CardanoEmulatorEraTx . C.makeSignedTransaction [])
-                          . CardanoAPI.makeTransactionBody Nothing mempty
-                 $ U.unBalancedCardanoBuildTx utx'
+            tx' <- either
+                       (throwError . WAPI.ToCardanoError)
+                       (pure . Tx.CardanoEmulatorEraTx . C.makeSignedTransaction [])
+                       (CardanoAPI.makeTransactionBody Nothing mempty U.unBalancedCardanoBuildTx utx')
             logWarn $ ValidationFailed ph (Ledger.getCardanoTxId tx') tx' ve mempty []
             throwError $ WAPI.ValidationError ve
         handleError _ (Left (Right ce)) = throwError $ WAPI.ToCardanoError ce
@@ -372,12 +371,12 @@ ownOutputs WalletState{_mockWallet} = do
     allUtxoSet :: Maybe (PageQuery TxOutRef) -> Eff effs [TxOutRef]
     allUtxoSet Nothing = pure []
     allUtxoSet (Just pq) = do
-      refPage <- page <$> ChainIndex.utxoSetAtAddress pq (cardanoAddressCredential addr)
-      nextItems <- allUtxoSet (ChainIndex.nextPageQuery refPage)
-      pure $ ChainIndex.pageItems refPage ++ nextItems
+      refPage <- page <$> utxoSetAtAddress pq (cardanoAddressCredential addr)
+      nextItems <- allUtxoSet (nextPageQuery refPage)
+      pure $ pageItems refPage ++ nextItems
 
     txOutRefTxOutFromRef :: TxOutRef -> Eff effs (Maybe (TxOutRef, DecoratedTxOut))
-    txOutRefTxOutFromRef ref = fmap (ref,) <$> ChainIndex.unspentTxOutFromRef ref
+    txOutRefTxOutFromRef ref = fmap (ref,) <$> unspentTxOutFromRef ref
 
 -- | The default signing process is 'signWallet'
 defaultSigningProcess :: MockWallet -> SigningProcess
