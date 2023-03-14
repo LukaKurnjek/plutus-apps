@@ -9,7 +9,7 @@
 module defines an in-memory implementation of the disk state which can be
 used in the emulator.
 -}
-module Plutus.ChainIndex.Emulator.DiskState(
+module Plutus.Contract.ChainIndex.Emulator.DiskState(
     DiskState
     , dataMap
     , scriptMap
@@ -37,9 +37,9 @@ import GHC.Generics (Generic)
 import Ledger (Datum, DatumHash, Redeemer, RedeemerHash, Script, ScriptHash, TxId, TxOutRef, cardanoAddressCredential)
 import Ledger.Credential (Credential)
 import Ledger.Tx (Versioned)
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx, ChainIndexTxOut (..), citxData, citxScripts, citxTxId, txOutsWithRef,
-                                  txRedeemersWithHash)
-import Plutus.ChainIndex.Core.Types (Diagnostics (..))
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx, ChainIndexTxOut (..), citxData, citxScripts, citxTxId,
+                                      txOutsWithRef, txRedeemersWithHash)
+import Plutus.Contract.ChainIndex.Types (Diagnostics (..))
 
 -- | Set of transaction output references for each address.
 newtype CredentialMap = CredentialMap { _unCredentialMap :: Map Credential (Set TxOutRef) }

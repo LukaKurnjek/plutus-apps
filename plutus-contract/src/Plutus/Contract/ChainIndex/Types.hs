@@ -14,7 +14,7 @@
 
 {-| Misc. types used in this package
 -}
-module Plutus.ChainIndex.Core.Types(
+module Plutus.Contract.ChainIndex.Types(
     ChainIndexTx(..)
     , ChainIndexTxOutputs(..)
     , ChainIndexTxOut(..)
@@ -536,7 +536,7 @@ data Diagnostics =
 data TxStatusFailure
       -- | We couldn't return the status because the 'TxIdState' was in a ...
       -- state ... that we didn't know how to decode in
-      -- 'Plutus.ChainIndex.Core.TxIdState.transactionStatus'.
+      -- 'Plutus.Contract.ChainIndex.TxIdState.transactionStatus'.
       = TxIdStateInvalid BlockNumber TxId TxIdState
       -- | We couldn't return the status because the 'TxOutBalance' does not
       -- contain the target tx output.

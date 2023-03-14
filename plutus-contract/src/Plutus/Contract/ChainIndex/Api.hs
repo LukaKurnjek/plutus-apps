@@ -8,7 +8,7 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Plutus.ChainIndex.Core.Api
+module Plutus.Contract.ChainIndex.Api
   ( API
   , FromHashAPI
   , FullAPI
@@ -33,7 +33,7 @@ import Data.Proxy (Proxy (..))
 import GHC.Generics (Generic)
 import Ledger.Credential (Credential)
 import Ledger.Tx (DatumFromQuery, DecoratedTxOut, TxId, TxOutRef, Versioned)
-import Plutus.ChainIndex.Core.Types (ChainIndexTx, Diagnostics, Tip)
+import Plutus.Contract.ChainIndex.Types (ChainIndexTx, Diagnostics, Tip)
 import Plutus.V1.Ledger.Api (Datum, DatumHash, MintingPolicy (MintingPolicy), MintingPolicyHash (MintingPolicyHash),
                              PubKeyHash, Redeemer, RedeemerHash (RedeemerHash), StakeValidator (StakeValidator),
                              StakeValidatorHash (StakeValidatorHash), StakingCredential, Validator,

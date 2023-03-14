@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell  #-}
 {-| Freer effects for querying and updating the chain index state.
 -}
-module Plutus.ChainIndex.Core.Effects(
+module Plutus.Contract.ChainIndex.Effects(
     -- * Query effect
     ChainIndexQueryEffect(..)
     , datumFromHash
@@ -35,8 +35,8 @@ import Control.Monad.Freer.Extras.Pagination (PageQuery)
 import Control.Monad.Freer.TH (makeEffect)
 import Ledger.Credential (Credential)
 import Ledger.Tx (DecoratedTxOut, TxId, TxOutRef, Versioned)
-import Plutus.ChainIndex.Core.Api (IsUtxoResponse, QueryResponse, TxosResponse, UtxosResponse)
-import Plutus.ChainIndex.Core.Types (ChainIndexTx, ChainSyncBlock, Diagnostics, Point, Tip)
+import Plutus.Contract.ChainIndex.Api (IsUtxoResponse, QueryResponse, TxosResponse, UtxosResponse)
+import Plutus.Contract.ChainIndex.Types (ChainIndexTx, ChainSyncBlock, Diagnostics, Point, Tip)
 import Plutus.V1.Ledger.Api (Datum, DatumHash, MintingPolicy, MintingPolicyHash, Redeemer, RedeemerHash, StakeValidator,
                              StakeValidatorHash, Validator, ValidatorHash)
 import Plutus.V1.Ledger.Value (AssetClass)

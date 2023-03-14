@@ -106,11 +106,11 @@ import Ledger.Slot (Slot, SlotRange)
 import Ledger.Time (POSIXTime, POSIXTimeRange)
 import Ledger.Tx (CardanoTx, DecoratedTxOut, Versioned, getCardanoTxId)
 import Ledger.Tx.Constraints.OffChain (UnbalancedTx)
-import Plutus.ChainIndex.Core.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
-                                   TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx (_citxTxId))
-import Plutus.ChainIndex.Core.Types (Tip, TxOutStatus, TxStatus)
 import Plutus.Contract.CardanoAPI (ToCardanoError)
+import Plutus.Contract.ChainIndex.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
+                                       TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx (_citxTxId))
+import Plutus.Contract.ChainIndex.Types (Tip, TxOutStatus, TxStatus)
 import Plutus.V1.Ledger.Api (Datum, DatumHash, MintingPolicy, MintingPolicyHash, Redeemer, RedeemerHash, StakeValidator,
                              StakeValidatorHash, TxId, TxOutRef, ValidatorHash)
 import Plutus.V1.Ledger.Value (AssetClass)
@@ -261,7 +261,7 @@ chainIndexMatches q r = case (q, r) of
 
 -- | Represents all possible chain index queries. Each constructor contains the
 -- input(s) needed for the query. These possible queries correspond to the
--- constructors of the data type 'Plutus.ChainIndex.Core.Effects.ChainIndexQueryEffect'.
+-- constructors of the data type 'Plutus.Contract.ChainIndex.Effects.ChainIndexQueryEffect'.
 data ChainIndexQuery =
     DatumFromHash DatumHash
   | ValidatorFromHash ValidatorHash
@@ -303,7 +303,7 @@ instance Pretty ChainIndexQuery where
 
 -- | Represents all possible responses to chain index queries. Each constructor
 -- contain the output resulting for the chain index query. These possible
--- responses come from the data type 'Plutus.ChainIndex.Core.Effects.ChainIndexQueryEffect'.
+-- responses come from the data type 'Plutus.Contract.ChainIndex.Effects.ChainIndexQueryEffect'.
 data ChainIndexResponse =
     DatumHashResponse (Maybe Datum)
   | ValidatorHashResponse (Maybe (Versioned Validator))

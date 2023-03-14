@@ -50,19 +50,19 @@ import Ledger (Datum, DatumHash (..), TxId, TxOutRef (..), cardanoAddressCredent
 import Ledger qualified as L
 import Ledger.Tx.CardanoAPI (fromCardanoValue)
 import Plutus.ChainIndex.Compatibility (toCardanoPoint)
-import Plutus.ChainIndex.Core.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
-                                   TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
-import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError (..))
-import Plutus.ChainIndex.Core.ChainIndexLog (ChainIndexLog (..))
-import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect (..), ChainIndexQueryEffect (..))
-import Plutus.ChainIndex.Core.Tx
-import Plutus.ChainIndex.Core.Tx qualified as ChainIndex
-import Plutus.ChainIndex.Core.Types (ChainSyncBlock (..), Depth (..), Diagnostics (..), Point (..), Tip (..),
-                                     TxProcessOption (..), TxUtxoBalance (..), fromReferenceScript, tipAsPoint)
 import Plutus.ChainIndex.DbSchema
-import Plutus.ChainIndex.TxUtxoBalance qualified as TxUtxoBalance
-import Plutus.ChainIndex.UtxoState (InsertUtxoSuccess (..), RollbackResult (..), UtxoIndex)
-import Plutus.ChainIndex.UtxoState qualified as UtxoState
+import Plutus.Contract.ChainIndex.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
+                                       TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
+import Plutus.Contract.ChainIndex.ChainIndexError (ChainIndexError (..))
+import Plutus.Contract.ChainIndex.ChainIndexLog (ChainIndexLog (..))
+import Plutus.Contract.ChainIndex.Effects (ChainIndexControlEffect (..), ChainIndexQueryEffect (..))
+import Plutus.Contract.ChainIndex.Tx
+import Plutus.Contract.ChainIndex.Tx qualified as ChainIndex
+import Plutus.Contract.ChainIndex.TxUtxoBalance qualified as TxUtxoBalance
+import Plutus.Contract.ChainIndex.Types (ChainSyncBlock (..), Depth (..), Diagnostics (..), Point (..), Tip (..),
+                                         TxProcessOption (..), TxUtxoBalance (..), fromReferenceScript, tipAsPoint)
+import Plutus.Contract.ChainIndex.UtxoState (InsertUtxoSuccess (..), RollbackResult (..), UtxoIndex)
+import Plutus.Contract.ChainIndex.UtxoState qualified as UtxoState
 import Plutus.Script.Utils.Ada qualified as Ada
 import Plutus.Script.Utils.Scripts (datumHash)
 import Plutus.Script.Utils.Value (AssetClass (AssetClass), flattenValue)

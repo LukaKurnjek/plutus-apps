@@ -3,13 +3,13 @@
 {-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RecordWildCards    #-}
-module Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError(..), InsertUtxoFailed(..), RollbackFailed(..)) where
+module Plutus.Contract.ChainIndex.ChainIndexError (ChainIndexError(..), InsertUtxoFailed(..), RollbackFailed(..)) where
 
 import Control.Monad.Freer.Extras.Beam (BeamError)
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 import Ledger.Tx.CardanoAPI.Internal (ToCardanoError)
-import Plutus.ChainIndex.Core.Types (Point (..), Tip (..))
+import Plutus.Contract.ChainIndex.Types (Point (..), Tip (..))
 import Prettyprinter (Pretty (..), colon, (<+>))
 
 data ChainIndexError =

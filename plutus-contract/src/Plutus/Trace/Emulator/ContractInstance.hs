@@ -55,12 +55,12 @@ import Data.Text qualified as T
 import Ledger.Address (CardanoAddress)
 import Ledger.Blockchain (OnChainTx (Invalid, Valid))
 import Ledger.Tx (TxIn (txInRef), TxOutRef, getCardanoTxId)
-import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect)
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx (_citxTxId), ChainIndexTxOut (ChainIndexTxOut, citoAddress),
-                                  fromOnChainTx, txOutRefs, txOuts, validityFromChainIndex)
-import Plutus.ChainIndex.Core.Types (RollbackState (..), TxOutState (Spent, Unspent), TxValidity (TxInvalid, TxValid),
-                                     citxInputs)
 import Plutus.Contract (Contract)
+import Plutus.Contract.ChainIndex.Effects (ChainIndexQueryEffect)
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx (_citxTxId), ChainIndexTxOut (ChainIndexTxOut, citoAddress),
+                                      fromOnChainTx, txOutRefs, txOuts, validityFromChainIndex)
+import Plutus.Contract.ChainIndex.Types (RollbackState (..), TxOutState (Spent, Unspent),
+                                         TxValidity (TxInvalid, TxValid), citxInputs)
 import Plutus.Contract.Effects (PABReq, PABResp (AwaitTxStatusChangeResp), matches)
 import Plutus.Contract.Effects qualified as E
 import Plutus.Contract.Resumable (Request (Request, rqID, rqRequest),

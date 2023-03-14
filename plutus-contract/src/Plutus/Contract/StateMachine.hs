@@ -72,11 +72,11 @@ import Ledger.Tx.Constraints (ScriptLookups, TxConstraints (txOwnInputs, txOwnOu
                               mustSpendPubKeyOutput, plutusV2MintingPolicy)
 import Ledger.Tx.Constraints.OffChain qualified as Constraints
 import Ledger.Typed.Scripts qualified as Scripts
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx (_citxInputs, _citxRedeemers))
 import Plutus.Contract (AsContractError (_ContractError), Contract, ContractError, Promise, adjustUnbalancedTx,
                         awaitPromise, isSlot, isTime, logWarn, mapError, never, ownFirstPaymentPubKeyHash, ownUtxos,
                         promiseBind, select, submitTxConfirmed, utxoIsProduced, utxoIsSpent, utxosAt,
                         utxosTxOutTxFromTx)
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx (_citxInputs, _citxRedeemers))
 import Plutus.Contract.Request (getUnspentOutput, mkTxConstraints)
 import Plutus.Contract.StateMachine.MintingPolarity (MintingPolarity (Burn, Mint))
 import Plutus.Contract.StateMachine.OnChain (State (State, stateData, stateValue),

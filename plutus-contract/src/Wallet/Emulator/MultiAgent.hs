@@ -45,7 +45,7 @@ import Ledger.Tx qualified as Tx
 import Ledger.Tx.CardanoAPI qualified as C hiding (makeTransactionBody)
 import Ledger.Tx.CardanoAPI qualified as CardanoAPI
 import Ledger.Value.CardanoAPI qualified as CardanoAPI
-import Plutus.ChainIndex.Emulator qualified as ChainIndex
+import Plutus.Contract.ChainIndex.Emulator qualified as ChainIndex
 import Plutus.Contract.Error (AssertionError (GenericAssertion))
 import Plutus.Trace.Emulator.Types (ContractInstanceLog, EmulatedWalletEffects, EmulatedWalletEffects', UserThreadMsg)
 import Plutus.Trace.Scheduler qualified as Scheduler

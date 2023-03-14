@@ -3,7 +3,7 @@
 {-# LANGUAGE MonoLocalBinds   #-}
 {-# LANGUAGE RankNTypes       #-}
 {-# LANGUAGE TypeOperators    #-}
-module Plutus.ChainIndex.Core.Server(
+module Plutus.Contract.ChainIndex.Server(
     serveChainIndex) where
 
 import Control.Monad ((>=>))
@@ -11,12 +11,12 @@ import Control.Monad.Freer (Eff, Member, type (~>))
 import Control.Monad.Freer.Error (Error, throwError)
 import Data.Default (Default (def))
 import Data.Maybe (fromMaybe)
-import Plutus.ChainIndex.Core.Api (API, FromHashAPI, QueryAtAddressRequest (QueryAtAddressRequest),
-                                   TxoAtAddressRequest (TxoAtAddressRequest),
-                                   UtxoAtAddressRequest (UtxoAtAddressRequest),
-                                   UtxoWithCurrencyRequest (UtxoWithCurrencyRequest))
-import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect, ChainIndexQueryEffect)
-import Plutus.ChainIndex.Core.Effects qualified as E
+import Plutus.Contract.ChainIndex.Api (API, FromHashAPI, QueryAtAddressRequest (QueryAtAddressRequest),
+                                       TxoAtAddressRequest (TxoAtAddressRequest),
+                                       UtxoAtAddressRequest (UtxoAtAddressRequest),
+                                       UtxoWithCurrencyRequest (UtxoWithCurrencyRequest))
+import Plutus.Contract.ChainIndex.Effects (ChainIndexControlEffect, ChainIndexQueryEffect)
+import Plutus.Contract.ChainIndex.Effects qualified as E
 import Servant.API ((:<|>) (..))
 import Servant.API.ContentTypes (NoContent (..))
 import Servant.Server (ServerError, ServerT, err404)

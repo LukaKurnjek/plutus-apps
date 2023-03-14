@@ -70,8 +70,8 @@ import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Ledger.Blockchain (Block)
 import Ledger.Slot (Slot (..))
-import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect)
 import Plutus.Contract (Contract (..), WalletAPIError)
+import Plutus.Contract.ChainIndex.Effects (ChainIndexQueryEffect)
 import Plutus.Contract.Effects (PABReq, PABResp)
 import Plutus.Contract.Resumable (Request (..), Requests (..), Response (..))
 import Plutus.Contract.Resumable qualified as State

@@ -64,9 +64,9 @@ import Ledger.Tx.CardanoAPI (fromCardanoValue, getRequiredSigners)
 import Ledger.Tx.CardanoAPI qualified as CardanoAPI
 import Ledger.Tx.Constraints.OffChain (UnbalancedTx)
 import Ledger.Tx.Constraints.OffChain qualified as U
-import Plutus.ChainIndex.Core.Api (UtxosResponse (page))
-import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect, unspentTxOutFromRef, utxoSetAtAddress)
-import Plutus.ChainIndex.Emulator (ChainIndexEmulatorState)
+import Plutus.Contract.ChainIndex.Api (UtxosResponse (page))
+import Plutus.Contract.ChainIndex.Effects (ChainIndexQueryEffect, unspentTxOutFromRef, utxoSetAtAddress)
+import Plutus.Contract.ChainIndex.Emulator (ChainIndexEmulatorState)
 import Plutus.Contract.Checkpoint (CheckpointLogMsg)
 import Plutus.V1.Ledger.Api (ValidatorHash, Value)
 import Prettyprinter (Pretty (pretty))
@@ -324,10 +324,11 @@ handleBalance utx = do
     pure $ Tx.CardanoEmulatorEraTx cTx
     where
         handleError utx' (Left (Left (ph, ve))) = do
-            tx' <- either
-                       (throwError . WAPI.ToCardanoError)
-                       (pure . Tx.CardanoEmulatorEraTx . C.makeSignedTransaction [])
-                       (CardanoAPI.makeTransactionBody Nothing mempty U.unBalancedCardanoBuildTx utx')
+            tx' <- either (throwError . WAPI.ToCardanoError)
+                           pure
+                 $ fmap (Tx.CardanoEmulatorEraTx . C.makeSignedTransaction [])
+                          . CardanoAPI.makeTransactionBody Nothing mempty
+                 $ U.unBalancedCardanoBuildTx utx'
             logWarn $ ValidationFailed ph (Ledger.getCardanoTxId tx') tx' ve mempty []
             throwError $ WAPI.ValidationError ve
         handleError _ (Left (Right ce)) = throwError $ WAPI.ToCardanoError ce

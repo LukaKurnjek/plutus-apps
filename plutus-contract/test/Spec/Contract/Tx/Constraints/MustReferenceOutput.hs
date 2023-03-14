@@ -33,9 +33,9 @@ import Ledger.Tx.Constraints.OnChain.V1 qualified as Cons.V1
 import Ledger.Tx.Constraints.OnChain.V2 qualified as Cons.V2
 import Ledger.Typed.Scripts qualified as Scripts
 import Ledger.Value.CardanoAPI qualified as Value
-import Plutus.ChainIndex.Emulator (diskState)
-import Plutus.ChainIndex.Emulator.DiskState (addressMap, unCredentialMap)
 import Plutus.Contract as Con
+import Plutus.Contract.ChainIndex.Emulator (diskState)
+import Plutus.Contract.ChainIndex.Emulator.DiskState (addressMap, unCredentialMap)
 import Plutus.Contract.Test (assertEvaluationError, assertFailedTransaction, assertValidatedTransactionCount,
                              checkPredicateOptions, defaultCheckOptions, w1)
 import Plutus.Script.Utils.Ada qualified as Ada

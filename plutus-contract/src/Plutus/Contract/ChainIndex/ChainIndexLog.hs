@@ -2,17 +2,17 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
-module Plutus.ChainIndex.Core.ChainIndexLog (ChainIndexLog(..), InsertUtxoPosition(..)) where
+module Plutus.Contract.ChainIndex.ChainIndexLog (ChainIndexLog(..), InsertUtxoPosition(..)) where
 
 import Cardano.BM.Data.Tracer (ToObject (..))
 import Control.Monad.Freer.Extras.Beam (BeamLog)
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 import Ledger (TxId, TxOutRef)
-import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError)
-import Plutus.ChainIndex.Core.Tx (ChainIndexTxOut)
-import Plutus.ChainIndex.Core.Types (Tip (..))
 import Plutus.Contract.CardanoAPI (FromCardanoError (..))
+import Plutus.Contract.ChainIndex.ChainIndexError (ChainIndexError)
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTxOut)
+import Plutus.Contract.ChainIndex.Types (Tip (..))
 import Prettyprinter (Pretty (..), colon, viaShow, (<+>))
 
 data ChainIndexLog =

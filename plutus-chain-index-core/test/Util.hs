@@ -9,9 +9,9 @@ import Control.Monad.Freer (Eff, Member)
 import Ledger (TxOutRef, cardanoAddressCredential)
 import Ledger.Credential (Credential)
 import Plutus.ChainIndex (Page (pageItems), PageQuery (PageQuery), utxoSetAtAddress)
-import Plutus.ChainIndex.Core.Api (UtxosResponse (UtxosResponse))
-import Plutus.ChainIndex.Core.Effects (ChainIndexQueryEffect)
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx, ChainIndexTxOut (ChainIndexTxOut, citoAddress), txOuts)
+import Plutus.Contract.ChainIndex.Api (UtxosResponse (UtxosResponse))
+import Plutus.Contract.ChainIndex.Effects (ChainIndexQueryEffect)
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx, ChainIndexTxOut (ChainIndexTxOut, citoAddress), txOuts)
 
 -- | Get all address credentials from a block.
 addrCredsFromBlock :: [ChainIndexTx] -> [Credential]

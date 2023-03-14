@@ -12,15 +12,15 @@ module Plutus.ChainIndex(
     ) where
 
 import Control.Monad.Freer.Extras.Pagination as Export
-import Plutus.ChainIndex.Core.ChainIndexError as Export
-import Plutus.ChainIndex.Core.ChainIndexLog as Export
-import Plutus.ChainIndex.Core.Effects as Export
-import Plutus.ChainIndex.Core.Tx as Export
-import Plutus.ChainIndex.Core.Types as Export
 import Plutus.ChainIndex.Handlers as Export
 import Plutus.ChainIndex.TxIdState as Export hiding (fromBlock, fromTx, rollback)
 import Plutus.ChainIndex.TxOutBalance as Export hiding (fromBlock, fromTx, isSpentOutput, isUnspentOutput, rollback)
-import Plutus.ChainIndex.UtxoState as Export
+import Plutus.Contract.ChainIndex.ChainIndexError as Export
+import Plutus.Contract.ChainIndex.ChainIndexLog as Export
+import Plutus.Contract.ChainIndex.Effects as Export
+import Plutus.Contract.ChainIndex.Tx as Export
+import Plutus.Contract.ChainIndex.Types as Export
+import Plutus.Contract.ChainIndex.UtxoState as Export
 
 import Cardano.BM.Trace (Trace)
 import Control.Concurrent.STM (TVar, atomically, readTVarIO, writeTVar)

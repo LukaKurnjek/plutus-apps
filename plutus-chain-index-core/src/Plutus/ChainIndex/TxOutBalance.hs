@@ -12,13 +12,13 @@ import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Ledger (TxIn (txInRef), TxOutRef (..))
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx (..), citxInputs, citxTxId, txOutsWithRef)
-import Plutus.ChainIndex.Core.Types (BlockNumber, Point (..), Tip (..), TxIdState, TxOutBalance (..), TxOutState (..),
-                                     TxOutStatus, TxStatusFailure (TxOutBalanceStateInvalid), tobSpentOutputs,
-                                     tobUnspentOutputs)
 import Plutus.ChainIndex.TxIdState (transactionStatus)
-import Plutus.ChainIndex.UtxoState (RollbackFailed, RollbackResult, UtxoIndex,
-                                    UtxoState (UtxoState, _usTip, _usTxUtxoData), rollbackWith, usTxUtxoData)
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx (..), citxInputs, citxTxId, txOutsWithRef)
+import Plutus.Contract.ChainIndex.Types (BlockNumber, Point (..), Tip (..), TxIdState, TxOutBalance (..),
+                                         TxOutState (..), TxOutStatus, TxStatusFailure (TxOutBalanceStateInvalid),
+                                         tobSpentOutputs, tobUnspentOutputs)
+import Plutus.Contract.ChainIndex.UtxoState (RollbackFailed, RollbackResult, UtxoIndex,
+                                             UtxoState (UtxoState, _usTip, _usTxUtxoData), rollbackWith, usTxUtxoData)
 
 -- | Given the current block, compute the status for the given transaction
 -- output by getting the state of the transaction that produced it and checking

@@ -28,8 +28,8 @@ import Ledger.Tx.Constraints.TxConstraints qualified as Constraints (mustBeSigne
                                                                      mustSpendPubKeyOutput, spendUtxosFromTheScript)
 import Ledger.Typed.Scripts qualified as Scripts
 import Ledger.Value.CardanoAPI qualified as Value
-import Plutus.ChainIndex.Emulator (addressMap, diskState, unCredentialMap)
 import Plutus.Contract as Con
+import Plutus.Contract.ChainIndex.Emulator (addressMap, diskState, unCredentialMap)
 import Plutus.Contract.Test (assertContractError, assertEvaluationError, assertValidatedTransactionCount,
                              checkPredicate, mockWalletPaymentPubKeyHash, w1, w2, walletFundsChange, (.&&.))
 import Plutus.Script.Utils.Ada qualified as Ada

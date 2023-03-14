@@ -5,9 +5,9 @@ import Cardano.Api (AsType (..), Block (..), BlockHeader (..), BlockInMode (..),
                     serialiseToRawBytes)
 import Data.Proxy (Proxy (..))
 import Ledger (BlockId (..), Slot (..))
-import Plutus.ChainIndex.Core.Tx (ChainIndexTx (..))
-import Plutus.ChainIndex.Core.Types (BlockNumber (..), Point (..), Tip (..))
 import Plutus.Contract.CardanoAPI qualified as C
+import Plutus.Contract.ChainIndex.Tx (ChainIndexTx (..))
+import Plutus.Contract.ChainIndex.Types (BlockNumber (..), Point (..), Tip (..))
 
 fromCardanoTip :: ChainTip -> Tip
 fromCardanoTip (ChainTip slotNo hash blockNo) =

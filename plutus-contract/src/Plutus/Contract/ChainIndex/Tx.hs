@@ -11,7 +11,7 @@
 {-# LANGUAGE TupleSections       #-}
 {-| The chain index' version of a transaction
 -}
-module Plutus.ChainIndex.Core.Tx(
+module Plutus.Contract.ChainIndex.Tx(
     ChainIndexTx(..)
     , ChainIndexTxOutputs(..)
     , ChainIndexTxOut(..)
@@ -46,8 +46,8 @@ import Data.Tuple (swap)
 import Ledger (CardanoTx (CardanoTx), OnChainTx (..), TxOutRef (..))
 import Ledger.Address (CardanoAddress)
 import Ledger.Scripts (Redeemer, RedeemerHash)
-import Plutus.ChainIndex.Core.Types
 import Plutus.Contract.CardanoAPI (fromCardanoTx, setValidity)
+import Plutus.Contract.ChainIndex.Types
 import Plutus.Script.Utils.Scripts (redeemerHash)
 import Plutus.V2.Ledger.Api (Address (..), OutputDatum (..), Value (..))
 

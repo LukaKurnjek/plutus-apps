@@ -15,7 +15,7 @@
 {-| Handlers for the 'ChainIndexQueryEffect' and the 'ChainIndexControlEffect'
     in the emulator
 -}
-module Plutus.ChainIndex.Emulator.Handlers(
+module Plutus.Contract.ChainIndex.Emulator.Handlers(
     handleQuery
     , handleControl
     , ChainIndexEmulatorState(..)
@@ -41,21 +41,21 @@ import Ledger.Tx (TxId, TxOutRef (..), Versioned)
 import Ledger.Tx qualified as L (DatumFromQuery (..), DecoratedTxOut, datumInDatumFromQuery, decoratedTxOutDatum,
                                  mkPubkeyDecoratedTxOut, mkScriptDecoratedTxOut)
 import Ledger.Tx.CardanoAPI (toCardanoAssetId)
-import Plutus.ChainIndex.Core.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
-                                   TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
-import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError (..))
-import Plutus.ChainIndex.Core.ChainIndexLog (ChainIndexLog (..))
-import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect (..), ChainIndexQueryEffect (..))
-import Plutus.ChainIndex.Core.Tx (txOuts)
-import Plutus.ChainIndex.Core.Types (ChainIndexTx, ChainIndexTxOut (..), ChainSyncBlock (..), Diagnostics (..),
-                                     Point (PointAtGenesis), Tip (..), TxProcessOption (..), TxUtxoBalance (..),
-                                     fromReferenceScript)
-import Plutus.ChainIndex.Emulator.DiskState (DiskState, addressMap, assetClassMap, dataMap, redeemerMap, scriptMap,
-                                             txMap)
-import Plutus.ChainIndex.Emulator.DiskState qualified as DiskState
-import Plutus.ChainIndex.TxUtxoBalance qualified as TxUtxoBalance
-import Plutus.ChainIndex.UtxoState (InsertUtxoSuccess (..), RollbackResult (..), UtxoIndex, tip, utxoState)
-import Plutus.ChainIndex.UtxoState qualified as UtxoState
+import Plutus.Contract.ChainIndex.Api (IsUtxoResponse (IsUtxoResponse), QueryResponse (QueryResponse),
+                                       TxosResponse (TxosResponse), UtxosResponse (UtxosResponse))
+import Plutus.Contract.ChainIndex.ChainIndexError (ChainIndexError (..))
+import Plutus.Contract.ChainIndex.ChainIndexLog (ChainIndexLog (..))
+import Plutus.Contract.ChainIndex.Effects (ChainIndexControlEffect (..), ChainIndexQueryEffect (..))
+import Plutus.Contract.ChainIndex.Emulator.DiskState (DiskState, addressMap, assetClassMap, dataMap, redeemerMap,
+                                                      scriptMap, txMap)
+import Plutus.Contract.ChainIndex.Emulator.DiskState qualified as DiskState
+import Plutus.Contract.ChainIndex.Tx (txOuts)
+import Plutus.Contract.ChainIndex.TxUtxoBalance qualified as TxUtxoBalance
+import Plutus.Contract.ChainIndex.Types (ChainIndexTx, ChainIndexTxOut (..), ChainSyncBlock (..), Diagnostics (..),
+                                         Point (PointAtGenesis), Tip (..), TxProcessOption (..), TxUtxoBalance (..),
+                                         fromReferenceScript)
+import Plutus.Contract.ChainIndex.UtxoState (InsertUtxoSuccess (..), RollbackResult (..), UtxoIndex, tip, utxoState)
+import Plutus.Contract.ChainIndex.UtxoState qualified as UtxoState
 import Plutus.Script.Utils.Scripts (datumHash)
 import Plutus.V1.Ledger.Api (Credential (PubKeyCredential, ScriptCredential), Datum, DatumHash,
                              MintingPolicy (MintingPolicy), MintingPolicyHash (MintingPolicyHash), Script,

@@ -4,7 +4,7 @@
 {-# LANGUAGE RankNTypes       #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators    #-}
-module Plutus.ChainIndex.Emulator.Server(
+module Plutus.Contract.ChainIndex.Emulator.Server(
     serveChainIndexQueryServer,
     serveChainIndex) where
 
@@ -22,12 +22,12 @@ import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Network.Wai.Handler.Warp qualified as Warp
-import Plutus.ChainIndex.Core.Api (API, FullAPI, swagger)
-import Plutus.ChainIndex.Core.ChainIndexError (ChainIndexError)
-import Plutus.ChainIndex.Core.ChainIndexLog (ChainIndexLog)
-import Plutus.ChainIndex.Core.Effects (ChainIndexControlEffect, ChainIndexQueryEffect)
-import Plutus.ChainIndex.Core.Server (serveChainIndex)
-import Plutus.ChainIndex.Emulator.Handlers (ChainIndexEmulatorState (..), handleControl, handleQuery)
+import Plutus.Contract.ChainIndex.Api (API, FullAPI, swagger)
+import Plutus.Contract.ChainIndex.ChainIndexError (ChainIndexError)
+import Plutus.Contract.ChainIndex.ChainIndexLog (ChainIndexLog)
+import Plutus.Contract.ChainIndex.Effects (ChainIndexControlEffect, ChainIndexQueryEffect)
+import Plutus.Contract.ChainIndex.Emulator.Handlers (ChainIndexEmulatorState (..), handleControl, handleQuery)
+import Plutus.Contract.ChainIndex.Server (serveChainIndex)
 import Servant.API ((:<|>) (..))
 import Servant.Server (Handler, ServerError, err500, errBody, hoistServer, serve)
 
