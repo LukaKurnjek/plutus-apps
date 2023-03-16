@@ -177,13 +177,13 @@ newtype InDatabase desc = InDatabase { _con :: SQL.Connection }
 
 makeLenses 'InDatabase
 
--- | An indexer that has at most '_slotsInMemory' events in memory and put the older one in database.
+-- | An indexer that has at most '_blocksInMemory' events in memory and put the older one in database.
 -- The query interface for this indexer will alwys go through the database first and then aggregate
 -- results presents in memory.
 data MixedIndexer mem store desc = MixedIndexer
-    { _slotsInMemory :: !Word -- ^ How many slots do we keep in memory
-    , _inMemory      :: !(mem desc) -- ^ The fast storage for latest elements
-    , _inDatabase    :: !(store desc) -- ^ In database storage, should be similar to the original indexer
+    { _blocksInMemory :: !Word -- ^ How many blocks do we keep in memory
+    , _inMemory       :: !(mem desc) -- ^ The fast storage for latest elements
+    , _inDatabase     :: !(store desc) -- ^ In database storage, should be similar to the original indexer
     }
 
 makeLenses 'MixedIndexer
@@ -216,7 +216,7 @@ instance
     ) => IsIndex (MixedIndexer InMemory store) desc m where
 
     index timedEvent indexer = do
-        let maxMemSize = fromIntegral $ indexer ^. slotsInMemory
+        let maxMemSize = fromIntegral $ indexer ^. blocksInMemory
             currentSize = length (indexer ^. inMemory . events)
         if currentSize >= maxMemSize
            then do
