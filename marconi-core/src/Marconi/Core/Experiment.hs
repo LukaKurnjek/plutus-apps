@@ -19,7 +19,7 @@
    - The original implementation considered the 'StorablePoint' as a data that can be derived from 'Event',
      leading to the design of synthetic events to deal with indexer that didn't index enough data.
 
-   - In marconi, the original design use an exotic callback design to handle `MVar` modification,
+   - In marconi, the original design use a callback design to handle `MVar` modification,
      we wanted to address this point as well.
 
 What's include in this module:
@@ -29,11 +29,13 @@ What's include in this module:
    - Tracing, as a modifier to an existing indexer (it allows us to opt in for traces if we want, indexer by indexer)
    - A coordinator for indexers, that can be exposed as an itdexer itself
 
+  Contrary to the original Marconi design, indexers don't have a mandatory memory representation.
 
   In this module @desc@ is the descriptor of an indexer,
   it's usually an uninhabited type used to define the corresponding type families.
   The idea behind @desc@ is that you may want to provide different indexer for the same descriptor,
   or to provide an indexer implementation that works for different descriptors.
+
 
 -}
 module Marconi.Core.Experiment where
@@ -54,6 +56,9 @@ import Data.Functor (($>))
 import Data.List (intersect)
 import Database.SQLite.Simple qualified as SQL
 
+
+-- * Indexer Types
+
 -- | A point in time, the concrete type of a point is now derived from an indexer descriptor,
 -- instead of an event.
 -- The reason is that you may not want to always carry around a point when you manipulate an event.
@@ -65,6 +70,14 @@ type family Point desc
 -- wrap it in a `Maybe` type,
 -- if several events need to be associated to the same point in time, wrap a `List`, etc.
 type family Event desc
+
+-- | A result is a data family from the corresponding query type.
+-- A query is tied to an indexer by a typeclass, this design choice has two main reasons:
+--     * we want to be able to define different query for the same indexer
+--       (eg. we may want to define two distinct query types for an utxo indexer:
+--       one to ge all the utxo for a given address,
+--       another one for to get all the utxos emitted at a given slot).
+--     * we want to assign a query type to different indexers.
 data family Result query
 
 
@@ -126,6 +139,10 @@ class Resumable indexer desc m where
     -- | Last sync of the indexer
     syncPoints :: Ord (Point desc) => indexer desc -> m [Point desc]
 
+-- * Base runIndexers
+
+
+-- ** Full in-memory indexer, backed by a list
 
 -- | Full in memory indexer, it uses list because I was too lazy to port the 'Vector' implementation.
 -- If we wanna move to these indexer, we should switch the implementation to the 'Vector' one.
@@ -138,9 +155,12 @@ makeLenses 'InMemory
 
 instance (Monad m) => IsIndex InMemory desc m where
 
-    index timedEvent ix = pure $ ix
-        & events %~ (timedEvent:)
-        & latest ?~ (timedEvent ^. point)
+    index timedEvent ix = let
+        appendEvent = events %~ (timedEvent:)
+        updateLatest = latest ?~ (timedEvent ^. point)
+        in pure $ ix
+            & appendEvent
+            & updateLatest
 
     lastSyncPoint = pure . view latest
 
@@ -148,15 +168,15 @@ instance Applicative m => Rewindable InMemory desc m where
 
     rewind p ix = pure . pure
         $ if isIndexBeforeRollback ix
-             then ix
+             then ix -- if we're already before the rollback, we don't have to do anything
              else ix
-                & cleanRecentEvents
+                & cleanEventsAfterRollback
                 & adjustLatestPoint
       where
         adjustLatestPoint :: InMemory desc -> InMemory desc
         adjustLatestPoint = latest ?~ p
-        cleanRecentEvents :: InMemory desc -> InMemory desc
-        cleanRecentEvents = events %~ dropWhile isEventAfterRollback
+        cleanEventsAfterRollback :: InMemory desc -> InMemory desc
+        cleanEventsAfterRollback = events %~ dropWhile isEventAfterRollback
         isIndexBeforeRollback :: InMemory desc -> Bool
         isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
         isEventAfterRollback :: TimedEvent desc -> Bool
@@ -173,13 +193,21 @@ instance Applicative m => Resumable InMemory desc m where
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
 
+-- ** Database indexer
+
 newtype InDatabase desc = InDatabase { _con :: SQL.Connection }
 
 makeLenses 'InDatabase
 
+
+-- ** Mixed indexer
+
 -- | An indexer that has at most '_blocksInMemory' events in memory and put the older one in database.
 -- The query interface for this indexer will alwys go through the database first and then aggregate
 -- results presents in memory.
+--
+-- @mem@ the indexer that handle old events, when we need to remove stuff from memory
+-- @store@ the indexer that handle the most recent events
 data MixedIndexer mem store desc = MixedIndexer
     { _blocksInMemory :: !Word -- ^ How many blocks do we keep in memory
     , _inMemory       :: !(mem desc) -- ^ The fast storage for latest elements
@@ -253,6 +281,12 @@ instance
         res <- query valid q $ indexer ^. inDatabase
         resumeResult res $ indexer ^. inMemory
 
+
+-- * Indexer transformer: Add effects
+
+
+-- ** Tracer Add tracing to an existing indexer
+
 -- | Remarkable events of an indexer
 data IndexerNotification desc
    = Rollback !(Point desc)
@@ -284,15 +318,19 @@ instance
     ) => Rewindable (WithTracer m index) desc m where
 
     rewind p indexer = do
-      res <- runMaybeT $ tracedIndexer (MaybeT . rewind p) indexer
+      res <- runMaybeT $ rewindWrappedIndexer p
       maybe (pure Nothing) traceSuccessfulRewind res
      where
+         rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
          traceSuccessfulRewind indexer' = do
               traceWith (indexer' ^. tracer) (Rollback p)
               pure $ Just indexer'
 
--- | A runner encapsulate an indexer in an opaque type, that allows to plug different indexers to the same stream of
--- input data
+-- ** Runners
+
+-- | A runner encapsulate an indexer in an opaque type.
+-- It allows us to manipulate seamlessly a list of indexers that has different types, as long as the implement the
+-- required interfaces.
 data RunnerM m input point =
     forall indexer desc.
     ( IsIndex indexer desc m
@@ -360,6 +398,10 @@ startRunner chan tokens (Runner ix isRollback extractEvent) = do
               (STM.atomically . STM.putTMVar ix)
               mindexer
 
+-- | A coordinator synchronises the event processing of a list of indexers.
+-- A coordinator is itself is an indexer.
+-- It means that we can create a tree of indexer, with coordinators that partially process the data at each branch,
+-- and with concrete indexers at the leaves.
 data Coordinator input point = Coordinator
   { _lastSync  :: !(Maybe point) -- ^ the last common sync point for the runners
   , _runners   :: ![Runner input point] -- ^ the list of runners managed by this coordinator
@@ -397,7 +439,7 @@ start runners' = do
     where
         startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
 
--- A coordinator step (send an input, wait for an ack of every runner that it's processed)
+-- A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
 step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
 step getPoint coordinator input = do
     dispatchNewInput
