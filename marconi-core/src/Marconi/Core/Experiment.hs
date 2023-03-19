@@ -69,6 +69,7 @@ import Database.SQLite.Simple qualified as SQL
 -- instead of an event.
 -- The reason is that you may not want to always carry around a point when you manipulate an event.
 type family Point desc
+
 -- |
 -- A an element that you want to capture from a given input.
 -- A given point in time will always correspond to an event.
@@ -76,7 +77,6 @@ type family Point desc
 -- wrap it in a `Maybe` type,
 -- if several events need to be associated to the same point in time, wrap a `List`, etc.
 type family Event desc
-
 
 
 -- | A query is a data family that take a query descriptor.
@@ -122,6 +122,12 @@ class Monad m => IsIndex indexer desc m where
     lastSyncPoint :: indexer desc -> m (Maybe (Point desc))
     {-# MINIMAL index, lastSyncPoint #-}
 
+-- | Check if the given point is ahead of the last syncPoint of an indexer,
+isNotAheadOfSync ::
+    (Ord (Point desc), IsIndex indexer desc m) =>
+    Point desc -> indexer desc -> m Bool
+isNotAheadOfSync p indexer = maybe False (p <=) <$> lastSyncPoint indexer
+
 
 -- | Error that can occurs when you query an indexer
 data QueryError desc
@@ -146,12 +152,6 @@ class MonadError (QueryError query) m => Queryable indexer desc query m where
     -- "With the knowledge you have at that point in time,
     --  what is your answer to this query?"
     query :: Ord (Point desc) => Point desc -> Query query -> indexer desc -> m (Result query)
-
--- | Check if the given point is ahead of the last syncPoint of an indexer, throw an error if it's the case
-isNotAheadOfSync ::
-    (Ord (Point desc), MonadError (QueryError query) m, IsIndex indexer desc m) =>
-    Point desc -> indexer desc -> m Bool
-isNotAheadOfSync p indexer = maybe False (p <=) <$> lastSyncPoint indexer
 
 -- | We can reset an indexer to a previous `Point`
 --     * @indexer@ is the indexer implementation type
