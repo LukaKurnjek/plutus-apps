@@ -180,7 +180,7 @@ class Aggregable indexer desc m where
 -- | Points from which we can restract safely
 class Resumable indexer desc m where
 
-    -- | Last sync of the indexer
+    -- | List the points that we still have in the indexers, allowing us to restart from them
     syncPoints :: Ord (Point desc) => indexer desc -> m [Point desc]
 
 
@@ -559,7 +559,7 @@ data instance Query (EventAt desc) = EventAtQuery
 newtype instance Result (EventAt desc) =
     EventAt {getEvent :: Event desc}
 
-instance (MonadError (QueryError (EventAt desc)) m) =>
+instance MonadError (QueryError (EventAt desc)) m =>
     Queryable InMemory desc (EventAt desc) m where
 
     query p EventAtQuery ix = do
@@ -567,16 +567,18 @@ instance (MonadError (QueryError (EventAt desc)) m) =>
         check <- isNotAheadOfSync p ix
         if check
         then maybe
-            (throwError NotStoredAnymore) -- If we can't find the point and if it's in the past, we probably moved it
+             -- If we can't find the point and if it's in the past, we probably moved it
+            (throwError NotStoredAnymore)
             (pure . EventAt)
             $ ix ^? events . folded . filtered (`isAtPoint` p) . event
         else throwError $ AheadOfLastSync Nothing
 
-instance Queryable indexer desc (EventAt desc) m =>
-    ResumableResult indexer desc (EventAt desc) m where
+instance MonadError (QueryError (EventAt desc)) m =>
+    ResumableResult InMemory desc (EventAt desc) m where
 
     resumeResult p q indexer result = result `catchError` \case
-        _inDatabaseError -> query p q indexer -- If we didn't find a result in db, try in memory
+         -- If we didn't find a result in the 1st indexer, try in memory
+        _inDatabaseError -> query p q indexer
 
 -- ** Filtering available events
 
@@ -601,10 +603,10 @@ instance (MonadError (QueryError (EventsMatching desc)) m, Applicative m) =>
             then pure result
             else throwError . AheadOfLastSync . Just $ result
 
-instance Queryable indexer desc (EventsMatching desc) m =>
-    ResumableResult indexer desc (EventsMatching desc) m where
+instance MonadError (QueryError (EventsMatching desc)) m =>
+    ResumableResult InMemory desc (EventsMatching desc) m where
 
     resumeResult p q indexer result = result `catchError` \case
-         -- If we find an incomplete result in db, add the in memory result to it
+         -- If we find an incomplete result in the first indexer, complete it
         AheadOfLastSync (Just r) -> (<> r) <$> query p q indexer
         inDatabaseError          -> throwError inDatabaseError -- For any other error, forward it
