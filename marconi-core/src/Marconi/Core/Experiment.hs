@@ -54,6 +54,7 @@ import Control.Tracer (Tracer, traceWith)
 import Control.Concurrent qualified as STM
 import Control.Concurrent.STM (TChan, TMVar)
 import Control.Concurrent.STM qualified as STM
+import Control.Monad.RWS (MonadWriter (pass))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
@@ -133,7 +134,10 @@ isNotAheadOfSync p indexer = maybe False (p <=) <$> lastSyncPoint indexer
 data QueryError desc
    = AheadOfLastSync !(Maybe (Result desc))
      -- ^ The required point is ahead of the current index.
-     -- The error may still provide its latest result if it make sense.
+     -- The error may still provide its latest result if it make sense for the given query.
+     --
+     -- It can be useful for indexer that contains a partial knowledge and that want to pass
+     -- this knowledge to another indexer to complete the query.
    | NotStoredAnymore
      -- ^ The requested point is too far in the past and has been aggregated
    | IndexerError !Text
