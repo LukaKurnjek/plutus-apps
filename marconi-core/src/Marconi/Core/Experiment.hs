@@ -32,13 +32,6 @@ What's included in this module:
 
   Contrary to the original Marconi design, indexers don't have a unique (in-memory/sqlite) implementation.
 
-  In this module 'desc' is the descriptor of an indexer.
-  It's usually an uninhabited type used to define the corresponding type families.
-  The idea behind 'desc' is that you may want to provide different indexer for the same descriptor,
-  or to provide an indexer implementation that works for different descriptors.
-  Decoupling the descriptor enables such a decoupling.
-
-  Similarly the 'query' type parameter often holds as a descriptor for a 'Query'/'Result' type families.
 -}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -54,50 +47,36 @@ import Control.Tracer (Tracer, traceWith)
 import Control.Concurrent qualified as STM
 import Control.Concurrent.STM (TChan, TMVar)
 import Control.Concurrent.STM qualified as STM
-import Control.Monad.RWS (MonadWriter (pass))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.List (intersect)
 import Data.Text (Text)
-import Database.SQLite.Simple qualified as SQL
 
 
 -- * Indexer Types
 
--- | A point in time, the concrete type of a point is now derived from an indexer descriptor,
+-- | A point in time, the concrete type of a point is now derived from an indexer event,
 -- instead of an event.
 -- The reason is that you may not want to always carry around a point when you manipulate an event.
-type family Point desc
+type family Point event
 
--- |
--- A an element that you want to capture from a given input.
--- A given point in time will always correspond to an event.
--- As a consequence if a point in time can be associated with no event,
--- wrap it in a `Maybe` type,
--- if several events need to be associated to the same point in time, wrap a `List`, etc.
-type family Event desc
-
-
--- | A query is a data family that take a query descriptor.
+-- | A result is a data family from the corresponding query descriptor.
 -- A query is tied to an indexer by a typeclass, this design choice has two main reasons:
 --     * we want to be able to define different query for the same indexer
 --       (eg. we may want to define two distinct query types for an utxo indexer:
 --       one to ge all the utxo for a given address,
 --       another one for to get all the utxos emitted at a given slot).
 --     * we want to assign a query type to different indexers.
-data family Query desc
-
--- | A result is a data family from the corresponding query descriptor.
-data family Result desc
+data family Result query
 
 
 -- | Attach an event to a point in time
-data TimedEvent desc =
+data TimedEvent event =
      TimedEvent
-         { _point :: !(Point desc)
-         , _event :: !(Event desc)
+         { _point :: !(Point event)
+         , _event :: !event
          }
 
 makeLenses 'TimedEvent
@@ -106,33 +85,33 @@ makeLenses 'TimedEvent
 -- The indexer should provide two main functionality: indexing events, and providing its last synchronisation point.
 --
 -- @indexer@ the indexer implementation type
--- @desc@ the descriptor of the indexer, fixing the @Event@ and @Point@ types
+-- @event@ the indexed events
 -- @m@ the monad in which our indexer operates
-class Monad m => IsIndex indexer desc m where
+class Monad m => IsIndex indexer event m where
 
     -- | index an event at a given point in time
-    index :: Eq (Point desc) =>
-        TimedEvent desc -> indexer desc -> m (indexer desc)
+    index :: Eq (Point event) =>
+        TimedEvent event -> indexer event -> m (indexer event)
 
     -- | Index a bunch of points, associated to their event, in an indexer
-    indexAll :: (Eq (Point desc), Foldable f) =>
-        f (TimedEvent desc) -> indexer desc -> m (indexer desc)
+    indexAll :: (Eq (Point event), Foldable f) =>
+        f (TimedEvent event) -> indexer event -> m (indexer event)
     indexAll = flip (foldrM index)
 
     -- | Last sync of the indexer
-    lastSyncPoint :: indexer desc -> m (Maybe (Point desc))
+    lastSyncPoint :: indexer event -> m (Maybe (Point event))
     {-# MINIMAL index, lastSyncPoint #-}
 
 -- | Check if the given point is ahead of the last syncPoint of an indexer,
 isNotAheadOfSync ::
-    (Ord (Point desc), IsIndex indexer desc m) =>
-    Point desc -> indexer desc -> m Bool
+    (Ord (Point event), IsIndex indexer event m) =>
+    Point event -> indexer event -> m Bool
 isNotAheadOfSync p indexer = maybe False (p <=) <$> lastSyncPoint indexer
 
 
 -- | Error that can occurs when you query an indexer
-data QueryError desc
-   = AheadOfLastSync !(Maybe (Result desc))
+data QueryError query
+   = AheadOfLastSync !(Maybe (Result query))
      -- ^ The required point is ahead of the current index.
      -- The error may still provide its latest result if it make sense for the given query.
      --
@@ -146,24 +125,24 @@ data QueryError desc
 -- | The indexer can answer a Query to produce the corresponding result of that query.
 --
 --     * @indexer@ is the indexer implementation type
---     * @desc@ the descriptor of the indexer, fixing the @Point@ types
+--     * @event@ the indexer events
 --     * @query@ the type of query we want to answer
 --     * @m@ the monad in which our indexer operates
-class MonadError (QueryError query) m => Queryable indexer desc query m where
+class MonadError (QueryError query) m => Queryable indexer event query m where
 
     -- | Query an indexer at a given point in time
     -- It can be read as:
     -- "With the knowledge you have at that point in time,
     --  what is your answer to this query?"
-    query :: Ord (Point desc) => Point desc -> Query query -> indexer desc -> m (Result query)
+    query :: Ord (Point event) => Point event -> query -> indexer event -> m (Result query)
 
 -- | We can reset an indexer to a previous `Point`
 --     * @indexer@ is the indexer implementation type
---     * @desc@ the descriptor of the indexer, fixing the @Point@ types
+--     * @event@ the indexer events
 --     * @m@ the monad in which our indexer operates
-class Rewindable indexer desc m where
+class Rewindable indexer event m where
 
-    rewind :: Ord (Point desc) => Point desc -> indexer desc -> m (Maybe (indexer desc))
+    rewind :: Ord (Point event) => Point event -> indexer event -> m (Maybe (indexer event))
 
 -- | The indexer can aggregate old data.
 -- The main purpose is to speed up query processing.
@@ -173,19 +152,19 @@ class Rewindable indexer desc m where
 --     * @indexer@ is the indexer implementation type
 --     * @desc@ the descriptor of the indexer, fixing the @Point@ types
 --     * @m@ the monad in which our indexer operates
-class Aggregable indexer desc m where
+class Aggregable indexer event m where
 
     -- Aggregate events of the indexer up to a given point in time
-    aggregate :: Point desc -> indexer desc -> m (indexer desc)
+    aggregate :: Point event -> indexer event -> m (indexer event)
 
     -- The latest aggregation point (aggregation up to the result are aggregated)
-    aggregationPoint :: indexer desc -> m (Point desc)
+    aggregationPoint :: indexer event -> m (Point event)
 
 -- | Points from which we can restract safely
-class Resumable indexer desc m where
+class Resumable indexer event m where
 
     -- | List the points that we still have in the indexers, allowing us to restart from them
-    syncPoints :: Ord (Point desc) => indexer desc -> m [Point desc]
+    syncPoints :: Ord (Point event) => indexer event -> m [Point event]
 
 
 -- * Base runIndexers
@@ -194,14 +173,14 @@ class Resumable indexer desc m where
 
 -- | A Full in memory indexer, it uses list because I was too lazy to port the 'Vector' implementation.
 -- If we wanna move to these indexer, we should switch the implementation to the 'Vector' one.
-data InMemory desc = InMemory
-  { _events :: ![TimedEvent desc] -- ^ Stored 'Event', associated with their history 'Point'
-  , _latest :: !(Maybe (Point desc)) -- ^ Ease access to the latest datapoint
+data InMemory event = InMemory
+  { _events :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
+  , _latest :: !(Maybe (Point event)) -- ^ Ease access to the latest datapoint
   }
 
 makeLenses 'InMemory
 
-instance (Monad m) => IsIndex InMemory desc m where
+instance (Monad m) => IsIndex InMemory event m where
 
     index timedEvent ix = let
         appendEvent = events %~ (timedEvent:)
@@ -212,7 +191,7 @@ instance (Monad m) => IsIndex InMemory desc m where
 
     lastSyncPoint = pure . view latest
 
-instance Applicative m => Rewindable InMemory desc m where
+instance Applicative m => Rewindable InMemory event m where
 
     rewind p ix = pure . pure
         $ if isIndexBeforeRollback ix
@@ -221,16 +200,16 @@ instance Applicative m => Rewindable InMemory desc m where
                 & cleanEventsAfterRollback
                 & adjustLatestPoint
       where
-        adjustLatestPoint :: InMemory desc -> InMemory desc
+        adjustLatestPoint :: InMemory event -> InMemory event
         adjustLatestPoint = latest ?~ p
-        cleanEventsAfterRollback :: InMemory desc -> InMemory desc
+        cleanEventsAfterRollback :: InMemory event -> InMemory event
         cleanEventsAfterRollback = events %~ dropWhile isEventAfterRollback
-        isIndexBeforeRollback :: InMemory desc -> Bool
+        isIndexBeforeRollback :: InMemory event -> Bool
         isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
-        isEventAfterRollback :: TimedEvent desc -> Bool
+        isEventAfterRollback :: TimedEvent event -> Bool
         isEventAfterRollback = (p <) . view point
 
-instance Applicative m => Resumable InMemory desc m where
+instance Applicative m => Resumable InMemory event m where
 
     syncPoints ix = let
       indexPoints = ix ^.. events . folded . point
@@ -241,13 +220,6 @@ instance Applicative m => Resumable InMemory desc m where
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
 
--- ** Database indexer
-
-newtype InDatabase desc = InDatabase { _con :: SQL.Connection }
-
-makeLenses 'InDatabase
-
-
 -- ** Mixed indexer
 
 -- | An indexer that has at most '_blocksInMemory' events in memory and put the older one in database.
@@ -256,10 +228,10 @@ makeLenses 'InDatabase
 --
 -- @mem@ the indexer that handle old events, when we need to remove stuff from memory
 -- @store@ the indexer that handle the most recent events
-data MixedIndexer mem store desc = MixedIndexer
+data MixedIndexer mem store event = MixedIndexer
     { _blocksInMemory :: !Word -- ^ How many blocks do we keep in memory
-    , _inMemory       :: !(mem desc) -- ^ The fast storage for latest elements
-    , _inDatabase     :: !(store desc) -- ^ In database storage, should be similar to the original indexer
+    , _inMemory       :: !(mem event) -- ^ The fast storage for latest elements
+    , _inDatabase     :: !(store event) -- ^ In database storage, should be similar to the original indexer
     }
 
 makeLenses 'MixedIndexer
@@ -267,21 +239,21 @@ makeLenses 'MixedIndexer
 -- | The indexer can take a result and complete it with its events
 -- It's used by the in-memory part of a 'MixedIndexer' to specify
 -- how we can complete the database result with the memory content.
-class ResumableResult indexer desc query m where
+class ResumableResult indexer event query m where
 
     resumeResult ::
-       Ord (Point desc) =>
-       Point desc -> Query query -> indexer desc -> m (Result query) -> m (Result query)
+       Ord (Point event) =>
+       Point event -> query -> indexer event -> m (Result query) -> m (Result query)
 
 
 
 -- | Flush all the in-memory events to the database, keeping track of the latest index
 flush ::
     ( Monad m
-    , IsIndex store desc m
-    , Eq (Point desc)
-    ) => MixedIndexer InMemory store desc ->
-    m (MixedIndexer InMemory store desc)
+    , IsIndex store event m
+    , Eq (Point event)
+    ) => MixedIndexer InMemory store event ->
+    m (MixedIndexer InMemory store event)
 flush indexer = let
     flushMemory = inMemory . events <<.~ []
     (eventsToFlush, indexer') = flushMemory indexer
@@ -289,9 +261,9 @@ flush indexer = let
 
 instance
     ( Monad m
-    , IsIndex InMemory desc m
-    , IsIndex store desc m
-    ) => IsIndex (MixedIndexer InMemory store) desc m where
+    , IsIndex InMemory event m
+    , IsIndex store event m
+    ) => IsIndex (MixedIndexer InMemory store) event m where
 
     index timedEvent indexer = do
         let maxMemSize = fromIntegral $ indexer ^. blocksInMemory
@@ -306,8 +278,8 @@ instance
 
 instance
     ( Monad m
-    , Rewindable store desc m
-    ) => Rewindable (MixedIndexer InMemory store) desc m where
+    , Rewindable store event m
+    ) => Rewindable (MixedIndexer InMemory store) event m where
 
     rewind p indexer = do
         mindexer <-  runMaybeT $ inMemory rewindInStore indexer
@@ -317,14 +289,14 @@ instance
             else runMaybeT $ inDatabase rewindInStore ix
           Nothing -> pure Nothing
       where
-        rewindInStore :: Rewindable index desc m => index desc -> MaybeT m (index desc)
+        rewindInStore :: Rewindable index event m => index event -> MaybeT m (index event)
         rewindInStore = MaybeT . rewind p
 
 instance
-    ( ResumableResult InMemory desc query m
-    , Queryable store desc query m
+    ( ResumableResult InMemory event query m
+    , Queryable store event query m
     ) =>
-    Queryable (MixedIndexer InMemory store) desc query m where
+    Queryable (MixedIndexer InMemory store) event query m where
 
     query valid q indexer = resumeResult valid q (indexer ^. inMemory) (query valid q (indexer ^. inDatabase))
 
@@ -334,22 +306,22 @@ instance
 -- ** Tracer Add tracing to an existing indexer
 
 -- | Remarkable events of an indexer
-data IndexerNotification desc
-   = Rollback !(Point desc)
-   | Index !(TimedEvent desc)
+data IndexerNotification event
+   = Rollback !(Point event)
+   | Index !(TimedEvent event)
 
 -- | A tracer modifier that adds tracing to an existing indexer
-data WithTracer m indexer desc =
+data WithTracer m indexer event =
      WithTracer
-         { _tracedIndexer :: !(indexer desc)
-         , _tracer        :: !(Tracer m (IndexerNotification desc))
+         { _tracedIndexer :: !(indexer event)
+         , _tracer        :: !(Tracer m (IndexerNotification event))
          }
 
 makeLenses 'WithTracer
 
 instance
-    (Monad m, IsIndex index desc m) =>
-    IsIndex (WithTracer m index) desc m where
+    (Monad m, IsIndex index event m) =>
+    IsIndex (WithTracer m index) event m where
 
     index timedEvent indexer = do
         res <- tracedIndexer (index timedEvent) indexer
@@ -360,8 +332,8 @@ instance
 
 instance
     ( Monad m
-    , Rewindable index desc m
-    ) => Rewindable (WithTracer m index) desc m where
+    , Rewindable index event m
+    ) => Rewindable (WithTracer m index) event m where
 
     rewind p indexer = do
       res <- runMaybeT $ rewindWrappedIndexer p
@@ -379,30 +351,30 @@ instance
 -- It allows us to manipulate seamlessly a list of indexers that has different types
 -- as long as they implement the required interfaces.
 data RunnerM m input point =
-    forall indexer desc.
-    ( IsIndex indexer desc m
-    , Resumable indexer desc m
-    , Rewindable indexer desc m
-    , Point desc ~ point
+    forall indexer event.
+    ( IsIndex indexer event m
+    , Resumable indexer event m
+    , Rewindable indexer event m
+    , Point event ~ point
     ) =>
     Runner
-        { runnerState      :: !(TMVar (indexer desc))
-        , identifyRollback :: !(input -> m (Maybe (Point desc)))
-        , extractEvent     :: !(input -> m (Maybe (TimedEvent desc)))
+        { runnerState      :: !(TMVar (indexer event))
+        , identifyRollback :: !(input -> m (Maybe (Point event)))
+        , extractEvent     :: !(input -> m (Maybe (TimedEvent event)))
         }
 
 type Runner = RunnerM IO
 
 -- | create a runner for an indexer, retuning the runner and the 'MVar' it's using internally
 createRunner ::
-  ( IsIndex indexer desc IO
-  , Resumable indexer desc IO
-  , Rewindable indexer desc IO
-  , point ~ Point desc) =>
-  indexer desc ->
+  ( IsIndex indexer event IO
+  , Resumable indexer event IO
+  , Rewindable indexer event IO
+  , point ~ Point event) =>
+  indexer event ->
   (input -> IO (Maybe point)) ->
-  (input -> IO (Maybe (TimedEvent desc))) ->
-  IO (TMVar (indexer desc), Runner input point)
+  (input -> IO (Maybe (TimedEvent event))) ->
+  IO (TMVar (indexer event), Runner input point)
 createRunner ix rb f = do
   mvar <- STM.atomically $ STM.newTMVar ix
   pure (mvar, Runner mvar rb f)
@@ -501,15 +473,15 @@ step getPoint coordinator input = do
 
 
 -- A coordinator can be seen as an indexer
-newtype CoordinatorIndex desc =
+newtype CoordinatorIndex event =
      CoordinatorIndex
-          { _coordinator :: Coordinator (Event desc) (Point desc)
+          { _coordinator :: Coordinator event (Point event)
           }
 
 makeLenses 'CoordinatorIndex
 
 -- A coordinator can be consider as an indexer that forwards the input to its runner
-instance IsIndex CoordinatorIndex desc IO where
+instance IsIndex CoordinatorIndex event IO where
 
     index timedEvent = coordinator $
             \x -> step (const $ timedEvent ^. point) x $ timedEvent ^. event
@@ -517,13 +489,13 @@ instance IsIndex CoordinatorIndex desc IO where
     lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
 
 -- | To rewind a coordinator, we try and rewind all the runners.
-instance Rewindable CoordinatorIndex desc IO where
+instance Rewindable CoordinatorIndex event IO where
 
     rewind p = runMaybeT . coordinator rewindRunners
         where
             rewindRunners ::
-                Coordinator (Event desc) (Point desc) ->
-                MaybeT IO (Coordinator (Event desc) (Point desc))
+                Coordinator event (Point event) ->
+                MaybeT IO (Coordinator event (Point event))
             rewindRunners c = do
                 availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
                 -- we start by checking if the given point is a valid sync point
@@ -531,8 +503,8 @@ instance Rewindable CoordinatorIndex desc IO where
                 runners (traverse $ MaybeT . rewindRunner) c
 
             rewindRunner ::
-                Runner (Event desc) (Point desc) ->
-                IO (Maybe (Runner (Event desc) (Point desc)))
+                Runner event (Point event) ->
+                IO (Maybe (Runner event (Point event)))
             rewindRunner r@Runner{runnerState} = do
                 indexer <- STM.atomically $ STM.takeTMVar runnerState
                 res <- rewind p indexer
@@ -553,18 +525,16 @@ instance Rewindable CoordinatorIndex desc IO where
 -- ** Get Event at a given point in time
 
 -- | Get the event stored by the indexer at a given point in time
-data EventAt desc
-
-data instance Query (EventAt desc) = EventAtQuery
+data EventAtQuery event = EventAtQuery
 
 -- | The result of EventAtQuery is always an event.
 -- The error cases are handled by the query interface.
 -- in time
-newtype instance Result (EventAt desc) =
-    EventAt {getEvent :: Event desc}
+newtype instance Result (EventAtQuery event) =
+    EventAtResult {getEvent :: event}
 
-instance MonadError (QueryError (EventAt desc)) m =>
-    Queryable InMemory desc (EventAt desc) m where
+instance MonadError (QueryError (EventAtQuery event)) m =>
+    Queryable InMemory event (EventAtQuery event) m where
 
     query p EventAtQuery ix = do
         let isAtPoint e p' = e ^. point == p'
@@ -573,12 +543,12 @@ instance MonadError (QueryError (EventAt desc)) m =>
         then maybe
              -- If we can't find the point and if it's in the past, we probably moved it
             (throwError NotStoredAnymore)
-            (pure . EventAt)
+            (pure . EventAtResult)
             $ ix ^? events . folded . filtered (`isAtPoint` p) . event
         else throwError $ AheadOfLastSync Nothing
 
-instance MonadError (QueryError (EventAt desc)) m =>
-    ResumableResult InMemory desc (EventAt desc) m where
+instance MonadError (QueryError (EventAtQuery event)) m =>
+    ResumableResult InMemory event (EventAtQuery event) m where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we didn't find a result in the 1st indexer, try in memory
@@ -587,17 +557,15 @@ instance MonadError (QueryError (EventAt desc)) m =>
 -- ** Filtering available events
 
 -- | Query an indexer to find all events that match a given predicate
-data EventsMatching desc
-
-newtype instance Query (EventsMatching desc) = EventsMatchingQuery {predicate :: Event desc -> Bool}
+newtype EventsMatchingQuery event = EventsMatchingQuery {predicate :: event -> Bool}
 
 -- | The result of an @EventMatchingQuery@
-newtype instance Result (EventsMatching desc) = EventsMatching {filteredEvents :: [Event desc]}
+newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEvents :: [event]}
 
-deriving newtype instance Semigroup (Result (EventsMatching desc))
+deriving newtype instance Semigroup (Result (EventsMatchingQuery event))
 
-instance (MonadError (QueryError (EventsMatching desc)) m, Applicative m) =>
-    Queryable InMemory desc (EventsMatching desc) m where
+instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
+    Queryable InMemory event (EventsMatchingQuery event) m where
 
     query p q ix = do
         let isBefore e p' = e ^. point <= p'
@@ -607,8 +575,8 @@ instance (MonadError (QueryError (EventsMatching desc)) m, Applicative m) =>
             then pure result
             else throwError . AheadOfLastSync . Just $ result
 
-instance MonadError (QueryError (EventsMatching desc)) m =>
-    ResumableResult InMemory desc (EventsMatching desc) m where
+instance MonadError (QueryError (EventsMatchingQuery event)) m =>
+    ResumableResult InMemory event (EventsMatchingQuery event) m where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we find an incomplete result in the first indexer, complete it
