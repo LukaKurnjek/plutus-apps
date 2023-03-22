@@ -26,7 +26,7 @@ What's included in this module:
 
    - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
    - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
-   - Tracing, as a modifier to an existing indexer (it allows us to opt in for traces if we want, indexer by indexer)
+   - Tracing, as a modifier to an existing indexer (it allows us to opt-in for traces if we want, indexer by indexer)
    - A coordinator for indexers, that can be exposed as an itdexer itself
    - Some queries that can be applied to many indexers
 
@@ -379,7 +379,8 @@ createRunner ix rb f = do
   mvar <- STM.atomically $ STM.newTMVar ix
   pure (mvar, Runner mvar rb f)
 
--- | The runner starts waiting for new events and process them as they come
+-- | The runner notify its coordinator that it's ready
+-- and starts waiting for new events and process them as they come
 startRunner :: Ord point => TChan input -> QSemN -> Runner input point -> IO ()
 startRunner chan tokens (Runner ix isRollback extractEvent) = do
     chan' <- STM.atomically $ STM.dupTChan chan
