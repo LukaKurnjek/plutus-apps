@@ -407,20 +407,13 @@ initializeIndexers securityParam indexers = do
 mkIndexerStream
   :: Coordinator
   -> S.Stream (S.Of (ChainSyncEvent (BlockInMode CardanoMode))) IO r
-  -> IO ()
-mkIndexerStream coordinator = S.foldM_ step initial finish
+  -> IO r
+mkIndexerStream = S.mapM_ . step
   where
-    initial :: IO Coordinator
-    initial = pure coordinator
-
-    step :: Coordinator -> ChainSyncEvent (BlockInMode CardanoMode) -> IO Coordinator
-    step c@Coordinator{_barrier, _indexerCount, _channel} event = do
+    step :: Coordinator -> ChainSyncEvent (BlockInMode CardanoMode) -> IO ()
+    step Coordinator{_barrier, _indexerCount, _channel} event = do
       waitQSemN _barrier _indexerCount
       atomically $ writeTChan _channel event
-      pure c
-
-    finish :: Coordinator -> IO ()
-    finish _ = pure ()
 
 runIndexers
   :: FilePath

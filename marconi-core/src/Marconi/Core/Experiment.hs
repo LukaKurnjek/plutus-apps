@@ -4,10 +4,10 @@
  The point we wanted to address are the folowing:
 
    - 'Storable' implementation is designed in a way that strongly promote indexer that rely on a mix of database and
-     in-memory storage. While this implementation makes sense in most of the case we may want:
+     in-memory storage. While this implementation makes sense in most of the case we may occasionnaly want:
 
-        - full in-memory indexer
-        - indexer backed by a single file
+        - a full in-memory indexer
+        - indexer backed by a simple file
         - mock indexer, for testing purpose, with predefined behaviour
         - be able to easily move to another kind of storage
         - implement in-memory/database storage that rely on other query heuristic
@@ -26,60 +26,53 @@ module Marconi.Core.Experiment where
 
 import Control.Concurrent (QSemN)
 import Control.Concurrent qualified as Con
-import Control.Lens (makeLenses, view, (%~), (&), (.~), (<<.~), (^.))
+import Control.Lens (makeLenses, view, (%~), (&), (<<.~), (?~), (^.))
 import Control.Monad (forever)
+import Control.Tracer (Tracer, traceWith)
 
 import Control.Concurrent qualified as STM
 import Control.Concurrent.STM (TChan, TMVar)
 import Control.Concurrent.STM qualified as STM
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
+import Data.Functor (($>))
 import Data.List (intersect)
 import Database.SQLite.Simple qualified as SQL
 
-data family Event desc
-data family Query desc
-data family Result desc
+-- | A point in time
 type family Point desc
+-- |
+-- A an element that you want to capture from a given input. A given point in time will always correspond to an event.
+-- A consequence if a point in time can be associated with no event, wrap a `Maybe` type, if several events need to be
+-- associated to the same point in time, wrap a `List`.
+type family Event desc
+data family Result query
 
-data QueryValidity p = Latest | Exactly !p | AtLeast !p | LatestIn !p !p
-
-lowerBound :: QueryValidity p -> Maybe p
-lowerBound Latest         = Nothing
-lowerBound (Exactly x)    = pure x
-lowerBound (AtLeast x)    = pure x
-lowerBound (LatestIn x _) = pure x
-
-upperBound :: QueryValidity p -> Maybe p
-upperBound (LatestIn _ x) = pure x
-upperBound (Exactly x)    = pure x
-upperBound _              = Nothing
 
 class Monad m => IsIndex indexer desc m where
 
-    -- | Store a point in time, associated to an event in an indexer
     insert :: Eq (Point desc) =>
         Point desc -> Event desc -> indexer desc -> m (indexer desc)
 
+    -- | Store a bunch of points, associated to their event, in an indexer
     insertAll :: (Eq (Point desc), Foldable f) =>
         f (Point desc, Event desc) -> indexer desc -> m (indexer desc)
     insertAll = flip (foldrM (uncurry insert))
 
     -- | Last sync of the indexer
-    lastSyncPoint :: indexer desc -> m (Point desc)
-
+    lastSyncPoint :: indexer desc -> m (Maybe (Point desc))
 
 -- | The indexer can answer a Query to produce the corresponding result
-class Queryable indexer desc m where
+class Queryable indexer desc query m where
 
     -- | Query an indexer for the given validity interval
-    query :: QueryValidity (Point desc) -> Query desc -> indexer desc -> m (Result desc)
+    query :: Point desc -> query -> indexer desc -> m (Result query)
 
 
 -- | The indexer can take a result and complete it with its events
-class ResumableResult indexer desc m where
+class ResumableResult indexer desc result m where
 
-    resumeResult :: Result desc -> indexer desc -> m (Result desc)
+    resumeResult :: result -> indexer desc -> m result
 
 
 -- | The indexer can be reset to a previous `Point`
@@ -89,12 +82,14 @@ class Rewindable indexer desc m where
 
 -- | The indexer can aggregate old data.
 -- The main purpose is to speed up query processing.
--- If the indexer is 'Rewindable', 'Aggregable' can compromise 'rewind' behind the 'aggregation point',
+-- If the indexer is 'Rewindable', 'Aggregable' can't 'rewind' behind the 'aggregationPoint',
 -- the idea is to call 'aggregate' on points that can't be rollbacked anymore.
 class Aggregable indexer desc m where
 
+    -- Aggregate events of the indexer up to a given point in time
     aggregate :: Point desc -> indexer desc -> m (indexer desc)
 
+    -- The latest aggregation point (aggregation up to the result are aggregated)
     aggregationPoint :: indexer desc -> m (Point desc)
 
 -- | Points from which we can restract safely
@@ -108,7 +103,7 @@ class Resumable indexer desc m where
 -- If we wanna move to these indexer, we should switch the implementation to the 'Vector' one.
 data InMemory desc = InMemory
   { _events :: ![(Point desc, Event desc)] -- ^ Stored 'Event', associated with their history 'Point'
-  , _latest :: !(Point desc) -- ^ Ease access to the latest datapoint
+  , _latest :: !(Maybe (Point desc)) -- ^ Ease access to the latest datapoint
   }
 
 makeLenses 'InMemory
@@ -117,7 +112,7 @@ instance (Monad m) => IsIndex InMemory desc m where
 
     insert p e ix = pure $ ix
         & events %~ ((p, e):)
-        & latest .~ p
+        & latest ?~ p
 
     lastSyncPoint = pure . view latest
 
@@ -127,21 +122,27 @@ instance Applicative m => Rewindable InMemory desc m where
         $ if isIndexBeforeRollback ix
              then ix
              else ix
-                & events %~ dropWhile isEventAfterRollback
-                & latest .~ p
+                & cleanRecentEvents
+                & adjustLatestPoint
       where
+        adjustLatestPoint :: InMemory desc -> InMemory desc
+        adjustLatestPoint = latest ?~ p
+        cleanRecentEvents :: InMemory desc -> InMemory desc
+        cleanRecentEvents = events %~ dropWhile isEventAfterRollback
         isIndexBeforeRollback :: InMemory desc -> Bool
-        isIndexBeforeRollback x = p >= x ^. latest
+        isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
         isEventAfterRollback :: (Point desc, a) -> Bool
         isEventAfterRollback = (p <) . fst
 
 instance Applicative m => Resumable InMemory desc m where
 
     syncPoints ix = let
-      points = fst <$> (ix ^. events)
-      addLatestIfNeeded p []        = [p]
-      addLatestIfNeeded p ps@(p':_) = if p == p' then ps else p:ps
-      in pure $ addLatestIfNeeded (ix ^. latest) points
+      indexPoints = fst <$> (ix ^. events)
+      -- if the latest point of the index is not a stored event, we add it to the list of points
+      addLatestIfNeeded Nothing ps         = ps
+      addLatestIfNeeded (Just p) []        = [p]
+      addLatestIfNeeded (Just p) ps@(p':_) = if p == p' then ps else p:ps
+      in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
 
 newtype InDatabase desc = InDatabase { _con :: SQL.Connection }
@@ -168,7 +169,8 @@ flush ::
     ) => MixedIndexer InMemory store desc ->
     m (MixedIndexer InMemory store desc)
 flush indexer = let
-    (eventsToFlush, indexer') = indexer & inMemory . events <<.~ []
+    flushMemory = inMemory . events <<.~ []
+    (eventsToFlush, indexer') = flushMemory indexer
     in inDatabase (insertAll eventsToFlush) indexer'
 
 instance
@@ -198,7 +200,7 @@ instance
         case mindexer of
           Just ix -> if null $ ix ^. inMemory . events
             then runMaybeT $ inDatabase rewindInStore ix
-            else pure $ pure ix
+            else pure $ pure ix -- if there are still event in memory, no need to rewind the database
           Nothing -> pure Nothing
       where
         rewindInStore :: Rewindable index desc m =>
@@ -207,22 +209,29 @@ instance
 
 instance
     ( Monad m
-    , ResumableResult InMemory desc m
-    , Queryable store desc m
-    ) => Queryable (MixedIndexer InMemory store) desc m where
+    , ResumableResult InMemory desc (Result query) m
+    , Queryable store desc query m
+    ) => Queryable (MixedIndexer InMemory store) desc query m where
 
     query valid q indexer = do
         res <- query valid q $ indexer ^. inDatabase
         resumeResult res $ indexer ^. inMemory
 
+data IndexerNotification desc
+   = Rollback !(Point desc)
+   | Process !(Point desc)
+   | Issue !(Event desc)
+
 -- | A runner encapsulate an indexer in an opaque type, that allows to plug different indexers to the same stream of
 -- input data
-data RunnerM m point input =
+data RunnerM m input point =
     forall indexer desc.
-    (IsIndex indexer desc m, Resumable indexer desc m, Point desc ~ point) =>
+    (IsIndex indexer desc m, Resumable indexer desc m, Rewindable indexer desc m, Point desc ~ point) =>
     Runner
-        { runnerState  :: !(TMVar (indexer desc))
-        , extractEvent :: !(input -> m (Maybe (Point desc, Event desc)))
+        { runnerState      :: !(TMVar (indexer desc))
+        , identifyRollback :: !(input -> m (Maybe (Point desc)))
+        , extractEvent     :: !(input -> m (Maybe (Point desc, Event desc)))
+        , tracer           :: !(Tracer m (IndexerNotification desc))
         }
 
 makeLenses 'Runner
@@ -231,49 +240,65 @@ type Runner = RunnerM IO
 
 -- | create a runner for an indexer, retuning the runner and the 'MVar' it's using internally
 createRunner ::
-  (IsIndex indexer desc IO, Resumable indexer desc IO, point ~ Point desc) =>
+  (IsIndex indexer desc IO, Resumable indexer desc IO, Rewindable indexer desc IO, point ~ Point desc) =>
   indexer desc ->
+  (input -> IO (Maybe point)) ->
   (input -> IO (Maybe (point, Event desc))) ->
-  IO (TMVar (indexer desc), Runner point input)
-createRunner ix f = do
+  Tracer IO (IndexerNotification desc) ->
+  IO (TMVar (indexer desc), Runner input point)
+createRunner ix rb f tr = do
   mvar <- STM.atomically $ STM.newTMVar ix
-  pure (mvar, Runner mvar f)
+  pure (mvar, Runner mvar rb f tr)
 
-startRunner :: Ord point => TChan input -> QSemN -> Runner point input -> IO ()
-startRunner chan tokens (Runner ix extractEvent) = do
+-- | The runner start waiting fo new event and process them as they come
+startRunner :: Ord point => TChan input -> QSemN -> Runner input point -> IO ()
+startRunner chan tokens (Runner ix isRollback extractEvent tracer) = do
     chan' <- STM.atomically $ STM.dupTChan chan
+    input <- STM.atomically $ STM.readTChan chan'
     forever $ do
         lockCoordinator
-        me <- generateEvent extractEvent chan'
-        indexGeneratedEvent me
+        rollBackPoint <- isRollback input
+        maybe (handleInsert input) handleRollback rollBackPoint
 
     where
 
       lockCoordinator = Con.signalQSemN tokens 1
 
-      generateEvent extract chan' = do
-        x <- STM.atomically $ STM.readTChan chan'
-        extract x
-
       indexEvent p e = do
-        indexer <- STM.atomically $ STM.takeTMVar ix
-        indexerLastPoint <- lastSyncPoint indexer
-        if indexerLastPoint < p
-           then do
-             indexer' <- insert p e indexer
-             STM.atomically $ STM.putTMVar ix indexer'
-           else STM.atomically $ STM.putTMVar ix indexer
+          indexer <- STM.atomically $ STM.takeTMVar ix
+          indexerLastPoint <- lastSyncPoint indexer
+          if maybe True (< p) indexerLastPoint
+             then do
+                 indexer' <- insert p e indexer
+                 STM.atomically $ STM.putTMVar ix indexer'
+             else STM.atomically $ STM.putTMVar ix indexer
 
-      indexGeneratedEvent me =
-        maybe (pure ()) (uncurry indexEvent) me
+      handleInsert input = do
+          me <- extractEvent input
+          case me of
+               Nothing -> pure ()
+               Just (point, event) -> do
+                   traceWith tracer (Issue event)
+                   indexEvent point event
 
-data Coordinator input = Coordinator
-  { tokens  :: !QSemN
-  , channel :: !(TChan input)
-  , runners :: !Int
+      handleRollback p = do
+          indexer <- STM.atomically $ STM.takeTMVar ix
+          mindexer <- rewind p indexer
+          maybe
+              (STM.atomically $ STM.putTMVar ix indexer)
+              (STM.atomically . STM.putTMVar ix)
+              mindexer
+          traceWith tracer (Rollback p)
+
+data Coordinator input point = Coordinator
+  { lastSync :: !(Maybe point) -- ^ the last common sync point for the runners
+  , tokens   :: !QSemN -- ^ use to synchronise the runner
+  , channel  :: !(TChan input) -- ^ to dispatch input to runners
+  , runners  :: !Int -- ^ how many runners are we waiting for
   }
 
-runnerSyncPoints :: Ord point => [Runner point input] -> IO [point]
+-- | Get the common syncPoints of a group or runners
+runnerSyncPoints :: Ord point => [Runner input point] -> IO [point]
 runnerSyncPoints [] = pure []
 runnerSyncPoints (r:rs) = do
     ps <- getSyncPoints r
@@ -281,34 +306,46 @@ runnerSyncPoints (r:rs) = do
 
     where
 
-      getSyncPoints :: Ord point => Runner point input -> IO [point]
-      getSyncPoints (Runner ix _) = do
-        indexer <- STM.atomically $ STM.takeTMVar ix
-        res <- syncPoints indexer
-        STM.atomically $ STM.putTMVar ix indexer
-        pure res
+        getSyncPoints :: Ord point => Runner input point -> IO [point]
+        getSyncPoints (Runner ix _ _ _) = do
+            indexer <- STM.atomically $ STM.takeTMVar ix
+            res <- syncPoints indexer
+            STM.atomically $ STM.putTMVar ix indexer
+            pure res
 
-
-start :: Ord point => [Runner point input] -> IO (Coordinator input)
+-- | create a coordinator with started runners
+start :: Ord point => [Runner input point] -> IO (Coordinator input point)
 start rs = do
     let nb = length rs
     tokens <- STM.newQSemN 0
     channel <- STM.newBroadcastTChanIO
     startRunners channel tokens
-    pure $ Coordinator tokens channel nb
+    pure $ Coordinator Nothing tokens channel nb
     where
-      startRunners channel tokens =
-          traverse_ (startRunner channel tokens) rs
+        startRunners channel tokens =
+            traverse_ (startRunner channel tokens) rs
 
-step :: Coordinator input -> input -> IO ()
-step c i = do
-    waitRunners
+-- A coordinator step (send an input, wait for an ack of every runner that it's processed)
+step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
+step getPoint coordinator input = do
     dispatchNewInput
-
+    waitRunners $> setLastSync coordinator
     where
+      waitRunners = Con.waitQSemN (tokens coordinator) (runners coordinator)
+      dispatchNewInput = STM.atomically $ STM.writeTChan (channel coordinator) input
+      setLastSync c =  c {lastSync = Just $ getPoint input}
 
-      waitRunners =
-        Con.waitQSemN (tokens c) (runners c)
 
-      dispatchNewInput =
-        STM.atomically $ STM.writeTChan (channel c) i
+
+-- A coordinator can be seen as an indexer
+newtype CoordinatorIndex desc =
+     CoordinatorIndex
+          { _coordinator :: Coordinator (Event desc) (Point desc)
+          }
+
+makeLenses 'CoordinatorIndex
+
+instance IsIndex CoordinatorIndex desc IO where
+    insert point event = coordinator $ \x -> step (const point) x event
+    lastSyncPoint indexer = pure $ lastSync $ indexer ^. coordinator
+
