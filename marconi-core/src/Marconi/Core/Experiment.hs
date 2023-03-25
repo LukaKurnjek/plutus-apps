@@ -39,7 +39,7 @@ module Marconi.Core.Experiment where
 
 import Control.Concurrent (QSemN)
 import Control.Concurrent qualified as Con
-import Control.Lens (filtered, folded, makeLenses, view, (%~), (&), (<<.~), (?~), (^.), (^..), (^?))
+import Control.Lens (filtered, folded, makeLenses, view, (%~), (&), (+~), (.~), (<<.~), (?~), (^.), (^..), (^?))
 import Control.Monad (forever, guard)
 import Control.Monad.Except (MonadError (catchError, throwError))
 import Control.Tracer (Tracer, traceWith)
@@ -52,6 +52,8 @@ import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.List (intersect)
+import Data.Sequence (Seq, ViewR (EmptyR, (:>)), viewr, (<|))
+import Data.Sequence qualified as Seq
 import Data.Text (Text)
 
 
@@ -307,6 +309,8 @@ instance
 data ProcessedInput event
    = Rollback !(Point event)
    | Index !(TimedEvent event)
+
+-- * Runners
 
 -- | A runner encapsulate an indexer in an opaque type.
 -- It allows us to manipulate seamlessly a list of indexers that has different types
@@ -577,5 +581,58 @@ instance
          traceSuccessfulRewind indexer' = do
               traceWith (indexer' ^. tracer) (Rollback p)
               pure $ Just indexer'
+
+
+-- ** Delaying insert
+
+-- | When indexing computation is expensive, you may want to delay it to avoid expensive rollback
+-- 'WithDelay' buffers events before sending them to the underlying indexer.
+-- Buffered events are sent when the buffers overflows.
+data WithDelay index event =
+     WithDelay
+         { _bufferedIndexer :: !(index event)
+         , _bufferCapacity  :: !Word
+         , _bufferSize      :: !Word
+         , _buffer          :: !(Seq (TimedEvent event))
+         }
+
+makeLenses 'WithDelay
+
+isFull :: WithDelay indexer event -> Bool
+isFull b = (b ^. bufferSize) >= (b ^. bufferCapacity)
+
+instance
+    (Monad m, IsIndex index event m) =>
+    IsIndex (WithDelay index) event m where
+
+    index timedEvent indexer = let
+        bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
+        pushAndGetOldest b = case viewr b of
+            EmptyR          -> (timedEvent, b)
+            (buffer' :> e') -> (e', timedEvent <| buffer')
+        in do
+        if not $ isFull indexer
+        then pure $ bufferEvent indexer
+        else do
+            let b = indexer ^. buffer
+                (oldest, buffer') = pushAndGetOldest b
+            res <- bufferedIndexer (index oldest) indexer
+            pure $ res & buffer .~ buffer'
+
+    lastSyncPoint = lastSyncPoint . view bufferedIndexer
+
+instance
+    ( Monad m
+    , Rewindable index event m
+    , Ord (Point event)
+    ) => Rewindable (WithDelay index) event m where
+
+    rewind p indexer = let
+        rewindWrappedIndexer p' = bufferedIndexer (MaybeT . rewind p') indexer
+        resetBuffer = (bufferSize .~ 0) . (buffer .~ Seq.empty)
+        (after, before) =  Seq.spanl ((p <=) . view point) $ indexer ^. buffer
+        in if Seq.null before
+           then fmap resetBuffer <$> runMaybeT (rewindWrappedIndexer p)
+           else pure $ pure $ indexer & buffer .~ after & bufferSize .~ fromIntegral (Seq.length after)
 
 
