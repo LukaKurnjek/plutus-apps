@@ -283,16 +283,13 @@ instance
     , Rewindable store event m
     ) => Rewindable (MixedIndexer InMemory store) event m where
 
-    rewind p indexer = do
-        mindexer <-  runMaybeT $ inMemory rewindInStore indexer
-        case mindexer of
-          Just ix -> if not $ null $ ix ^. inMemory . events
-            then pure $ pure ix -- if there are still events in memory, no need to rewind the database
-            else runMaybeT $ inDatabase rewindInStore ix
-          Nothing -> pure Nothing
-      where
-        rewindInStore :: Rewindable index event m => index event -> MaybeT m (index event)
-        rewindInStore = MaybeT . rewind p
+    rewind p indexer = runMaybeT $ do
+        ix <- inMemory rewindInStore indexer
+        guard $ not $ null $ ix ^. inMemory . events
+        inDatabase rewindInStore ix
+        where
+            rewindInStore :: Rewindable index event m => index event -> MaybeT m (index event)
+            rewindInStore = MaybeT . rewind p
 
 instance
     ( ResumableResult InMemory event query m
@@ -529,7 +526,9 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
 
     query p q ix = do
         let isBefore e p' = e ^. point <= p'
-        let result = EventsMatching $ ix ^.. events . folded . filtered (`isBefore` p) . event . filtered (predicate q)
+        let result = EventsMatching $ ix ^.. events
+                         . folded . filtered (`isBefore` p)
+                         . event . filtered (predicate q)
         check <- isNotAheadOfSync p ix
         if check
             then pure result
@@ -544,7 +543,7 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
         inDatabaseError          -> throwError inDatabaseError -- For any other error, forward it
 
 
--- * Indexer transformer: Add effects
+-- * Indexer transformer: modify the behaviour of a indexer
 
 -- ** Tracer Add tracing to an existing indexer
 
@@ -574,14 +573,18 @@ instance
     ) => Rewindable (WithTracer m index) event m where
 
     rewind p indexer = do
-      res <- runMaybeT $ rewindWrappedIndexer p
-      maybe (pure Nothing) traceSuccessfulRewind res
+        res <- runMaybeT $ rewindWrappedIndexer p
+        traverse traceSuccessfulRewind res
      where
          rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
          traceSuccessfulRewind indexer' = do
               traceWith (indexer' ^. tracer) (Rollback p)
-              pure $ Just indexer'
+              pure indexer'
 
+instance Queryable indexer event query m =>
+    Queryable (WithTracer m indexer) event query m where
+
+    query p q indexer = query p q (indexer ^. tracedIndexer)
 
 -- ** Delaying insert
 
@@ -590,10 +593,10 @@ instance
 -- Buffered events are sent when the buffers overflows.
 data WithDelay index event =
      WithDelay
-         { _bufferedIndexer :: !(index event)
-         , _bufferCapacity  :: !Word
-         , _bufferSize      :: !Word
-         , _buffer          :: !(Seq (TimedEvent event))
+         { _delayedIndexer :: !(index event)
+         , _bufferCapacity :: !Word
+         , _bufferSize     :: !Word
+         , _buffer         :: !(Seq (TimedEvent event))
          }
 
 makeLenses 'WithDelay
@@ -602,8 +605,8 @@ isFull :: WithDelay indexer event -> Bool
 isFull b = (b ^. bufferSize) >= (b ^. bufferCapacity)
 
 instance
-    (Monad m, IsIndex index event m) =>
-    IsIndex (WithDelay index) event m where
+    (Monad m, IsIndex indexer event m) =>
+    IsIndex (WithDelay indexer) event m where
 
     index timedEvent indexer = let
         bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
@@ -616,23 +619,29 @@ instance
         else do
             let b = indexer ^. buffer
                 (oldest, buffer') = pushAndGetOldest b
-            res <- bufferedIndexer (index oldest) indexer
+            res <- delayedIndexer (index oldest) indexer
             pure $ res & buffer .~ buffer'
 
-    lastSyncPoint = lastSyncPoint . view bufferedIndexer
+    lastSyncPoint = lastSyncPoint . view delayedIndexer
 
 instance
     ( Monad m
-    , Rewindable index event m
+    , Rewindable indexer event m
     , Ord (Point event)
-    ) => Rewindable (WithDelay index) event m where
+    ) => Rewindable (WithDelay indexer) event m where
 
     rewind p indexer = let
-        rewindWrappedIndexer p' = bufferedIndexer (MaybeT . rewind p') indexer
+        rewindWrappedIndexer p' = delayedIndexer (MaybeT . rewind p') indexer
         resetBuffer = (bufferSize .~ 0) . (buffer .~ Seq.empty)
         (after, before) =  Seq.spanl ((p <=) . view point) $ indexer ^. buffer
         in if Seq.null before
            then fmap resetBuffer <$> runMaybeT (rewindWrappedIndexer p)
-           else pure $ pure $ indexer & buffer .~ after & bufferSize .~ fromIntegral (Seq.length after)
+           else pure . pure
+               $ indexer
+               & buffer .~ after & bufferSize .~ fromIntegral (Seq.length after)
 
 
+instance Queryable indexer event query m =>
+    Queryable (WithDelay indexer) event query m where
+
+    query p q indexer = query p q (indexer ^. delayedIndexer)
