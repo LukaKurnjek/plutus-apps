@@ -301,51 +301,12 @@ instance
     query valid q indexer = resumeResult valid q (indexer ^. inMemory) (query valid q (indexer ^. inDatabase))
 
 
--- * Indexer transformer: Add effects
+-- ** Runners
 
--- ** Tracer Add tracing to an existing indexer
-
--- | Remarkable events of an indexer
-data IndexerNotification event
+-- | The different types of input of a runner
+data ProcessedInput event
    = Rollback !(Point event)
    | Index !(TimedEvent event)
-
--- | A tracer modifier that adds tracing to an existing indexer
-data WithTracer m indexer event =
-     WithTracer
-         { _tracedIndexer :: !(indexer event)
-         , _tracer        :: !(Tracer m (IndexerNotification event))
-         }
-
-makeLenses 'WithTracer
-
-instance
-    (Monad m, IsIndex index event m) =>
-    IsIndex (WithTracer m index) event m where
-
-    index timedEvent indexer = do
-        res <- tracedIndexer (index timedEvent) indexer
-        traceWith (indexer ^. tracer) $ Index timedEvent
-        pure res
-
-    lastSyncPoint = lastSyncPoint . view tracedIndexer
-
-instance
-    ( Monad m
-    , Rewindable index event m
-    ) => Rewindable (WithTracer m index) event m where
-
-    rewind p indexer = do
-      res <- runMaybeT $ rewindWrappedIndexer p
-      maybe (pure Nothing) traceSuccessfulRewind res
-     where
-         rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
-         traceSuccessfulRewind indexer' = do
-              traceWith (indexer' ^. tracer) (Rollback p)
-              pure $ Just indexer'
-
-
--- ** Runners
 
 -- | A runner encapsulate an indexer in an opaque type.
 -- It allows us to manipulate seamlessly a list of indexers that has different types
@@ -358,9 +319,10 @@ data RunnerM m input point =
     , Point event ~ point
     ) =>
     Runner
-        { runnerState      :: !(TMVar (indexer event))
-        , identifyRollback :: !(input -> m (Maybe (Point event)))
-        , extractEvent     :: !(input -> m (Maybe (TimedEvent event)))
+        { runnerState  :: !(TMVar (indexer event))
+
+        , processInput :: !(input -> m (ProcessedInput event))
+          -- ^ used by the runner to check whether an input is a rollback or an event
         }
 
 type Runner = RunnerM IO
@@ -372,24 +334,24 @@ createRunner ::
   , Rewindable indexer event IO
   , point ~ Point event) =>
   indexer event ->
-  (input -> IO (Maybe point)) ->
-  (input -> IO (Maybe (TimedEvent event))) ->
+  (input -> IO (ProcessedInput event)) ->
   IO (TMVar (indexer event), Runner input point)
-createRunner ix rb f = do
+createRunner ix f = do
   mvar <- STM.atomically $ STM.newTMVar ix
-  pure (mvar, Runner mvar rb f)
+  pure (mvar, Runner mvar f)
 
 -- | The runner notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
 startRunner :: Ord point => TChan input -> QSemN -> Runner input point -> IO ()
-startRunner chan tokens (Runner ix isRollback extractEvent) = do
+startRunner chan tokens (Runner ix processInput) = do
     chan' <- STM.atomically $ STM.dupTChan chan
     input <- STM.atomically $ STM.readTChan chan'
     forever $ do
         unlockCoordinator
-        rollBackPoint <- isRollback input
-        maybe (handleInsert input) handleRollback rollBackPoint
-
+        processedInput <- processInput input
+        case processedInput of
+             Rollback p -> handleRollback p
+             Index e    -> indexEvent e
     where
 
       unlockCoordinator = Con.signalQSemN tokens 1
@@ -404,13 +366,6 @@ startRunner chan tokens (Runner ix isRollback extractEvent) = do
                  indexer' <- index timedEvent indexer
                  STM.atomically $ STM.putTMVar ix indexer'
              else STM.atomically $ STM.putTMVar ix indexer
-
-      handleInsert input = do
-          me <- extractEvent input
-          case me of
-               Nothing -> pure ()
-               Just timedEvent -> do
-                   indexEvent timedEvent
 
       handleRollback p = do
           indexer <- STM.atomically $ STM.takeTMVar ix
@@ -447,7 +402,7 @@ runnerSyncPoints (r:rs) = do
     where
 
         getSyncPoints :: Ord point => Runner input point -> IO [point]
-        getSyncPoints (Runner ix _ _) = do
+        getSyncPoints (Runner ix _) = do
             indexer <- STM.atomically $ STM.readTMVar ix
             syncPoints indexer
 
@@ -583,3 +538,44 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
          -- If we find an incomplete result in the first indexer, complete it
         AheadOfLastSync (Just r) -> (<> r) <$> query p q indexer
         inDatabaseError          -> throwError inDatabaseError -- For any other error, forward it
+
+
+-- * Indexer transformer: Add effects
+
+-- ** Tracer Add tracing to an existing indexer
+
+-- | A tracer modifier that adds tracing to an existing indexer
+data WithTracer m indexer event =
+     WithTracer
+         { _tracedIndexer :: !(indexer event)
+         , _tracer        :: !(Tracer m (ProcessedInput event))
+         }
+
+makeLenses 'WithTracer
+
+instance
+    (Monad m, IsIndex index event m) =>
+    IsIndex (WithTracer m index) event m where
+
+    index timedEvent indexer = do
+        res <- tracedIndexer (index timedEvent) indexer
+        traceWith (indexer ^. tracer) $ Index timedEvent
+        pure res
+
+    lastSyncPoint = lastSyncPoint . view tracedIndexer
+
+instance
+    ( Monad m
+    , Rewindable index event m
+    ) => Rewindable (WithTracer m index) event m where
+
+    rewind p indexer = do
+      res <- runMaybeT $ rewindWrappedIndexer p
+      maybe (pure Nothing) traceSuccessfulRewind res
+     where
+         rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
+         traceSuccessfulRewind indexer' = do
+              traceWith (indexer' ^. tracer) (Rollback p)
+              pure $ Just indexer'
+
+
