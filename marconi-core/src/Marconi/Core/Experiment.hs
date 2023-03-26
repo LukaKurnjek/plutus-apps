@@ -40,7 +40,7 @@ module Marconi.Core.Experiment where
 import Control.Concurrent (QSemN)
 import Control.Concurrent qualified as Con
 import Control.Lens (filtered, folded, makeLenses, view, (%~), (&), (+~), (.~), (<<.~), (?~), (^.), (^..), (^?))
-import Control.Monad (forever, guard)
+import Control.Monad (forever, guard, when)
 import Control.Monad.Except (MonadError (catchError, throwError))
 import Control.Tracer (Tracer, traceWith)
 
@@ -51,6 +51,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
+import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
 import Data.Sequence (Seq, ViewR (EmptyR, (:>)), viewr, (<|))
 import Data.Sequence qualified as Seq
@@ -83,6 +84,13 @@ data TimedEvent event =
 
 makeLenses 'TimedEvent
 
+-- | Error that can occur when you index events
+data IndexError indexer event
+   = NoSpaceLeft !(indexer event)
+     -- ^ An indexer with limited capacity is full and is unable to index an event
+   | OtherError !Text
+     -- ^ Any other cause of failure
+
 -- | The base class of an indexer.
 -- The indexer should provide two main functionality: indexing events, and providing its last synchronisation point.
 --
@@ -99,14 +107,16 @@ class Monad m => IsIndex indexer event m where
     indexAll :: (Eq (Point event), Foldable f) =>
         f (TimedEvent event) -> indexer event -> m (indexer event)
     indexAll = flip (foldrM index)
+    {-# MINIMAL index #-}
+
+class IsSync indexer event m where
 
     -- | Last sync of the indexer
     lastSyncPoint :: indexer event -> m (Maybe (Point event))
-    {-# MINIMAL index, lastSyncPoint #-}
 
 -- | Check if the given point is ahead of the last syncPoint of an indexer,
 isNotAheadOfSync ::
-    (Ord (Point event), IsIndex indexer event m) =>
+    (Ord (Point event), IsSync indexer event m, Functor m) =>
     Point event -> indexer event -> m Bool
 isNotAheadOfSync p indexer = maybe False (p <=) <$> lastSyncPoint indexer
 
@@ -121,7 +131,7 @@ data QueryError query
      -- this knowledge to another indexer to complete the query.
    | NotStoredAnymore
      -- ^ The requested point is too far in the past and has been aggregated
-   | IndexerError !Text
+   | IndexerQueryError !Text
      -- ^ The indexer query failed
 
 -- | The indexer can answer a Query to produce the corresponding result of that query.
@@ -130,7 +140,7 @@ data QueryError query
 --     * @event@ the indexer events
 --     * @query@ the type of query we want to answer
 --     * @m@ the monad in which our indexer operates
-class MonadError (QueryError query) m => Queryable indexer event query m where
+class Queryable indexer event query m where
 
     -- | Query an indexer at a given point in time
     -- It can be read as:
@@ -169,49 +179,83 @@ class Resumable indexer event m where
     syncPoints :: Ord (Point event) => indexer event -> m [Point event]
 
 
--- * Base runIndexers
+-- * Base indexers
 
--- ** Full in-memory indexer, backed by a list
+-- ** Full in-memory indexer
+
+type family Container (indexer :: * -> *) :: * -> *
+
+-- | Define an in-memory container with a limited memory
+class BoundedMemory indexer m where
+
+    -- | Check if there isn't space left in memory
+    isFull  :: indexer event -> m Bool
+
+    -- | Clear the memory and return its content
+    flushMemory :: indexer event -> m (Container indexer (TimedEvent event), indexer event)
 
 -- | A Full in memory indexer, it uses list because I was too lazy to port the 'Vector' implementation.
 -- If we wanna move to these indexer, we should switch the implementation to the 'Vector' one.
-data InMemory event = InMemory
-  { _events :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
-  , _latest :: !(Maybe (Point event)) -- ^ Ease access to the latest datapoint
-  }
+data ListIndexer event =
+    ListIndexer
+    { _capacity :: !Word
+    , _events   :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
+    , _latest   :: !(Maybe (Point event)) -- ^ Ease access to the latest datapoint
+    }
 
-makeLenses 'InMemory
+type instance Container ListIndexer = []
 
-instance (Monad m) => IsIndex InMemory event m where
+makeLenses 'ListIndexer
+
+instance Applicative m => BoundedMemory ListIndexer m where
+
+    isFull ix = pure $ ix ^. capacity >= fromIntegral (length (ix ^. events))
+
+    flushMemory ix = pure $ ix & events <<.~ []
+
+instance
+    (MonadError (IndexError ListIndexer event) m, Monad m) =>
+    IsIndex ListIndexer event m where
 
     index timedEvent ix = let
-        appendEvent = events %~ (timedEvent:)
-        updateLatest = latest ?~ (timedEvent ^. point)
-        in pure $ ix
-            & appendEvent
-            & updateLatest
 
+        appendEvent :: ListIndexer event -> ListIndexer event
+        appendEvent = events %~ (timedEvent:)
+        updateLatest :: ListIndexer event -> ListIndexer event
+        updateLatest = latest ?~ (timedEvent ^. point)
+        checkOverflow :: Bool -> m ()
+        checkOverflow b = when b $ throwError $ NoSpaceLeft ix
+
+        in do
+            checkOverflow =<< isFull ix
+            pure $ ix
+                & appendEvent
+                & updateLatest
+
+instance Applicative m => IsSync ListIndexer event m where
     lastSyncPoint = pure . view latest
 
-instance Applicative m => Rewindable InMemory event m where
+instance Applicative m => Rewindable ListIndexer event m where
 
-    rewind p ix = pure . pure
+    rewind p ix = let
+
+        adjustLatestPoint :: ListIndexer event -> ListIndexer event
+        adjustLatestPoint = latest ?~ p
+        cleanEventsAfterRollback :: ListIndexer event -> ListIndexer event
+        cleanEventsAfterRollback = events %~ dropWhile isEventAfterRollback
+        isIndexBeforeRollback :: ListIndexer event -> Bool
+        isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
+        isEventAfterRollback :: TimedEvent event -> Bool
+        isEventAfterRollback = (p <) . view point
+
+        in pure . pure
         $ if isIndexBeforeRollback ix
              then ix -- if we're already before the rollback, we don't have to do anything
              else ix
                 & cleanEventsAfterRollback
                 & adjustLatestPoint
-      where
-        adjustLatestPoint :: InMemory event -> InMemory event
-        adjustLatestPoint = latest ?~ p
-        cleanEventsAfterRollback :: InMemory event -> InMemory event
-        cleanEventsAfterRollback = events %~ dropWhile isEventAfterRollback
-        isIndexBeforeRollback :: InMemory event -> Bool
-        isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
-        isEventAfterRollback :: TimedEvent event -> Bool
-        isEventAfterRollback = (p <) . view point
 
-instance Applicative m => Resumable InMemory event m where
+instance Applicative m => Resumable ListIndexer event m where
 
     syncPoints ix = let
       indexPoints = ix ^.. events . folded . point
@@ -224,16 +268,15 @@ instance Applicative m => Resumable InMemory event m where
 
 -- ** Mixed indexer
 
--- | An indexer that has at most '_blocksInMemory' events in memory and put the older one in database.
+-- | An indexer that has at most '_blocksListIndexer' events in memory and put the older one in database.
 -- The query interface for this indexer will alwyas go through the database first and then aggregate
 -- results present in memory.
 --
 -- @mem@ the indexer that handle old events, when we need to remove stuff from memory
 -- @store@ the indexer that handle the most recent events
 data MixedIndexer mem store event = MixedIndexer
-    { _blocksInMemory :: !Word -- ^ How many blocks do we keep in memory
-    , _inMemory       :: !(mem event) -- ^ The fast storage for latest elements
-    , _inDatabase     :: !(store event) -- ^ In database storage, should be similar to the original indexer
+    { _inMemory   :: !(mem event) -- ^ The fast storage for latest elements
+    , _inDatabase :: !(store event) -- ^ In database storage, should be similar to the original indexer
     }
 
 makeLenses 'MixedIndexer
@@ -247,41 +290,42 @@ class ResumableResult indexer event query m where
        Ord (Point event) =>
        Point event -> query -> indexer event -> m (Result query) -> m (Result query)
 
-
-
 -- | Flush all the in-memory events to the database, keeping track of the latest index
 flush ::
     ( Monad m
     , IsIndex store event m
+    , BoundedMemory mem m
+    , Foldable (Container mem)
     , Eq (Point event)
-    ) => MixedIndexer InMemory store event ->
-    m (MixedIndexer InMemory store event)
-flush indexer = let
-    flushMemory = inMemory . events <<.~ []
-    (eventsToFlush, indexer') = flushMemory indexer
-    in inDatabase (indexAll eventsToFlush) indexer'
+    ) => MixedIndexer mem store event ->
+    m (MixedIndexer mem store event)
+flush indexer = do
+    (eventsToFlush, indexer') <- getCompose $ inMemory (Compose . flushMemory) indexer
+    inDatabase (indexAll eventsToFlush) indexer'
 
 instance
     ( Monad m
-    , IsIndex InMemory event m
+    , BoundedMemory mem m
+    , Foldable (Container mem)
+    , IsIndex mem event m
     , IsIndex store event m
-    ) => IsIndex (MixedIndexer InMemory store) event m where
+    ) => IsIndex (MixedIndexer mem store) event m where
 
     index timedEvent indexer = do
-        let maxMemSize = fromIntegral $ indexer ^. blocksInMemory
-            currentSize = length (indexer ^. inMemory . events)
-        if currentSize >= maxMemSize
+        full <- isFull $ indexer ^. inMemory
+        if full
            then do
-             indexer' <- flush indexer
-             inMemory (index timedEvent) indexer'
+               indexer' <- flush indexer
+               inMemory (index timedEvent) indexer'
            else inMemory (index timedEvent) indexer
 
+instance IsSync mem event m => IsSync (MixedIndexer mem store) event m where
     lastSyncPoint = lastSyncPoint . view inMemory
 
 instance
     ( Monad m
     , Rewindable store event m
-    ) => Rewindable (MixedIndexer InMemory store) event m where
+    ) => Rewindable (MixedIndexer ListIndexer store) event m where
 
     rewind p indexer = runMaybeT $ do
         ix <- inMemory rewindInStore indexer
@@ -292,10 +336,10 @@ instance
             rewindInStore = MaybeT . rewind p
 
 instance
-    ( ResumableResult InMemory event query m
+    ( ResumableResult ListIndexer event query m
     , Queryable store event query m
     ) =>
-    Queryable (MixedIndexer InMemory store) event query m where
+    Queryable (MixedIndexer ListIndexer store) event query m where
 
     query valid q indexer = resumeResult valid q (indexer ^. inMemory) (query valid q (indexer ^. inDatabase))
 
@@ -315,6 +359,7 @@ data ProcessedInput event
 data RunnerM m input point =
     forall indexer event.
     ( IsIndex indexer event m
+      , IsSync indexer event IO
     , Resumable indexer event m
     , Rewindable indexer event m
     , Point event ~ point
@@ -330,13 +375,14 @@ type Runner = RunnerM IO
 
 -- | create a runner for an indexer, retuning the runner and the 'MVar' it's using internally
 createRunner ::
-  ( IsIndex indexer event IO
-  , Resumable indexer event IO
-  , Rewindable indexer event IO
-  , point ~ Point event) =>
-  indexer event ->
-  (input -> IO (ProcessedInput event)) ->
-  IO (TMVar (indexer event), Runner input point)
+    ( IsIndex indexer event IO
+    , IsSync indexer event IO
+    , Resumable indexer event IO
+    , Rewindable indexer event IO
+    , point ~ Point event) =>
+    indexer event ->
+    (input -> IO (ProcessedInput event)) ->
+    IO (TMVar (indexer event), Runner input point)
 createRunner ix f = do
   mvar <- STM.atomically $ STM.newTMVar ix
   pure (mvar, Runner mvar f)
@@ -443,6 +489,7 @@ instance IsIndex CoordinatorIndex event IO where
     index timedEvent = coordinator $
             \x -> step (const $ timedEvent ^. point) x $ timedEvent ^. event
 
+instance IsSync CoordinatorIndex event IO where
     lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
 
 -- | To rewind a coordinator, we try and rewind all the runners.
@@ -491,7 +538,7 @@ newtype instance Result (EventAtQuery event) =
     EventAtResult {getEvent :: event}
 
 instance MonadError (QueryError (EventAtQuery event)) m =>
-    Queryable InMemory event (EventAtQuery event) m where
+    Queryable ListIndexer event (EventAtQuery event) m where
 
     query p EventAtQuery ix = do
         let isAtPoint e p' = e ^. point == p'
@@ -505,7 +552,7 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
         else throwError $ AheadOfLastSync Nothing
 
 instance MonadError (QueryError (EventAtQuery event)) m =>
-    ResumableResult InMemory event (EventAtQuery event) m where
+    ResumableResult ListIndexer event (EventAtQuery event) m where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we didn't find a result in the 1st indexer, try in memory
@@ -522,7 +569,7 @@ newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEv
 deriving newtype instance Semigroup (Result (EventsMatchingQuery event))
 
 instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
-    Queryable InMemory event (EventsMatchingQuery event) m where
+    Queryable ListIndexer event (EventsMatchingQuery event) m where
 
     query p q ix = do
         let isBefore e p' = e ^. point <= p'
@@ -535,7 +582,7 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
             else throwError . AheadOfLastSync . Just $ result
 
 instance MonadError (QueryError (EventsMatchingQuery event)) m =>
-    ResumableResult InMemory event (EventsMatchingQuery event) m where
+    ResumableResult ListIndexer event (EventsMatchingQuery event) m where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we find an incomplete result in the first indexer, complete it
@@ -565,6 +612,7 @@ instance
         traceWith (indexer ^. tracer) $ Index timedEvent
         pure res
 
+instance IsSync index event m => IsSync (WithTracer m index) event m where
     lastSyncPoint = lastSyncPoint . view tracedIndexer
 
 instance
@@ -601,20 +649,18 @@ data WithDelay index event =
 
 makeLenses 'WithDelay
 
-isFull :: WithDelay indexer event -> Bool
-isFull b = (b ^. bufferSize) >= (b ^. bufferCapacity)
-
 instance
     (Monad m, IsIndex indexer event m) =>
     IsIndex (WithDelay indexer) event m where
 
     index timedEvent indexer = let
+        bufferIsFool b = (b ^. bufferSize) >= (b ^. bufferCapacity)
         bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
         pushAndGetOldest b = case viewr b of
             EmptyR          -> (timedEvent, b)
             (buffer' :> e') -> (e', timedEvent <| buffer')
         in do
-        if not $ isFull indexer
+        if not $ bufferIsFool indexer
         then pure $ bufferEvent indexer
         else do
             let b = indexer ^. buffer
@@ -622,6 +668,7 @@ instance
             res <- delayedIndexer (index oldest) indexer
             pure $ res & buffer .~ buffer'
 
+instance IsSync index event m => IsSync (WithDelay index) event m where
     lastSyncPoint = lastSyncPoint . view delayedIndexer
 
 instance
