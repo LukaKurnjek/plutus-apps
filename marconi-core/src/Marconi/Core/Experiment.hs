@@ -37,24 +37,26 @@ What's included in this module:
 {-# LANGUAGE UndecidableInstances #-}
 module Marconi.Core.Experiment where
 
+import Control.Concurrent qualified as Con (newQSemN, signalQSemN, waitQSemN)
+import Control.Concurrent.STM qualified as STM (atomically, dupTChan, newBroadcastTChanIO, newTMVar, putTMVar,
+                                                readTChan, readTMVar, takeTMVar, writeTChan)
+import Control.Tracer qualified as Tracer (traceWith)
+import Data.Sequence qualified as Seq
+
 import Control.Concurrent (QSemN)
-import Control.Concurrent qualified as Con
 import Control.Lens (filtered, folded, makeLenses, view, (%~), (&), (+~), (.~), (<<.~), (?~), (^.), (^..), (^?))
 import Control.Monad (forever, guard, when)
 import Control.Monad.Except (MonadError (catchError, throwError))
-import Control.Tracer (Tracer, traceWith)
+import Control.Tracer (Tracer)
 
-import Control.Concurrent qualified as STM
 import Control.Concurrent.STM (TChan, TMVar)
-import Control.Concurrent.STM qualified as STM
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
-import Data.Sequence (Seq, ViewR (EmptyR, (:>)), viewr, (<|))
-import Data.Sequence qualified as Seq
+import Data.Sequence (Seq, ViewR (EmptyR, (:>)), (<|))
 import Data.Text (Text)
 
 
@@ -457,7 +459,7 @@ runnerSyncPoints (r:rs) = do
 start :: Ord point => [Runner input point] -> IO (Coordinator input point)
 start runners' = do
     let nb = length runners'
-    tokens' <- STM.newQSemN 0 -- starts empty, will be filled when the runners will start
+    tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the runners will start
     channel' <- STM.newBroadcastTChanIO
     startRunners channel' tokens'
     pure $ Coordinator Nothing runners' tokens' channel' nb
@@ -609,7 +611,7 @@ instance
 
     index timedEvent indexer = do
         res <- tracedIndexer (index timedEvent) indexer
-        traceWith (indexer ^. tracer) $ Index timedEvent
+        Tracer.traceWith (indexer ^. tracer) $ Index timedEvent
         pure res
 
 instance IsSync index event m => IsSync (WithTracer m index) event m where
@@ -620,14 +622,15 @@ instance
     , Rewindable index event m
     ) => Rewindable (WithTracer m index) event m where
 
-    rewind p indexer = do
-        res <- runMaybeT $ rewindWrappedIndexer p
-        traverse traceSuccessfulRewind res
-     where
+    rewind p indexer = let
          rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
          traceSuccessfulRewind indexer' = do
-              traceWith (indexer' ^. tracer) (Rollback p)
+              Tracer.traceWith (indexer' ^. tracer) (Rollback p)
               pure indexer'
+
+        in do
+        res <- runMaybeT $ rewindWrappedIndexer p
+        traverse traceSuccessfulRewind res
 
 instance Queryable indexer event query m =>
     Queryable (WithTracer m indexer) event query m where
@@ -656,7 +659,7 @@ instance
     index timedEvent indexer = let
         bufferIsFool b = (b ^. bufferSize) >= (b ^. bufferCapacity)
         bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
-        pushAndGetOldest b = case viewr b of
+        pushAndGetOldest b = case Seq.viewr b of
             EmptyR          -> (timedEvent, b)
             (buffer' :> e') -> (e', timedEvent <| buffer')
         in do
