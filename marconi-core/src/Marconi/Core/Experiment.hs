@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE UndecidableInstances #-}
 {- |
  This module propose an alternative to the index implementation proposed in 'RewindableIndex.Storable'.
 
@@ -33,8 +35,6 @@ What's included in this module:
   Contrary to the original Marconi design, indexers don't have a unique (in-memory/sqlite) implementation.
 
 -}
-{-# LANGUAGE LambdaCase           #-}
-{-# LANGUAGE UndecidableInstances #-}
 module Marconi.Core.Experiment where
 
 import Control.Concurrent qualified as Con (newQSemN, signalQSemN, waitQSemN)
@@ -46,7 +46,7 @@ import Data.Sequence qualified as Seq
 import Control.Concurrent (QSemN)
 import Control.Lens (filtered, folded, makeLenses, view, (%~), (&), (+~), (.~), (<<.~), (?~), (^.), (^..), (^?))
 import Control.Monad (forever, guard, when)
-import Control.Monad.Except (MonadError (catchError, throwError))
+import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
 
 import Control.Concurrent.STM (TChan, TMVar)
@@ -149,6 +149,12 @@ class Queryable indexer event query m where
     -- "With the knowledge you have at that point in time,
     --  what is your answer to this query?"
     query :: Ord (Point event) => Point event -> query -> indexer event -> m (Result query)
+
+-- | Like @query@, but internalise @QueryError@ in the result.
+query'
+    :: (Queryable indexer event query (ExceptT (QueryError query) m), Ord (Point event))
+    => Point event -> query -> indexer event -> m (Either (QueryError query) (Result query))
+query' p q = runExceptT . query p q
 
 -- | We can reset an indexer to a previous `Point`
 --     * @indexer@ is the indexer implementation type
@@ -597,11 +603,11 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
 -- ** Tracer Add tracing to an existing indexer
 
 -- | A tracer modifier that adds tracing to an existing indexer
-data WithTracer m indexer event =
-     WithTracer
-         { _tracedIndexer :: !(indexer event)
-         , _tracer        :: !(Tracer m (ProcessedInput event))
-         }
+data WithTracer m indexer event
+    = WithTracer
+    { _tracedIndexer :: !(indexer event)
+    , _tracer        :: !(Tracer m (ProcessedInput event))
+    }
 
 makeLenses 'WithTracer
 
@@ -642,13 +648,13 @@ instance Queryable indexer event query m =>
 -- | When indexing computation is expensive, you may want to delay it to avoid expensive rollback
 -- 'WithDelay' buffers events before sending them to the underlying indexer.
 -- Buffered events are sent when the buffers overflows.
-data WithDelay index event =
-     WithDelay
-         { _delayedIndexer :: !(index event)
-         , _bufferCapacity :: !Word
-         , _bufferSize     :: !Word
-         , _buffer         :: !(Seq (TimedEvent event))
-         }
+data WithDelay index event
+    = WithDelay
+    { _delayedIndexer :: !(index event)
+    , _bufferCapacity :: !Word
+    , _bufferSize     :: !Word
+    , _buffer         :: !(Seq (TimedEvent event))
+    }
 
 makeLenses 'WithDelay
 
