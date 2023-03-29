@@ -352,7 +352,7 @@ makeAutoBalancedTransaction :: Params -> UTxO EmulatorEra -> CardanoBuildTx -> C
 --   is similarly balanced. Unlike <a>makeAutoBalancedTransaction</a> this
 --   function also balances non-Ada.
 makeAutoBalancedTransactionWithUtxoProvider :: Monad m => Params -> UtxoIndex -> CardanoAddress -> UtxoProvider m -> (forall a. CardanoLedgerError -> m a) -> CardanoBuildTx -> m (Tx BabbageEra)
-utxoProviderFromWalletOutputs :: Map TxOutRef TxOut -> UtxoProvider (Either BalancingError)
+utxoProviderFromWalletOutputs :: UtxoIndex -> CardanoBuildTx -> UtxoProvider (Either BalancingError)
 data BalancingError
 
 -- | Not enough extra inputs available to balance a transaction.
@@ -383,6 +383,7 @@ TxnValidate :: TxId -> CardanoTx -> [Text] -> ChainEvent
 --   amount of collateral stored in the transaction.
 TxnValidationFail :: ValidationPhase -> TxId -> CardanoTx -> ValidationError -> Value -> [Text] -> ChainEvent
 SlotAdd :: Slot -> ChainEvent
+chainEventOnChainTx :: ChainEvent -> Maybe OnChainTx
 
 -- | A pool of transactions which have yet to be validated.
 type TxPool = [CardanoTx]
@@ -472,3 +473,58 @@ instance GHC.Show.Show Cardano.Node.Emulator.Chain.ChainState
 instance Prettyprinter.Internal.Pretty Cardano.Node.Emulator.Chain.ChainEvent
 
 module Cardano.Node.Emulator
+
+
+-- | If you want to run the node emulator without using the
+--   <tt>Contract</tt> monad, this module provides a simple MTL-based
+--   interface.
+module Cardano.Node.Emulator.MTL
+
+-- | Queue the transaction, it will be processed when <tt>nextSlot</tt> is
+--   called.
+queueTx :: MonadEmulator m => CardanoTx -> m ()
+
+-- | Process the queued transactions and increase the slot number.
+nextSlot :: MonadEmulator m => m ()
+
+-- | Query the unspent transaction outputs at the given address.
+utxosAt :: MonadEmulator m => CardanoAddress -> m (Map TxOutRef DecoratedTxOut)
+
+-- | Query the total value of the unspent transaction outputs at the given
+--   address.
+fundsAt :: MonadEmulator m => CardanoAddress -> m Value
+
+-- | Balance an unbalanced transaction, using funds from the given wallet
+--   if needed, and returning any remaining value to the same wallet.
+balanceTx :: MonadEmulator m => UtxoIndex -> CardanoAddress -> CardanoBuildTx -> m CardanoTx
+
+-- | Balance a transaction, sign it with the given signatures, and finally
+--   queue it.
+submitUnbalancedTx :: (MonadEmulator m, Foldable f) => UtxoIndex -> CardanoAddress -> CardanoBuildTx -> f PaymentPrivateKey -> m CardanoTx
+
+-- | Create a transaction that transfers funds from one address to another,
+--   and sign and submit it.
+payToAddress :: MonadEmulator m => (CardanoAddress, PaymentPrivateKey) -> CardanoAddress -> Value -> m TxId
+
+-- | Test the number of validated transactions and the total number of
+--   transactions. Returns a failure message if the numbers don't match up.
+hasValidatedTransactionCountOfTotal :: Int -> Int -> Seq ChainEvent -> Maybe String
+
+-- | Render the logs in a format useful for debugging why a test failed.
+renderLogs :: Seq ChainEvent -> String
+data EmulatorState
+EmulatorState :: ChainState -> AddressMap -> EmulatorState
+esChainState :: Lens' EmulatorState ChainState
+esAddressMap :: Lens' EmulatorState AddressMap
+data EmulatorError
+BalancingError :: BalancingError -> EmulatorError
+ValidationError :: ValidationErrorInPhase -> EmulatorError
+ToCardanoError :: ToCardanoError -> EmulatorError
+type MonadEmulator m = (MonadRWS Params (Seq ChainEvent) EmulatorState m, MonadError EmulatorError m)
+type EmulatorT m = ExceptT EmulatorError (RWST Params (Seq ChainEvent) EmulatorState m)
+type EmulatorM = EmulatorT Identity
+emptyEmulatorState :: EmulatorState
+emptyEmulatorStateWithInitialDist :: Map CardanoAddress Value -> EmulatorState
+handleChain :: MonadEmulator m => Eff [ChainControlEffect, ChainEffect] a -> m a
+instance GHC.Show.Show Cardano.Node.Emulator.MTL.EmulatorError
+instance GHC.Show.Show Cardano.Node.Emulator.MTL.EmulatorState

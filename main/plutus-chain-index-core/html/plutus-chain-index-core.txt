@@ -111,6 +111,7 @@ data ChainIndexTxOutputs
 -- | The transaction is invalid so there is maybe a collateral output.
 InvalidTx :: Maybe ChainIndexTxOut -> ChainIndexTxOutputs
 ValidTx :: [ChainIndexTxOut] -> ChainIndexTxOutputs
+chainIndexTxOutputs :: Traversal' ChainIndexTxOutputs ChainIndexTxOut
 data ChainIndexTxOut
 ChainIndexTxOut :: CardanoAddress -> Value -> OutputDatum -> ReferenceScript -> ChainIndexTxOut
 
@@ -475,6 +476,8 @@ ResumeNotSupported :: ChainIndexError
 QueryFailedNoTip :: ChainIndexError
 BeamEffectError :: BeamError -> ChainIndexError
 ToCardanoError :: ToCardanoError -> ChainIndexError
+UnsupportedQuery :: ChainIndexError
+UnsupportedControlOperation :: ChainIndexError
 
 -- | UTXO state could not be inserted into the chain index
 data InsertUtxoFailed
@@ -908,9 +911,9 @@ type SwaggerAPI = "swagger" :> SwaggerSchemaUI "swagger-ui" "swagger.json"
 --   "contents": { "getPubKeyHash":
 --   "88ff402b0522f27649ac742238c697c579beeb344eb723099d1f16ce" } } }
 data UtxoAtAddressRequest
-UtxoAtAddressRequest :: Maybe (PageQuery TxOutRef) -> Credential -> UtxoAtAddressRequest
+UtxoAtAddressRequest :: Maybe (PageQuery TxOutRef) -> CardanoAddress -> UtxoAtAddressRequest
 [$sel:pageQuery:UtxoAtAddressRequest] :: UtxoAtAddressRequest -> Maybe (PageQuery TxOutRef)
-[$sel:credential:UtxoAtAddressRequest] :: UtxoAtAddressRequest -> Credential
+[$sel:address:UtxoAtAddressRequest] :: UtxoAtAddressRequest -> CardanoAddress
 
 -- | Response type for the utxo-{at-address|with-currency} endpoints.
 data UtxosResponse
@@ -930,18 +933,18 @@ UtxoWithCurrencyRequest :: Maybe (PageQuery TxOutRef) -> AssetClass -> UtxoWithC
 [$sel:currency:UtxoWithCurrencyRequest] :: UtxoWithCurrencyRequest -> AssetClass
 swagger :: forall dir api. Server api ~ Handler Value => Server (SwaggerSchemaUI' dir api)
 data TxoAtAddressRequest
-TxoAtAddressRequest :: Maybe (PageQuery TxOutRef) -> Credential -> TxoAtAddressRequest
+TxoAtAddressRequest :: Maybe (PageQuery TxOutRef) -> CardanoAddress -> TxoAtAddressRequest
 [$sel:pageQuery:TxoAtAddressRequest] :: TxoAtAddressRequest -> Maybe (PageQuery TxOutRef)
-[$sel:credential:TxoAtAddressRequest] :: TxoAtAddressRequest -> Credential
+[$sel:address:TxoAtAddressRequest] :: TxoAtAddressRequest -> CardanoAddress
 
 -- | Response type for the txo-at-address endpoint.
 data TxosResponse
 TxosResponse :: Page TxOutRef -> TxosResponse
 [$sel:paget:TxosResponse] :: TxosResponse -> Page TxOutRef
 data QueryAtAddressRequest
-QueryAtAddressRequest :: Maybe (PageQuery TxOutRef) -> Credential -> QueryAtAddressRequest
+QueryAtAddressRequest :: Maybe (PageQuery TxOutRef) -> CardanoAddress -> QueryAtAddressRequest
 [$sel:pageQuery:QueryAtAddressRequest] :: QueryAtAddressRequest -> Maybe (PageQuery TxOutRef)
-[$sel:credential:QueryAtAddressRequest] :: QueryAtAddressRequest -> Credential
+[$sel:address:QueryAtAddressRequest] :: QueryAtAddressRequest -> CardanoAddress
 
 -- | generic response type endpoint This type is introduced to avoid
 --   querying the chain index twice to obtain the expected info. Indeed, it
@@ -1050,15 +1053,15 @@ data ChainIndexQueryEffect r
 -- | Whether a tx output is part of the UTXO set
 [UtxoSetMembership] :: TxOutRef -> ChainIndexQueryEffect IsUtxoResponse
 
--- | Unspent outputs located at addresses with the given credential.
-[UtxoSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect UtxosResponse
+-- | Unspent outputs located at addresses with the given address.
+[UtxoSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect UtxosResponse
 
 -- | Get the unspent txouts located at an address This is to avoid multiple
 --   queries from chain-index when using utxosAt
-[UnspentTxOutSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect (QueryResponse [(TxOutRef, DecoratedTxOut)])
+[UnspentTxOutSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect (QueryResponse [(TxOutRef, DecoratedTxOut)])
 
--- | get the datums located at addresses with the given credential.
-[DatumsAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect (QueryResponse [Datum])
+-- | get the datums located at addresses with the given address.
+[DatumsAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect (QueryResponse [Datum])
 
 -- | Unspent outputs containing a specific currency (<a>AssetClass</a>).
 --   
@@ -1069,27 +1072,27 @@ data ChainIndexQueryEffect r
 -- | Get the transactions for a list of tx IDs.
 [TxsFromTxIds] :: [TxId] -> ChainIndexQueryEffect [ChainIndexTx]
 
--- | Outputs located at addresses with the given credential.
-[TxoSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect TxosResponse
+-- | Outputs located at addresses with the given address.
+[TxoSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect TxosResponse
 
 -- | Get the tip of the chain index
 [GetTip] :: ChainIndexQueryEffect Tip
-datumFromHash :: forall effs_a2x4l. Member ChainIndexQueryEffect effs_a2x4l => DatumHash -> Eff effs_a2x4l (Maybe Datum)
-validatorFromHash :: forall effs_a2x4m. Member ChainIndexQueryEffect effs_a2x4m => ValidatorHash -> Eff effs_a2x4m (Maybe (Versioned Validator))
-mintingPolicyFromHash :: forall effs_a2x4n. Member ChainIndexQueryEffect effs_a2x4n => MintingPolicyHash -> Eff effs_a2x4n (Maybe (Versioned MintingPolicy))
-stakeValidatorFromHash :: forall effs_a2x4p. Member ChainIndexQueryEffect effs_a2x4p => StakeValidatorHash -> Eff effs_a2x4p (Maybe (Versioned StakeValidator))
-redeemerFromHash :: forall effs_a2x4o. Member ChainIndexQueryEffect effs_a2x4o => RedeemerHash -> Eff effs_a2x4o (Maybe Redeemer)
-txOutFromRef :: forall effs_a2x4r. Member ChainIndexQueryEffect effs_a2x4r => TxOutRef -> Eff effs_a2x4r (Maybe DecoratedTxOut)
-unspentTxOutFromRef :: forall effs_a2x4q. Member ChainIndexQueryEffect effs_a2x4q => TxOutRef -> Eff effs_a2x4q (Maybe DecoratedTxOut)
-txFromTxId :: forall effs_a2x4s. Member ChainIndexQueryEffect effs_a2x4s => TxId -> Eff effs_a2x4s (Maybe ChainIndexTx)
-utxoSetMembership :: forall effs_a2x4t. Member ChainIndexQueryEffect effs_a2x4t => TxOutRef -> Eff effs_a2x4t IsUtxoResponse
-utxoSetAtAddress :: forall effs_a2x4u. Member ChainIndexQueryEffect effs_a2x4u => PageQuery TxOutRef -> Credential -> Eff effs_a2x4u UtxosResponse
-unspentTxOutSetAtAddress :: forall effs_a2x4v. Member ChainIndexQueryEffect effs_a2x4v => PageQuery TxOutRef -> Credential -> Eff effs_a2x4v (QueryResponse [(TxOutRef, DecoratedTxOut)])
-datumsAtAddress :: forall effs_a2x4w. Member ChainIndexQueryEffect effs_a2x4w => PageQuery TxOutRef -> Credential -> Eff effs_a2x4w (QueryResponse [Datum])
-utxoSetWithCurrency :: forall effs_a2x4x. Member ChainIndexQueryEffect effs_a2x4x => PageQuery TxOutRef -> AssetClass -> Eff effs_a2x4x UtxosResponse
-txoSetAtAddress :: forall effs_a2x4z. Member ChainIndexQueryEffect effs_a2x4z => PageQuery TxOutRef -> Credential -> Eff effs_a2x4z TxosResponse
-txsFromTxIds :: forall effs_a2x4y. Member ChainIndexQueryEffect effs_a2x4y => [TxId] -> Eff effs_a2x4y [ChainIndexTx]
-getTip :: forall effs_a2x4A. Member ChainIndexQueryEffect effs_a2x4A => Eff effs_a2x4A Tip
+datumFromHash :: forall effs_a2xVC. Member ChainIndexQueryEffect effs_a2xVC => DatumHash -> Eff effs_a2xVC (Maybe Datum)
+validatorFromHash :: forall effs_a2xVD. Member ChainIndexQueryEffect effs_a2xVD => ValidatorHash -> Eff effs_a2xVD (Maybe (Versioned Validator))
+mintingPolicyFromHash :: forall effs_a2xVE. Member ChainIndexQueryEffect effs_a2xVE => MintingPolicyHash -> Eff effs_a2xVE (Maybe (Versioned MintingPolicy))
+stakeValidatorFromHash :: forall effs_a2xVG. Member ChainIndexQueryEffect effs_a2xVG => StakeValidatorHash -> Eff effs_a2xVG (Maybe (Versioned StakeValidator))
+redeemerFromHash :: forall effs_a2xVF. Member ChainIndexQueryEffect effs_a2xVF => RedeemerHash -> Eff effs_a2xVF (Maybe Redeemer)
+txOutFromRef :: forall effs_a2xVI. Member ChainIndexQueryEffect effs_a2xVI => TxOutRef -> Eff effs_a2xVI (Maybe DecoratedTxOut)
+unspentTxOutFromRef :: forall effs_a2xVH. Member ChainIndexQueryEffect effs_a2xVH => TxOutRef -> Eff effs_a2xVH (Maybe DecoratedTxOut)
+txFromTxId :: forall effs_a2xVJ. Member ChainIndexQueryEffect effs_a2xVJ => TxId -> Eff effs_a2xVJ (Maybe ChainIndexTx)
+utxoSetMembership :: forall effs_a2xVK. Member ChainIndexQueryEffect effs_a2xVK => TxOutRef -> Eff effs_a2xVK IsUtxoResponse
+utxoSetAtAddress :: forall effs_a2xVL. Member ChainIndexQueryEffect effs_a2xVL => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVL UtxosResponse
+unspentTxOutSetAtAddress :: forall effs_a2xVM. Member ChainIndexQueryEffect effs_a2xVM => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVM (QueryResponse [(TxOutRef, DecoratedTxOut)])
+datumsAtAddress :: forall effs_a2xVN. Member ChainIndexQueryEffect effs_a2xVN => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVN (QueryResponse [Datum])
+utxoSetWithCurrency :: forall effs_a2xVO. Member ChainIndexQueryEffect effs_a2xVO => PageQuery TxOutRef -> AssetClass -> Eff effs_a2xVO UtxosResponse
+txoSetAtAddress :: forall effs_a2xVQ. Member ChainIndexQueryEffect effs_a2xVQ => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVQ TxosResponse
+txsFromTxIds :: forall effs_a2xVP. Member ChainIndexQueryEffect effs_a2xVP => [TxId] -> Eff effs_a2xVP [ChainIndexTx]
+getTip :: forall effs_a2xVR. Member ChainIndexQueryEffect effs_a2xVR => Eff effs_a2xVR Tip
 data ChainIndexControlEffect r
 
 -- | Add new blocks to the chain index.
@@ -1104,11 +1107,11 @@ data ChainIndexControlEffect r
 -- | Delete all data that is not covered by current UTxOs.
 [CollectGarbage] :: ChainIndexControlEffect ()
 [GetDiagnostics] :: ChainIndexControlEffect Diagnostics
-appendBlocks :: forall effs_a2xfw. Member ChainIndexControlEffect effs_a2xfw => [ChainSyncBlock] -> Eff effs_a2xfw ()
-rollback :: forall effs_a2xfx. Member ChainIndexControlEffect effs_a2xfx => Point -> Eff effs_a2xfx ()
-resumeSync :: forall effs_a2xfy. Member ChainIndexControlEffect effs_a2xfy => Point -> Eff effs_a2xfy ()
-collectGarbage :: forall effs_a2xfz. Member ChainIndexControlEffect effs_a2xfz => Eff effs_a2xfz ()
-getDiagnostics :: forall effs_a2xfA. Member ChainIndexControlEffect effs_a2xfA => Eff effs_a2xfA Diagnostics
+appendBlocks :: forall effs_a2y6N. Member ChainIndexControlEffect effs_a2y6N => [ChainSyncBlock] -> Eff effs_a2y6N ()
+rollback :: forall effs_a2y6O. Member ChainIndexControlEffect effs_a2y6O => Point -> Eff effs_a2y6O ()
+resumeSync :: forall effs_a2y6P. Member ChainIndexControlEffect effs_a2y6P => Point -> Eff effs_a2y6P ()
+collectGarbage :: forall effs_a2y6Q. Member ChainIndexControlEffect effs_a2y6Q => Eff effs_a2y6Q ()
+getDiagnostics :: forall effs_a2y6R. Member ChainIndexControlEffect effs_a2y6R => Eff effs_a2y6R Diagnostics
 
 module Plutus.ChainIndex.Client
 
@@ -1136,11 +1139,12 @@ getTip :: ClientM Tip
 module Plutus.ChainIndex.Compatibility
 fromCardanoTip :: ChainTip -> Tip
 fromCardanoPoint :: ChainPoint -> Point
-toCardanoPoint :: Point -> Maybe ChainPoint
+toCardanoPoint :: Point -> ChainPoint
 tipFromCardanoBlock :: BlockInMode CardanoMode -> Tip
+tipFromCardanoBlockHeader :: BlockHeader -> Tip
 fromCardanoSlot :: SlotNo -> Slot
 fromCardanoBlockId :: Hash BlockHeader -> BlockId
-toCardanoBlockId :: BlockId -> Maybe (Hash BlockHeader)
+toCardanoBlockId :: BlockId -> Hash BlockHeader
 fromCardanoBlockHeader :: BlockHeader -> Tip
 fromCardanoBlockNo :: BlockNo -> BlockNumber
 fromCardanoBlock :: BlockInMode CardanoMode -> [ChainIndexTx]
@@ -1232,8 +1236,8 @@ UtxoState :: a -> Tip -> UtxoState a
 
 -- | Tip of our chain sync client
 [_usTip] :: UtxoState a -> Tip
-usTxUtxoData :: forall a_a2G2t a_a2Gem. Lens (UtxoState a_a2G2t) (UtxoState a_a2Gem) a_a2G2t a_a2Gem
-usTip :: forall a_a2G2t. Lens' (UtxoState a_a2G2t) Tip
+usTxUtxoData :: forall a_a2HhA a_a2Htr. Lens (UtxoState a_a2HhA) (UtxoState a_a2Htr) a_a2HhA a_a2Htr
+usTip :: forall a_a2HhA. Lens' (UtxoState a_a2HhA) Tip
 type UtxoIndex a = FingerTree (BlockCount, UtxoState a) (UtxoState a)
 utxoState :: Monoid a => UtxoIndex a -> UtxoState a
 utxoBlockCount :: Monoid a => UtxoIndex a -> Int
@@ -1443,6 +1447,39 @@ instance Data.Aeson.Types.ToJSON.ToJSON t => Data.Aeson.Types.ToJSON.ToJSON (Plu
 instance Prettyprinter.Internal.Pretty t => Cardano.BM.Data.Tracer.ToObject (Plutus.Monitoring.Util.PrettyObject t)
 instance Prettyprinter.Internal.Pretty t => Data.Text.Class.ToText (Plutus.Monitoring.Util.PrettyObject t)
 
+module Plutus.ChainIndex.Marconi
+data ChainIndexIndexers
+ChainIndexIndexers :: State UtxoHandle -> ChainIndexIndexers
+[_utxosIndexer] :: ChainIndexIndexers -> State UtxoHandle
+utxosIndexer :: Iso' ChainIndexIndexers (State UtxoHandle)
+data ChainIndexIndexersMVar
+ChainIndexIndexersMVar :: MVar (State UtxoHandle) -> ChainIndexIndexersMVar
+[_utxosIndexerMVar] :: ChainIndexIndexersMVar -> MVar (State UtxoHandle)
+boxChainIndexIndexers :: ChainIndexIndexers -> IO ChainIndexIndexersMVar
+utxosIndexerMVar :: Iso' ChainIndexIndexersMVar (MVar (State UtxoHandle))
+getChainIndexIndexers :: ChainIndexIndexersMVar -> IO ChainIndexIndexers
+putChainIndexIndexers :: ChainIndexIndexers -> ChainIndexIndexersMVar -> IO ()
+data MarconiEffect handle r
+[QueryIndexer] :: StorableQuery handle -> MarconiEffect handle (StorableResult handle)
+queryIndexer :: forall handle_a2U30. forall effs_a2U4J. Member (MarconiEffect handle_a2U30) effs_a2U4J => StorableQuery handle_a2U30 -> Eff effs_a2U4J (StorableResult handle_a2U30)
+handleMarconiQuery :: (LastMember IO effs, Member (State ChainIndexIndexers) effs, StorableMonad handle ~ IO, HasPoint (StorableEvent handle) (StorablePoint handle), Ord (StorablePoint handle), Queryable handle) => Lens' ChainIndexIndexers (State handle) -> MarconiEffect handle ~> Eff effs
+getUtxoSetAtAddress :: forall effs. Member (MarconiEffect UtxoHandle) effs => PageQuery TxOutRef -> CardanoAddress -> Eff effs UtxosResponse
+getUtxoEvents :: [CardanoTx] -> ChainPoint -> StorableEvent UtxoHandle
+
+-- | The required arguments to run the chain index effects.
+data RunRequirements
+RunRequirements :: !Trace IO (PrettyObject ChainIndexLog) -> !ChainIndexIndexersMVar -> RunRequirements
+[trace] :: RunRequirements -> !Trace IO (PrettyObject ChainIndexLog)
+[indexers] :: RunRequirements -> !ChainIndexIndexersMVar
+
+-- | Run the chain index effects.
+runChainIndexEffects :: RunRequirements -> Eff '[ChainIndexQueryEffect, ChainIndexControlEffect] a -> IO (Either ChainIndexError a)
+handleControl :: (LastMember IO effs, Member (State ChainIndexIndexers) effs, Member (Error ChainIndexError) effs) => ChainIndexControlEffect ~> Eff effs
+handleQuery :: (LastMember IO effs, Member (State ChainIndexIndexers) effs, Member (Error ChainIndexError) effs) => ChainIndexQueryEffect ~> Eff effs
+
+-- | Handle the chain index effects from the set of all effects.
+handleChainIndexEffects :: (LastMember IO effs, Member (Reader ChainIndexIndexersMVar) effs) => Eff (ChainIndexQueryEffect : (ChainIndexControlEffect : effs)) a -> Eff effs (Either ChainIndexError a)
+
 module Plutus.ChainIndex
 
 -- | Run the chain index effects.
@@ -1579,6 +1616,7 @@ ChainIndexTx :: TxId -> [TxIn] -> ChainIndexTxOutputs -> !SlotRange -> Map Datum
 [_citxCardanoTx] :: ChainIndexTx -> Maybe CardanoTx
 _InvalidTx :: Prism' ChainIndexTxOutputs (Maybe ChainIndexTxOut)
 _ValidTx :: Prism' ChainIndexTxOutputs [ChainIndexTxOut]
+chainIndexTxOutputs :: Traversal' ChainIndexTxOutputs ChainIndexTxOut
 
 -- | The tip of the chain index.
 data Tip
@@ -1779,6 +1817,8 @@ ResumeNotSupported :: ChainIndexError
 QueryFailedNoTip :: ChainIndexError
 BeamEffectError :: BeamError -> ChainIndexError
 ToCardanoError :: ToCardanoError -> ChainIndexError
+UnsupportedQuery :: ChainIndexError
+UnsupportedControlOperation :: ChainIndexError
 
 -- | Get tx outputs from tx.
 txOuts :: ChainIndexTx -> [ChainIndexTxOut]
@@ -1835,15 +1875,15 @@ data ChainIndexQueryEffect r
 -- | Whether a tx output is part of the UTXO set
 [UtxoSetMembership] :: TxOutRef -> ChainIndexQueryEffect IsUtxoResponse
 
--- | Unspent outputs located at addresses with the given credential.
-[UtxoSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect UtxosResponse
+-- | Unspent outputs located at addresses with the given address.
+[UtxoSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect UtxosResponse
 
 -- | Get the unspent txouts located at an address This is to avoid multiple
 --   queries from chain-index when using utxosAt
-[UnspentTxOutSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect (QueryResponse [(TxOutRef, DecoratedTxOut)])
+[UnspentTxOutSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect (QueryResponse [(TxOutRef, DecoratedTxOut)])
 
--- | get the datums located at addresses with the given credential.
-[DatumsAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect (QueryResponse [Datum])
+-- | get the datums located at addresses with the given address.
+[DatumsAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect (QueryResponse [Datum])
 
 -- | Unspent outputs containing a specific currency (<a>AssetClass</a>).
 --   
@@ -1854,8 +1894,8 @@ data ChainIndexQueryEffect r
 -- | Get the transactions for a list of tx IDs.
 [TxsFromTxIds] :: [TxId] -> ChainIndexQueryEffect [ChainIndexTx]
 
--- | Outputs located at addresses with the given credential.
-[TxoSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect TxosResponse
+-- | Outputs located at addresses with the given address.
+[TxoSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect TxosResponse
 
 -- | Get the tip of the chain index
 [GetTip] :: ChainIndexQueryEffect Tip
@@ -1873,27 +1913,27 @@ data ChainIndexControlEffect r
 -- | Delete all data that is not covered by current UTxOs.
 [CollectGarbage] :: ChainIndexControlEffect ()
 [GetDiagnostics] :: ChainIndexControlEffect Diagnostics
-datumFromHash :: forall effs_a2x4l. Member ChainIndexQueryEffect effs_a2x4l => DatumHash -> Eff effs_a2x4l (Maybe Datum)
-validatorFromHash :: forall effs_a2x4m. Member ChainIndexQueryEffect effs_a2x4m => ValidatorHash -> Eff effs_a2x4m (Maybe (Versioned Validator))
-mintingPolicyFromHash :: forall effs_a2x4n. Member ChainIndexQueryEffect effs_a2x4n => MintingPolicyHash -> Eff effs_a2x4n (Maybe (Versioned MintingPolicy))
-redeemerFromHash :: forall effs_a2x4o. Member ChainIndexQueryEffect effs_a2x4o => RedeemerHash -> Eff effs_a2x4o (Maybe Redeemer)
-stakeValidatorFromHash :: forall effs_a2x4p. Member ChainIndexQueryEffect effs_a2x4p => StakeValidatorHash -> Eff effs_a2x4p (Maybe (Versioned StakeValidator))
-unspentTxOutFromRef :: forall effs_a2x4q. Member ChainIndexQueryEffect effs_a2x4q => TxOutRef -> Eff effs_a2x4q (Maybe DecoratedTxOut)
-txOutFromRef :: forall effs_a2x4r. Member ChainIndexQueryEffect effs_a2x4r => TxOutRef -> Eff effs_a2x4r (Maybe DecoratedTxOut)
-txFromTxId :: forall effs_a2x4s. Member ChainIndexQueryEffect effs_a2x4s => TxId -> Eff effs_a2x4s (Maybe ChainIndexTx)
-utxoSetMembership :: forall effs_a2x4t. Member ChainIndexQueryEffect effs_a2x4t => TxOutRef -> Eff effs_a2x4t IsUtxoResponse
-utxoSetAtAddress :: forall effs_a2x4u. Member ChainIndexQueryEffect effs_a2x4u => PageQuery TxOutRef -> Credential -> Eff effs_a2x4u UtxosResponse
-unspentTxOutSetAtAddress :: forall effs_a2x4v. Member ChainIndexQueryEffect effs_a2x4v => PageQuery TxOutRef -> Credential -> Eff effs_a2x4v (QueryResponse [(TxOutRef, DecoratedTxOut)])
-datumsAtAddress :: forall effs_a2x4w. Member ChainIndexQueryEffect effs_a2x4w => PageQuery TxOutRef -> Credential -> Eff effs_a2x4w (QueryResponse [Datum])
-utxoSetWithCurrency :: forall effs_a2x4x. Member ChainIndexQueryEffect effs_a2x4x => PageQuery TxOutRef -> AssetClass -> Eff effs_a2x4x UtxosResponse
-txsFromTxIds :: forall effs_a2x4y. Member ChainIndexQueryEffect effs_a2x4y => [TxId] -> Eff effs_a2x4y [ChainIndexTx]
-txoSetAtAddress :: forall effs_a2x4z. Member ChainIndexQueryEffect effs_a2x4z => PageQuery TxOutRef -> Credential -> Eff effs_a2x4z TxosResponse
-getTip :: forall effs_a2x4A. Member ChainIndexQueryEffect effs_a2x4A => Eff effs_a2x4A Tip
-appendBlocks :: forall effs_a2xfw. Member ChainIndexControlEffect effs_a2xfw => [ChainSyncBlock] -> Eff effs_a2xfw ()
-rollback :: forall effs_a2xfx. Member ChainIndexControlEffect effs_a2xfx => Point -> Eff effs_a2xfx ()
-resumeSync :: forall effs_a2xfy. Member ChainIndexControlEffect effs_a2xfy => Point -> Eff effs_a2xfy ()
-collectGarbage :: forall effs_a2xfz. Member ChainIndexControlEffect effs_a2xfz => Eff effs_a2xfz ()
-getDiagnostics :: forall effs_a2xfA. Member ChainIndexControlEffect effs_a2xfA => Eff effs_a2xfA Diagnostics
+datumFromHash :: forall effs_a2xVC. Member ChainIndexQueryEffect effs_a2xVC => DatumHash -> Eff effs_a2xVC (Maybe Datum)
+validatorFromHash :: forall effs_a2xVD. Member ChainIndexQueryEffect effs_a2xVD => ValidatorHash -> Eff effs_a2xVD (Maybe (Versioned Validator))
+mintingPolicyFromHash :: forall effs_a2xVE. Member ChainIndexQueryEffect effs_a2xVE => MintingPolicyHash -> Eff effs_a2xVE (Maybe (Versioned MintingPolicy))
+redeemerFromHash :: forall effs_a2xVF. Member ChainIndexQueryEffect effs_a2xVF => RedeemerHash -> Eff effs_a2xVF (Maybe Redeemer)
+stakeValidatorFromHash :: forall effs_a2xVG. Member ChainIndexQueryEffect effs_a2xVG => StakeValidatorHash -> Eff effs_a2xVG (Maybe (Versioned StakeValidator))
+unspentTxOutFromRef :: forall effs_a2xVH. Member ChainIndexQueryEffect effs_a2xVH => TxOutRef -> Eff effs_a2xVH (Maybe DecoratedTxOut)
+txOutFromRef :: forall effs_a2xVI. Member ChainIndexQueryEffect effs_a2xVI => TxOutRef -> Eff effs_a2xVI (Maybe DecoratedTxOut)
+txFromTxId :: forall effs_a2xVJ. Member ChainIndexQueryEffect effs_a2xVJ => TxId -> Eff effs_a2xVJ (Maybe ChainIndexTx)
+utxoSetMembership :: forall effs_a2xVK. Member ChainIndexQueryEffect effs_a2xVK => TxOutRef -> Eff effs_a2xVK IsUtxoResponse
+utxoSetAtAddress :: forall effs_a2xVL. Member ChainIndexQueryEffect effs_a2xVL => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVL UtxosResponse
+unspentTxOutSetAtAddress :: forall effs_a2xVM. Member ChainIndexQueryEffect effs_a2xVM => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVM (QueryResponse [(TxOutRef, DecoratedTxOut)])
+datumsAtAddress :: forall effs_a2xVN. Member ChainIndexQueryEffect effs_a2xVN => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVN (QueryResponse [Datum])
+utxoSetWithCurrency :: forall effs_a2xVO. Member ChainIndexQueryEffect effs_a2xVO => PageQuery TxOutRef -> AssetClass -> Eff effs_a2xVO UtxosResponse
+txsFromTxIds :: forall effs_a2xVP. Member ChainIndexQueryEffect effs_a2xVP => [TxId] -> Eff effs_a2xVP [ChainIndexTx]
+txoSetAtAddress :: forall effs_a2xVQ. Member ChainIndexQueryEffect effs_a2xVQ => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVQ TxosResponse
+getTip :: forall effs_a2xVR. Member ChainIndexQueryEffect effs_a2xVR => Eff effs_a2xVR Tip
+appendBlocks :: forall effs_a2y6N. Member ChainIndexControlEffect effs_a2y6N => [ChainSyncBlock] -> Eff effs_a2y6N ()
+rollback :: forall effs_a2y6O. Member ChainIndexControlEffect effs_a2y6O => Point -> Eff effs_a2y6O ()
+resumeSync :: forall effs_a2y6P. Member ChainIndexControlEffect effs_a2y6P => Point -> Eff effs_a2y6P ()
+collectGarbage :: forall effs_a2y6Q. Member ChainIndexControlEffect effs_a2y6Q => Eff effs_a2y6Q ()
+getDiagnostics :: forall effs_a2y6R. Member ChainIndexControlEffect effs_a2y6R => Eff effs_a2y6R Diagnostics
 
 -- | Outcome of inserting a <tt>UtxoState</tt> into the utxo index
 data InsertUtxoPosition
@@ -1941,8 +1981,8 @@ type UtxoIndex a = FingerTree (BlockCount, UtxoState a) (UtxoState a)
 newtype BlockCount
 BlockCount :: Int -> BlockCount
 [getBlockCount] :: BlockCount -> Int
-usTip :: forall a_a2G2t. Lens' (UtxoState a_a2G2t) Tip
-usTxUtxoData :: forall a_a2G2t a_a2Gem. Lens (UtxoState a_a2G2t) (UtxoState a_a2Gem) a_a2G2t a_a2Gem
+usTip :: forall a_a2HhA. Lens' (UtxoState a_a2HhA) Tip
+usTxUtxoData :: forall a_a2HhA a_a2Htr. Lens (UtxoState a_a2HhA) (UtxoState a_a2Htr) a_a2HhA a_a2Htr
 utxoState :: Monoid a => UtxoIndex a -> UtxoState a
 utxoBlockCount :: Monoid a => UtxoIndex a -> Int
 tip :: UtxoState a -> Tip
@@ -2067,6 +2107,7 @@ ChainIndexTx :: TxId -> [TxIn] -> ChainIndexTxOutputs -> !SlotRange -> Map Datum
 [_citxCardanoTx] :: ChainIndexTx -> Maybe CardanoTx
 _InvalidTx :: Prism' ChainIndexTxOutputs (Maybe ChainIndexTxOut)
 _ValidTx :: Prism' ChainIndexTxOutputs [ChainIndexTxOut]
+chainIndexTxOutputs :: Traversal' ChainIndexTxOutputs ChainIndexTxOut
 
 -- | The tip of the chain index.
 data Tip
@@ -2267,6 +2308,8 @@ ResumeNotSupported :: ChainIndexError
 QueryFailedNoTip :: ChainIndexError
 BeamEffectError :: BeamError -> ChainIndexError
 ToCardanoError :: ToCardanoError -> ChainIndexError
+UnsupportedQuery :: ChainIndexError
+UnsupportedControlOperation :: ChainIndexError
 
 -- | Set of transaction output references for each address.
 data CredentialMap
@@ -2315,15 +2358,15 @@ data ChainIndexQueryEffect r
 -- | Whether a tx output is part of the UTXO set
 [UtxoSetMembership] :: TxOutRef -> ChainIndexQueryEffect IsUtxoResponse
 
--- | Unspent outputs located at addresses with the given credential.
-[UtxoSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect UtxosResponse
+-- | Unspent outputs located at addresses with the given address.
+[UtxoSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect UtxosResponse
 
 -- | Get the unspent txouts located at an address This is to avoid multiple
 --   queries from chain-index when using utxosAt
-[UnspentTxOutSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect (QueryResponse [(TxOutRef, DecoratedTxOut)])
+[UnspentTxOutSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect (QueryResponse [(TxOutRef, DecoratedTxOut)])
 
--- | get the datums located at addresses with the given credential.
-[DatumsAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect (QueryResponse [Datum])
+-- | get the datums located at addresses with the given address.
+[DatumsAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect (QueryResponse [Datum])
 
 -- | Unspent outputs containing a specific currency (<a>AssetClass</a>).
 --   
@@ -2334,8 +2377,8 @@ data ChainIndexQueryEffect r
 -- | Get the transactions for a list of tx IDs.
 [TxsFromTxIds] :: [TxId] -> ChainIndexQueryEffect [ChainIndexTx]
 
--- | Outputs located at addresses with the given credential.
-[TxoSetAtAddress] :: PageQuery TxOutRef -> Credential -> ChainIndexQueryEffect TxosResponse
+-- | Outputs located at addresses with the given address.
+[TxoSetAtAddress] :: PageQuery TxOutRef -> CardanoAddress -> ChainIndexQueryEffect TxosResponse
 
 -- | Get the tip of the chain index
 [GetTip] :: ChainIndexQueryEffect Tip
@@ -2353,27 +2396,27 @@ data ChainIndexControlEffect r
 -- | Delete all data that is not covered by current UTxOs.
 [CollectGarbage] :: ChainIndexControlEffect ()
 [GetDiagnostics] :: ChainIndexControlEffect Diagnostics
-datumFromHash :: forall effs_a2x4l. Member ChainIndexQueryEffect effs_a2x4l => DatumHash -> Eff effs_a2x4l (Maybe Datum)
-validatorFromHash :: forall effs_a2x4m. Member ChainIndexQueryEffect effs_a2x4m => ValidatorHash -> Eff effs_a2x4m (Maybe (Versioned Validator))
-mintingPolicyFromHash :: forall effs_a2x4n. Member ChainIndexQueryEffect effs_a2x4n => MintingPolicyHash -> Eff effs_a2x4n (Maybe (Versioned MintingPolicy))
-redeemerFromHash :: forall effs_a2x4o. Member ChainIndexQueryEffect effs_a2x4o => RedeemerHash -> Eff effs_a2x4o (Maybe Redeemer)
-stakeValidatorFromHash :: forall effs_a2x4p. Member ChainIndexQueryEffect effs_a2x4p => StakeValidatorHash -> Eff effs_a2x4p (Maybe (Versioned StakeValidator))
-unspentTxOutFromRef :: forall effs_a2x4q. Member ChainIndexQueryEffect effs_a2x4q => TxOutRef -> Eff effs_a2x4q (Maybe DecoratedTxOut)
-txOutFromRef :: forall effs_a2x4r. Member ChainIndexQueryEffect effs_a2x4r => TxOutRef -> Eff effs_a2x4r (Maybe DecoratedTxOut)
-txFromTxId :: forall effs_a2x4s. Member ChainIndexQueryEffect effs_a2x4s => TxId -> Eff effs_a2x4s (Maybe ChainIndexTx)
-utxoSetMembership :: forall effs_a2x4t. Member ChainIndexQueryEffect effs_a2x4t => TxOutRef -> Eff effs_a2x4t IsUtxoResponse
-utxoSetAtAddress :: forall effs_a2x4u. Member ChainIndexQueryEffect effs_a2x4u => PageQuery TxOutRef -> Credential -> Eff effs_a2x4u UtxosResponse
-unspentTxOutSetAtAddress :: forall effs_a2x4v. Member ChainIndexQueryEffect effs_a2x4v => PageQuery TxOutRef -> Credential -> Eff effs_a2x4v (QueryResponse [(TxOutRef, DecoratedTxOut)])
-datumsAtAddress :: forall effs_a2x4w. Member ChainIndexQueryEffect effs_a2x4w => PageQuery TxOutRef -> Credential -> Eff effs_a2x4w (QueryResponse [Datum])
-utxoSetWithCurrency :: forall effs_a2x4x. Member ChainIndexQueryEffect effs_a2x4x => PageQuery TxOutRef -> AssetClass -> Eff effs_a2x4x UtxosResponse
-txsFromTxIds :: forall effs_a2x4y. Member ChainIndexQueryEffect effs_a2x4y => [TxId] -> Eff effs_a2x4y [ChainIndexTx]
-txoSetAtAddress :: forall effs_a2x4z. Member ChainIndexQueryEffect effs_a2x4z => PageQuery TxOutRef -> Credential -> Eff effs_a2x4z TxosResponse
-getTip :: forall effs_a2x4A. Member ChainIndexQueryEffect effs_a2x4A => Eff effs_a2x4A Tip
-appendBlocks :: forall effs_a2xfw. Member ChainIndexControlEffect effs_a2xfw => [ChainSyncBlock] -> Eff effs_a2xfw ()
-rollback :: forall effs_a2xfx. Member ChainIndexControlEffect effs_a2xfx => Point -> Eff effs_a2xfx ()
-resumeSync :: forall effs_a2xfy. Member ChainIndexControlEffect effs_a2xfy => Point -> Eff effs_a2xfy ()
-collectGarbage :: forall effs_a2xfz. Member ChainIndexControlEffect effs_a2xfz => Eff effs_a2xfz ()
-getDiagnostics :: forall effs_a2xfA. Member ChainIndexControlEffect effs_a2xfA => Eff effs_a2xfA Diagnostics
+datumFromHash :: forall effs_a2xVC. Member ChainIndexQueryEffect effs_a2xVC => DatumHash -> Eff effs_a2xVC (Maybe Datum)
+validatorFromHash :: forall effs_a2xVD. Member ChainIndexQueryEffect effs_a2xVD => ValidatorHash -> Eff effs_a2xVD (Maybe (Versioned Validator))
+mintingPolicyFromHash :: forall effs_a2xVE. Member ChainIndexQueryEffect effs_a2xVE => MintingPolicyHash -> Eff effs_a2xVE (Maybe (Versioned MintingPolicy))
+redeemerFromHash :: forall effs_a2xVF. Member ChainIndexQueryEffect effs_a2xVF => RedeemerHash -> Eff effs_a2xVF (Maybe Redeemer)
+stakeValidatorFromHash :: forall effs_a2xVG. Member ChainIndexQueryEffect effs_a2xVG => StakeValidatorHash -> Eff effs_a2xVG (Maybe (Versioned StakeValidator))
+unspentTxOutFromRef :: forall effs_a2xVH. Member ChainIndexQueryEffect effs_a2xVH => TxOutRef -> Eff effs_a2xVH (Maybe DecoratedTxOut)
+txOutFromRef :: forall effs_a2xVI. Member ChainIndexQueryEffect effs_a2xVI => TxOutRef -> Eff effs_a2xVI (Maybe DecoratedTxOut)
+txFromTxId :: forall effs_a2xVJ. Member ChainIndexQueryEffect effs_a2xVJ => TxId -> Eff effs_a2xVJ (Maybe ChainIndexTx)
+utxoSetMembership :: forall effs_a2xVK. Member ChainIndexQueryEffect effs_a2xVK => TxOutRef -> Eff effs_a2xVK IsUtxoResponse
+utxoSetAtAddress :: forall effs_a2xVL. Member ChainIndexQueryEffect effs_a2xVL => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVL UtxosResponse
+unspentTxOutSetAtAddress :: forall effs_a2xVM. Member ChainIndexQueryEffect effs_a2xVM => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVM (QueryResponse [(TxOutRef, DecoratedTxOut)])
+datumsAtAddress :: forall effs_a2xVN. Member ChainIndexQueryEffect effs_a2xVN => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVN (QueryResponse [Datum])
+utxoSetWithCurrency :: forall effs_a2xVO. Member ChainIndexQueryEffect effs_a2xVO => PageQuery TxOutRef -> AssetClass -> Eff effs_a2xVO UtxosResponse
+txsFromTxIds :: forall effs_a2xVP. Member ChainIndexQueryEffect effs_a2xVP => [TxId] -> Eff effs_a2xVP [ChainIndexTx]
+txoSetAtAddress :: forall effs_a2xVQ. Member ChainIndexQueryEffect effs_a2xVQ => PageQuery TxOutRef -> CardanoAddress -> Eff effs_a2xVQ TxosResponse
+getTip :: forall effs_a2xVR. Member ChainIndexQueryEffect effs_a2xVR => Eff effs_a2xVR Tip
+appendBlocks :: forall effs_a2y6N. Member ChainIndexControlEffect effs_a2y6N => [ChainSyncBlock] -> Eff effs_a2y6N ()
+rollback :: forall effs_a2y6O. Member ChainIndexControlEffect effs_a2y6O => Point -> Eff effs_a2y6O ()
+resumeSync :: forall effs_a2y6P. Member ChainIndexControlEffect effs_a2y6P => Point -> Eff effs_a2y6P ()
+collectGarbage :: forall effs_a2y6Q. Member ChainIndexControlEffect effs_a2y6Q => Eff effs_a2y6Q ()
+getDiagnostics :: forall effs_a2y6R. Member ChainIndexControlEffect effs_a2y6R => Eff effs_a2y6R Diagnostics
 
 -- | Outcome of inserting a <tt>UtxoState</tt> into the utxo index
 data InsertUtxoPosition
