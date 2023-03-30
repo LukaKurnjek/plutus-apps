@@ -56,6 +56,7 @@ import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
+import Data.Maybe (fromMaybe)
 import Data.Sequence (Seq, ViewR (EmptyR, (:>)), (<|))
 import Data.Text (Text)
 
@@ -701,3 +702,75 @@ instance Queryable indexer event query m =>
     Queryable (WithDelay indexer) event query m where
 
     query p q indexer = query p q (indexer ^. delayedIndexer)
+
+-- ** Aggregation control
+
+-- | With aggregate control when we should aggregate an indexer
+data WithAggregate indexer event
+    = InitialFill
+    { _aggregatedIndexer :: !(indexer event)
+    , _aggregateEvery    :: !Word
+    , _securityParam     :: !Word
+    , _currentDepth      :: !Word
+    }
+    | WithAggregateReady
+    { _aggregatedIndexer :: !(indexer event)
+    , _securityParam     :: !Word
+    , _aggregateEvery    :: !Word
+    , _nextAggregate     :: !(Point event)
+    , _currentStep       :: !Word
+    }
+
+makeLenses ''WithAggregate
+
+aggregateAt
+    :: WithAggregate indexer event
+    -> (Maybe (Point event), WithAggregate indexer event)
+aggregateAt indexer = fromMaybe (Nothing, indexer) $ do
+    curStep <- indexer ^? currentStep
+    let aggregationStep = indexer ^. aggregateEvery
+    guard (curStep >= aggregationStep)
+    pure (indexer ^? nextAggregate, indexer)
+
+startNewStep :: Point event -> WithAggregate indexer event -> WithAggregate indexer event
+startNewStep p indexer
+    = WithAggregateReady
+        (indexer ^. aggregatedIndexer)
+        (indexer ^. securityParam)
+        (indexer ^. aggregateEvery)
+        p
+        0
+
+tick
+    :: Point event
+    -> WithAggregate indexer event
+    -> (Maybe (Point event), WithAggregate indexer event)
+tick p indexer = case currentDepth (pure . (+1)) indexer of
+    Nothing -> maybe
+      (Nothing, indexer)
+      aggregateAt
+      (currentStep (pure . (+ 1)) indexer)
+    Just indexer' -> fromMaybe (Nothing, indexer') $ do
+        depth <- indexer' ^? currentDepth
+        security <- indexer' ^? securityParam
+        guard (depth >= security)
+        let fresh
+                = WithAggregateReady
+                (indexer' ^. aggregatedIndexer)
+                (indexer' ^. securityParam)
+                (indexer' ^. aggregateEvery)
+                p
+                0
+        pure (Nothing, fresh)
+
+instance
+    (Monad m, Aggregable indexer event m, IsIndex indexer event m) =>
+    IsIndex (WithAggregate indexer) event m where
+
+    index timedEvent indexer = do
+        indexer' <- aggregatedIndexer (index timedEvent) indexer
+        let (mp, indexer'') = tick (timedEvent ^. point) indexer'
+        maybe
+          (pure indexer'')
+          (\p -> aggregatedIndexer (aggregate p) indexer)
+          mp
