@@ -28,9 +28,13 @@ What's included in this module:
 
    - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
    - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
-   - Tracing, as a modifier to an existing indexer (it allows us to opt-in for traces if we want, indexer by indexer)
    - A coordinator for indexers, that can be exposed as an itdexer itself
    - Some queries that can be applied to many indexers
+   - Several modifiers for indexers:
+       - Tracing, as a modifier to an existing indexer
+         (it allows us to opt-in for traces if we want, indexer by indexer)
+       - Delay to delay event processing for heavy computation
+       - Aggregate, to compact data that can't be rollbacked
 
   Contrary to the original Marconi design, indexers don't have a unique (in-memory/sqlite) implementation.
 
@@ -341,13 +345,15 @@ instance
     , Rewindable store event m
     ) => Rewindable (MixedIndexer ListIndexer store) event m where
 
-    rewind p indexer = runMaybeT $ do
-        ix <- inMemory rewindInStore indexer
-        guard $ not $ null $ ix ^. inMemory . events
-        inDatabase rewindInStore ix
-        where
-            rewindInStore :: Rewindable index event m => index event -> MaybeT m (index event)
-            rewindInStore = MaybeT . rewind p
+    rewind p indexer = let
+
+        rewindInStore :: Rewindable index event m => index event -> MaybeT m (index event)
+        rewindInStore = MaybeT . rewind p
+
+        in runMaybeT $ do
+            ix <- inMemory rewindInStore indexer
+            guard $ not $ null $ ix ^. inMemory . events
+            inDatabase rewindInStore ix
 
 instance
     ( ResumableResult ListIndexer event query m
@@ -355,7 +361,10 @@ instance
     ) =>
     Queryable (MixedIndexer ListIndexer store) event query m where
 
-    query valid q indexer = resumeResult valid q (indexer ^. inMemory) (query valid q (indexer ^. inDatabase))
+    query valid q indexer
+        = resumeResult valid q
+            (indexer ^. inMemory)
+            (query valid q (indexer ^. inDatabase))
 
 
 -- ** Runners
@@ -404,37 +413,38 @@ createRunner ix f = do
 -- | The runner notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
 startRunner :: Ord point => TChan input -> QSemN -> Runner input point -> IO ()
-startRunner chan tokens (Runner ix processInput) = do
-    chan' <- STM.atomically $ STM.dupTChan chan
-    input <- STM.atomically $ STM.readTChan chan'
-    forever $ do
-        unlockCoordinator
-        processedInput <- processInput input
-        case processedInput of
-             Rollback p -> handleRollback p
-             Index e    -> indexEvent e
-    where
+startRunner chan tokens (Runner ix processInput) = let
 
-      unlockCoordinator = Con.signalQSemN tokens 1
+    unlockCoordinator = Con.signalQSemN tokens 1
 
-      fresherThan evt p = maybe True (< evt ^. point) p
+    fresherThan evt p = maybe True (< evt ^. point) p
 
-      indexEvent timedEvent = do
-          indexer <- STM.atomically $ STM.takeTMVar ix
-          indexerLastPoint <- lastSyncPoint indexer
-          if timedEvent `fresherThan` indexerLastPoint
-             then do
-                 indexer' <- index timedEvent indexer
-                 STM.atomically $ STM.putTMVar ix indexer'
-             else STM.atomically $ STM.putTMVar ix indexer
+    indexEvent timedEvent = do
+        indexer <- STM.atomically $ STM.takeTMVar ix
+        indexerLastPoint <- lastSyncPoint indexer
+        if timedEvent `fresherThan` indexerLastPoint
+           then do
+               indexer' <- index timedEvent indexer
+               STM.atomically $ STM.putTMVar ix indexer'
+           else STM.atomically $ STM.putTMVar ix indexer
 
-      handleRollback p = do
-          indexer <- STM.atomically $ STM.takeTMVar ix
-          mindexer <- rewind p indexer
-          maybe
-              (STM.atomically $ STM.putTMVar ix indexer)
-              (STM.atomically . STM.putTMVar ix)
-              mindexer
+    handleRollback p = do
+        indexer <- STM.atomically $ STM.takeTMVar ix
+        mindexer <- rewind p indexer
+        maybe
+            (STM.atomically $ STM.putTMVar ix indexer)
+            (STM.atomically . STM.putTMVar ix)
+            mindexer
+
+    in do
+        chan' <- STM.atomically $ STM.dupTChan chan
+        input <- STM.atomically $ STM.readTChan chan'
+        forever $ do
+            unlockCoordinator
+            processedInput <- processInput input
+            case processedInput of
+                 Rollback p -> handleRollback p
+                 Index e    -> indexEvent e
 
 -- | A coordinator synchronises the event processing of a list of indexers.
 -- A coordinator is itself is an indexer.
@@ -456,38 +466,43 @@ makeLenses 'Coordinator
 -- the indexer is rewinded.
 runnerSyncPoints :: Ord point => [Runner input point] -> IO [point]
 runnerSyncPoints [] = pure []
-runnerSyncPoints (r:rs) = do
-    ps <- getSyncPoints r
-    foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
+runnerSyncPoints (r:rs) = let
 
-    where
+    getSyncPoints :: Ord point => Runner input point -> IO [point]
+    getSyncPoints (Runner ix _) = do
+        indexer <- STM.atomically $ STM.readTMVar ix
+        syncPoints indexer
 
-        getSyncPoints :: Ord point => Runner input point -> IO [point]
-        getSyncPoints (Runner ix _) = do
-            indexer <- STM.atomically $ STM.readTMVar ix
-            syncPoints indexer
+    in do
+        ps <- getSyncPoints r
+        foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
 
 -- | create a coordinator with started runners
 start :: Ord point => [Runner input point] -> IO (Coordinator input point)
-start runners' = do
-    let nb = length runners'
-    tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the runners will start
-    channel' <- STM.newBroadcastTChanIO
-    startRunners channel' tokens'
-    pure $ Coordinator Nothing runners' tokens' channel' nb
-    where
-        startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
+start runners' = let
+
+    startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
+
+    in do
+        let nb = length runners'
+        tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the runners will start
+        channel' <- STM.newBroadcastTChanIO
+        startRunners channel' tokens'
+        pure $ Coordinator Nothing runners' tokens' channel' nb
 
 -- A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
 step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
-step getPoint coordinator input = do
-    dispatchNewInput
-    waitRunners $> setLastSync coordinator
-    where
+step getPoint coordinator input = let
+
       waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
+
       dispatchNewInput = STM.atomically $ STM.writeTChan (coordinator ^. channel) input
+
       setLastSync c = c & lastSync ?~ getPoint input
 
+    in do
+        dispatchNewInput
+        waitRunners $> setLastSync coordinator
 
 -- A coordinator can be seen as an indexer
 newtype CoordinatorIndex event =
@@ -509,29 +524,31 @@ instance IsSync CoordinatorIndex event IO where
 -- | To rewind a coordinator, we try and rewind all the runners.
 instance Rewindable CoordinatorIndex event IO where
 
-    rewind p = runMaybeT . coordinator rewindRunners
-        where
-            rewindRunners ::
-                Coordinator event (Point event) ->
-                MaybeT IO (Coordinator event (Point event))
-            rewindRunners c = do
-                availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
-                -- we start by checking if the given point is a valid sync point
-                guard $ p `elem` availableSyncs
-                runners (traverse $ MaybeT . rewindRunner) c
+    rewind p = let
 
-            rewindRunner ::
-                Runner event (Point event) ->
-                IO (Maybe (Runner event (Point event)))
-            rewindRunner r@Runner{runnerState} = do
-                indexer <- STM.atomically $ STM.takeTMVar runnerState
-                res <- rewind p indexer
-                maybe
-                    -- the Nothing case should not happen
-                    -- as we check that the sync point is a valid one
-                    (STM.atomically (STM.putTMVar runnerState indexer) $> Nothing)
-                    ((Just r <$) . STM.atomically . STM.putTMVar runnerState)
-                    res
+        rewindRunners ::
+            Coordinator event (Point event) ->
+            MaybeT IO (Coordinator event (Point event))
+        rewindRunners c = do
+            availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
+            -- we start by checking if the given point is a valid sync point
+            guard $ p `elem` availableSyncs
+            runners (traverse $ MaybeT . rewindRunner) c
+
+        rewindRunner ::
+            Runner event (Point event) ->
+            IO (Maybe (Runner event (Point event)))
+        rewindRunner r@Runner{runnerState} = do
+            indexer <- STM.atomically $ STM.takeTMVar runnerState
+            res <- rewind p indexer
+            maybe
+                -- the Nothing case should not happen
+                -- as we check that the sync point is a valid one
+                (STM.atomically (STM.putTMVar runnerState indexer) $> Nothing)
+                ((Just r <$) . STM.atomically . STM.putTMVar runnerState)
+                res
+
+        in  runMaybeT . coordinator rewindRunners
 
 -- There is no point in providing a 'Queryable' interface for 'CoordinatorIndex' though,
 -- as it's sole interest would be to get the latest synchronisation points,
@@ -656,6 +673,9 @@ instance Queryable indexer event query m =>
 -- | When indexing computation is expensive, you may want to delay it to avoid expensive rollback
 -- 'WithDelay' buffers events before sending them to the underlying indexer.
 -- Buffered events are sent when the buffers overflows.
+--
+-- An indexer wrapped in 'WithDelay' won't interact nicely with coordinator at the moment,
+-- as 'WithDelay' acts as it's processing an event while it only postpones the processing.
 data WithDelay index event
     = WithDelay
     { _delayedIndexer :: !(index event)
@@ -708,7 +728,7 @@ instance
         (after, before) =  Seq.spanl ((> p) . view point) $ indexer ^. buffer
 
         in if Seq.null before
-           then fmap resetBuffer <$> runMaybeT (rewindWrappedIndexer p)
+           then runMaybeT $ resetBuffer <$> rewindWrappedIndexer p
            else pure . pure $ indexer
                    & buffer .~ after
                    & bufferSize .~ fromIntegral (Seq.length after)
@@ -823,5 +843,8 @@ instance
             -- we have 'stepLength' events available in the indexer
             set currentDepth (fromIntegral $ length points * fromIntegral stepLength)
 
-        in fmap (countFromAggregatePoints . cleanAggregatePoints p . resetStep)
-            <$> runMaybeT (rewindWrappedIndexer p indexer)
+        in runMaybeT $
+            countFromAggregatePoints
+            . cleanAggregatePoints p
+            . resetStep
+            <$> rewindWrappedIndexer p indexer
