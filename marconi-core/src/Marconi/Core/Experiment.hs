@@ -44,7 +44,8 @@ import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
 import Control.Concurrent (QSemN)
-import Control.Lens (filtered, folded, makeLenses, view, (%~), (&), (+~), (.~), (<<.~), (?~), (^.), (^..), (^?))
+import Control.Lens (filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~), (^.), (^..),
+                     (^?))
 import Control.Monad (forever, guard, when)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
@@ -52,11 +53,11 @@ import Control.Tracer (Tracer)
 import Control.Concurrent.STM (TChan, TMVar)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
+import Data.Bifunctor (first)
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
-import Data.Maybe (fromMaybe)
 import Data.Sequence (Seq, ViewR (EmptyR, (:>)), (<|))
 import Data.Text (Text)
 
@@ -230,8 +231,10 @@ instance
 
         appendEvent :: ListIndexer event -> ListIndexer event
         appendEvent = events %~ (timedEvent:)
+
         updateLatest :: ListIndexer event -> ListIndexer event
         updateLatest = latest ?~ (timedEvent ^. point)
+
         checkOverflow :: Bool -> m ()
         checkOverflow b = when b $ throwError $ NoSpaceLeft ix
 
@@ -267,11 +270,13 @@ instance Applicative m => Rewindable ListIndexer event m where
 instance Applicative m => Resumable ListIndexer event m where
 
     syncPoints ix = let
+
       indexPoints = ix ^.. events . folded . point
       -- if the latest point of the index is not a stored event, we add it to the list of points
       addLatestIfNeeded Nothing ps         = ps
       addLatestIfNeeded (Just p) []        = [p]
       addLatestIfNeeded (Just p) ps@(p':_) = if p == p' then ps else p:ps
+
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
 
@@ -630,7 +635,9 @@ instance
     ) => Rewindable (WithTracer m index) event m where
 
     rewind p indexer = let
+
          rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
+
          traceSuccessfulRewind indexer' = do
               Tracer.traceWith (indexer' ^. tracer) (Rollback p)
               pure indexer'
@@ -664,13 +671,17 @@ instance
     IsIndex (WithDelay indexer) event m where
 
     index timedEvent indexer = let
-        bufferIsFool b = (b ^. bufferSize) >= (b ^. bufferCapacity)
+
+        bufferIsFull b = (b ^. bufferSize) >= (b ^. bufferCapacity)
+
         bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
+
         pushAndGetOldest b = case Seq.viewr b of
             EmptyR          -> (timedEvent, b)
             (buffer' :> e') -> (e', timedEvent <| buffer')
+
         in do
-        if not $ bufferIsFool indexer
+        if not $ bufferIsFull indexer
         then pure $ bufferEvent indexer
         else do
             let b = indexer ^. buffer
@@ -679,6 +690,7 @@ instance
             pure $ res & buffer .~ buffer'
 
 instance IsSync index event m => IsSync (WithDelay index) event m where
+
     lastSyncPoint = lastSyncPoint . view delayedIndexer
 
 instance
@@ -688,15 +700,18 @@ instance
     ) => Rewindable (WithDelay indexer) event m where
 
     rewind p indexer = let
+
         rewindWrappedIndexer p' = delayedIndexer (MaybeT . rewind p') indexer
+
         resetBuffer = (bufferSize .~ 0) . (buffer .~ Seq.empty)
-        (after, before) =  Seq.spanl ((p <=) . view point) $ indexer ^. buffer
+
+        (after, before) =  Seq.spanl ((> p) . view point) $ indexer ^. buffer
+
         in if Seq.null before
            then fmap resetBuffer <$> runMaybeT (rewindWrappedIndexer p)
-           else pure . pure
-               $ indexer
-               & buffer .~ after & bufferSize .~ fromIntegral (Seq.length after)
-
+           else pure . pure $ indexer
+                   & buffer .~ after
+                   & bufferSize .~ fromIntegral (Seq.length after)
 
 instance Queryable indexer event query m =>
     Queryable (WithDelay indexer) event query m where
@@ -705,63 +720,63 @@ instance Queryable indexer event query m =>
 
 -- ** Aggregation control
 
--- | With aggregate control when we should aggregate an indexer
+
+-- | WithAggregate control when we should aggregate an indexer
 data WithAggregate indexer event
-    = InitialFill
+    = WithAggregate
     { _aggregatedIndexer :: !(indexer event)
-    , _aggregateEvery    :: !Word
+      -- ^ the underlying indexer
     , _securityParam     :: !Word
+      -- ^ how far can a rollback go
+    , _aggregateEvery    :: !Word
+      -- ^ how once we have enough events, how often do we rollback
+    , _nextAggregates    :: !(Seq (Point event))
+      -- ^ list of aggregation points
+    , _stepsBeforeNext   :: !Word
+      -- ^ events requires before next aggregation milestones
     , _currentDepth      :: !Word
-    }
-    | WithAggregateReady
-    { _aggregatedIndexer :: !(indexer event)
-    , _securityParam     :: !Word
-    , _aggregateEvery    :: !Word
-    , _nextAggregate     :: !(Point event)
-    , _currentStep       :: !Word
+      -- ^ how many events aren't aggregated yet
     }
 
 makeLenses ''WithAggregate
 
 aggregateAt
     :: WithAggregate indexer event
-    -> (Maybe (Point event), WithAggregate indexer event)
-aggregateAt indexer = fromMaybe (Nothing, indexer) $ do
-    curStep <- indexer ^? currentStep
-    let aggregationStep = indexer ^. aggregateEvery
-    guard (curStep >= aggregationStep)
-    pure (indexer ^? nextAggregate, indexer)
+    -> Maybe (Point event, WithAggregate indexer event)
+aggregateAt indexer = let
+
+    reachAggregationPoint = indexer ^. currentDepth >= indexer ^. securityParam + indexer ^. aggregateEvery
+
+    dequeueNextAggregatePoint =
+        case Seq.viewr (indexer ^. nextAggregates) of
+            EmptyR  -> Nothing
+            xs :> p -> Just (p, indexer & nextAggregates .~ xs)
+
+    in guard reachAggregationPoint *> dequeueNextAggregatePoint
+
 
 startNewStep :: Point event -> WithAggregate indexer event -> WithAggregate indexer event
 startNewStep p indexer
-    = WithAggregateReady
-        (indexer ^. aggregatedIndexer)
-        (indexer ^. securityParam)
-        (indexer ^. aggregateEvery)
-        p
-        0
+    = indexer
+        & nextAggregates %~ (p <|)
+        & stepsBeforeNext .~ (indexer ^. aggregateEvery)
 
 tick
     :: Point event
     -> WithAggregate indexer event
     -> (Maybe (Point event), WithAggregate indexer event)
-tick p indexer = case currentDepth (pure . (+1)) indexer of
-    Nothing -> maybe
-      (Nothing, indexer)
-      aggregateAt
-      (currentStep (pure . (+ 1)) indexer)
-    Just indexer' -> fromMaybe (Nothing, indexer') $ do
-        depth <- indexer' ^? currentDepth
-        security <- indexer' ^? securityParam
-        guard (depth >= security)
-        let fresh
-                = WithAggregateReady
-                (indexer' ^. aggregatedIndexer)
-                (indexer' ^. securityParam)
-                (indexer' ^. aggregateEvery)
-                p
-                0
-        pure (Nothing, fresh)
+tick p indexer = let
+
+    countEvent = (currentDepth +~ 1) . (stepsBeforeNext -~ 1)
+
+    adjustStep ix = if ix ^. stepsBeforeNext == 0
+        then startNewStep p ix
+        else ix
+
+    indexer' = adjustStep $ countEvent indexer
+
+    in maybe (Nothing, indexer') (first Just) $ aggregateAt indexer'
+
 
 instance
     (Monad m, Aggregable indexer event m, IsIndex indexer event m) =>
@@ -774,3 +789,39 @@ instance
           (pure indexer'')
           (\p -> aggregatedIndexer (aggregate p) indexer)
           mp
+
+instance IsSync index event m => IsSync (WithAggregate index) event m where
+
+    lastSyncPoint = lastSyncPoint . view aggregatedIndexer
+
+instance Queryable indexer event query m =>
+    Queryable (WithAggregate indexer) event query m where
+
+    query p q indexer = query p q (indexer ^. aggregatedIndexer)
+
+-- | The rewindable instance for `WithAggregate` is a defensive heuristic
+-- that may provide a non optimal behaviour but ensure that we don't
+-- mess up with the rollbackable events.
+instance
+    ( Monad m
+    , Rewindable indexer event m
+    , Ord (Point event)
+    ) => Rewindable (WithAggregate indexer) event m where
+
+    rewind p indexer = let
+
+        rewindWrappedIndexer p' = aggregatedIndexer (MaybeT . rewind p')
+        resetStep = do
+            stepLength <- view aggregateEvery
+            set stepsBeforeNext stepLength
+
+        cleanAggregatePoints p' = nextAggregates %~ Seq.dropWhileL (> p')
+        countFromAggregatePoints = do
+            points <- view nextAggregates
+            stepLength <- view aggregateEvery
+            -- We can safely consider that for each aggregate point still in the pipe,
+            -- we have 'stepLength' events available in the indexer
+            set currentDepth (fromIntegral $ length points * fromIntegral stepLength)
+
+        in fmap (countFromAggregatePoints . cleanAggregatePoints p . resetStep)
+            <$> runMaybeT (rewindWrappedIndexer p indexer)
