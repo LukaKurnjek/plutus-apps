@@ -62,7 +62,7 @@ import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
-import Data.Sequence (Seq, ViewR (EmptyR, (:>)), (<|))
+import Data.Sequence (Seq (Empty, (:|>)), (<|))
 import Data.Text (Text)
 
 
@@ -282,7 +282,6 @@ instance Applicative m => Resumable ListIndexer event m where
       addLatestIfNeeded (Just p) ps@(p':_) = if p == p' then ps else p:ps
 
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
-
 
 -- ** Mixed indexer
 
@@ -696,9 +695,9 @@ instance
 
         bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
 
-        pushAndGetOldest b = case Seq.viewr b of
-            EmptyR          -> (timedEvent, b)
-            (buffer' :> e') -> (e', timedEvent <| buffer')
+        pushAndGetOldest = \case
+            Empty            -> (timedEvent, Empty)
+            (buffer' :|> e') -> (e', timedEvent <| buffer')
 
         in do
         if not $ bufferIsFull indexer
@@ -768,9 +767,9 @@ aggregateAt indexer = let
     reachAggregationPoint = indexer ^. currentDepth >= indexer ^. securityParam + indexer ^. aggregateEvery
 
     dequeueNextAggregatePoint =
-        case Seq.viewr (indexer ^. nextAggregates) of
-            EmptyR  -> Nothing
-            xs :> p -> Just (p, indexer & nextAggregates .~ xs)
+        case indexer ^. nextAggregates of
+            Empty    -> Nothing
+            xs :|> p -> Just (p, indexer & nextAggregates .~ xs)
 
     in guard reachAggregationPoint *> dequeueNextAggregatePoint
 
