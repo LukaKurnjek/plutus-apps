@@ -26,17 +26,31 @@
 
 What's included in this module:
 
-   - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
-   - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
-   - A coordinator for indexers, that can be exposed as an itdexer itself
-   - Some queries that can be applied to many indexers
-   - Several modifiers for indexers:
-       - Tracing, as a modifier to an existing indexer
-         (it allows us to opt-in for traces if we want, indexer by indexer)
-       - Delay to delay event processing for heavy computation
-       - Aggregate, to compact data that can't be rollbacked
+    - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
+    - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
+    - A coordinator for indexers, that can be exposed as an itdexer itself
+    - Some queries that can be applied to many indexers
+    - Several modifiers for indexers:
+        - Tracing, as a modifier to an existing indexer
+          (it allows us to opt-in for traces if we want, indexer by indexer)
+        - Delay to delay event processing for heavy computation
+        - Aggregate, to compact data that can't be rollbacked
 
   Contrary to the original Marconi design, indexers don't have a unique (in-memory/sqlite) implementation.
+
+  (non-exhaustive) TODO list:
+
+    - Provide an implementation for an SQLite indexer.
+      We shouldn't have to provide more than the queries and tables in most cases.
+      The indexer instances should take care of the global behaviour for all typeclasses.
+    - Test, test, test. The current code is not tested, and it's wrong.
+      Ideally, we should be able to provide a model-based testing approach to specify
+      what we expect from indexers.
+    - Re-implement some of our indexers.
+    - Split up this mess in modules.
+    - Generate haddock, double-check it, fill the void.
+    - Provide a tutorial on how to write indexer, transformers, and how to instantiate them.
+    - Cold start from disk.
 
 -}
 module Marconi.Core.Experiment where
