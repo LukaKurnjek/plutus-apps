@@ -34,7 +34,7 @@ What's included in this module:
         - Tracing, as a modifier to an existing indexer
           (it allows us to opt-in for traces if we want, indexer by indexer)
         - Delay to delay event processing for heavy computation
-        - Aggregate, to compact data that can't be rollbacked
+        - Pruning, to compact data that can't be rollbacked
 
   Contrary to the original Marconi design, indexers don't have a unique (in-memory/sqlite) implementation.
 
@@ -43,6 +43,7 @@ What's included in this module:
     - Provide more typeclasses implementation for an SQLite indexer.
       We shouldn't have to provide more than the queries and tables in most cases.
       The indexer instances should take care of the global behaviour for all typeclasses.
+    - Provide a less naive in-memory indexer implementation than the list one
     - Test, test, test. The current code is not tested, and it's wrong.
       Ideally, we should be able to provide a model-based testing approach to specify
       what we expect from indexers.
@@ -51,6 +52,7 @@ What's included in this module:
     - Generate haddock, double-check it, fill the void.
     - Provide a tutorial on how to write indexer, transformers, and how to instantiate them.
     - Cold start from disk.
+    - Provide MonadState version of the functions that manipulates the indexer.
 
 -}
 module Marconi.Core.Experiment where
@@ -156,7 +158,7 @@ data QueryError query
      -- It can be useful for indexer that contains a partial knowledge and that want to pass
      -- this knowledge to another indexer to complete the query.
    | NotStoredAnymore
-     -- ^ The requested point is too far in the past and has been aggregated
+     -- ^ The requested point is too far in the past and has been pruned
    | IndexerQueryError !Text
      -- ^ The indexer query failed
 
@@ -188,21 +190,22 @@ class Rewindable indexer event m where
 
     rewind :: Ord (Point event) => Point event -> indexer event -> m (Maybe (indexer event))
 
--- | The indexer can aggregate old data.
+-- | The indexer can prune old data.
 -- The main purpose is to speed up query processing.
--- If the indexer is 'Rewindable', 'Aggregable' can't 'rewind' behind the 'aggregationPoint',
--- the idea is to call 'aggregate' on points that can't be rollbacked anymore.
+-- If the indexer is 'Rewindable' and 'Prunable',
+-- it can't 'rewind' behind the 'pruningPoint',
+-- the idea is to call 'prune' on points that can't be rollbacked anymore.
 --
 --     * @indexer@ is the indexer implementation type
 --     * @desc@ the descriptor of the indexer, fixing the @Point@ types
 --     * @m@ the monad in which our indexer operates
-class Aggregable indexer event m where
+class Prunable indexer event m where
 
-    -- Aggregate events of the indexer up to a given point in time
-    aggregate :: Point event -> indexer event -> m (indexer event)
+    -- Pruning events of the indexer up to a given point in time
+    prune :: Point event -> indexer event -> m (indexer event)
 
-    -- The latest aggregation point (aggregation up to the result are aggregated)
-    aggregationPoint :: indexer event -> m (Point event)
+    -- The latest pruned point (events up to the result are pruned)
+    pruningPoint :: indexer event -> m (Point event)
 
 -- | Points from which we can restract safely
 class Resumable indexer event m where
@@ -332,15 +335,21 @@ runInserts c = let
     in SQL.withTransaction c
         . mapConcurrently_ runInsert
 
+-- | How we map an event to its sql representation
+--
+-- In general, it consists in breaking the event in many fields of a record,
+-- each field correspondind to the parameters required to insert a part of the event in one table.
+type family InsertRecord event
+
 -- | Provide the minimal elements required to use a SQLite database to back an indexer.
-data SQLiteIndexer insertRecord event
+data SQLiteIndexer event
     = SQLiteIndexer
         { _handle        :: !SQL.Connection
           -- ^ The connection used to interact with the database
-        , _prepareInsert :: !(TimedEvent event -> insertRecord)
+        , _prepareInsert :: !(TimedEvent event -> InsertRecord event)
           -- ^ 'insertRecord' is the typed representation of what has to be inserted in the database
           -- It should be a monoid, to allow insertion of 0 to n rows in a single transaction
-        , _buildInsert   :: !(insertRecord -> [InsertQuery])
+        , _buildInsert   :: !(InsertRecord event -> [InsertQuery])
           -- ^ Map the 'insertRecord' representation to 'InsertQuery',
           -- to actually performed the insertion in the database.
           -- One can think at the insert record as a typed representation of the parameters of the queries,
@@ -349,28 +358,32 @@ data SQLiteIndexer insertRecord event
           -- ^ The query to extract the latest sync point from the database.
         }
 
-singleInsertSQLiteIndexer
-    :: SQL.ToRow param
-    => SQL.Connection
-    -> (TimedEvent event -> param)
-    -> SQL.Query
-    -> SQL.Query
-    -> SQLiteIndexer [param] event
-singleInsertSQLiteIndexer c toParam insertQuery lastSyncQuery
-    = SQLiteIndexer
-        {_handle=c
-        , _prepareInsert= pure . toParam
-        , _buildInsert= pure . InsertQuery insertQuery
-        , _dbLastSync= lastSyncQuery
-        }
-
 makeLenses ''SQLiteIndexer
 
--- @indexer@ the indexer implementation type
--- @event@ the indexed events
--- @m@ the monad in which our indexer operates
-instance (MonadIO m, Monoid insertRecord) =>
-    IsIndex (SQLiteIndexer insertRecord) event m where
+-- | A smart constructor for indexer that want to map an event to a single table.
+-- We just have to set the type family of `InsertRecord event` to `[param]` and
+-- then to provide the expected parameters.
+singleInsertSQLiteIndexer
+    :: SQL.ToRow param
+    => InsertRecord event ~ [param]
+    => SQL.Connection
+    -> (TimedEvent event -> param)
+    -- ^ extract 'param' out of a 'TimedEvent'
+    -> SQL.Query
+    -- ^ the insert query
+    -> SQL.Query
+    -- ^ the last sync query
+    -> SQLiteIndexer event
+singleInsertSQLiteIndexer c toParam insertQuery lastSyncQuery
+    = SQLiteIndexer
+        {_handle = c
+        , _prepareInsert = pure . toParam
+        , _buildInsert = pure . InsertQuery insertQuery
+        , _dbLastSync = lastSyncQuery
+        }
+
+instance (MonadIO m, Monoid (InsertRecord event)) =>
+    IsIndex SQLiteIndexer event m where
 
     index evt indexer = liftIO $ do
         let inserts = indexer ^. buildInsert $ indexer ^. prepareInsert $ evt
@@ -383,14 +396,15 @@ instance (MonadIO m, Monoid insertRecord) =>
         pure indexer
 
 instance (SQL.FromRow (Point event), MonadIO m) =>
-    IsSync (SQLiteIndexer insertRecord) event m where
+    IsSync SQLiteIndexer event m where
 
     lastSyncPoint indexer = liftIO $ listToMaybe <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
+
 
 -- ** Mixed indexer
 
 -- | An indexer that has at most '_blocksListIndexer' events in memory and put the older one in database.
--- The query interface for this indexer will alwyas go through the database first and then aggregate
+-- The query interface for this indexer will alwyas go through the database first and then prune
 -- results present in memory.
 --
 -- @mem@ the indexer that handle old events, when we need to remove stuff from memory
@@ -679,7 +693,7 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
         check <- isNotAheadOfSync p ix
         if check
         then maybe
-             -- If we can't find the point and if it's in the past, we probably moved it
+             -- If we can't find the point and if it's in the past, we probably pruned it
             (throwError NotStoredAnymore)
             (pure . EventAtResult)
             $ ix ^? events . folded . filtered (`isAtPoint` p) . event
@@ -841,53 +855,58 @@ instance Queryable indexer event query m =>
 
     query p q indexer = query p q (indexer ^. delayedIndexer)
 
--- ** Aggregation control
+-- ** Pruning control
 
 
--- | WithAggregate control when we should aggregate an indexer
-data WithAggregate indexer event
-    = WithAggregate
-    { _aggregatedIndexer :: !(indexer event)
+-- | WithPruning control when we should prune an indexer
+data WithPruning indexer event
+    = WithPruning
+    { _prunedIndexer   :: !(indexer event)
       -- ^ the underlying indexer
-    , _securityParam     :: !Word
+    , _securityParam   :: !Word
       -- ^ how far can a rollback go
-    , _aggregateEvery    :: !Word
-      -- ^ how once we have enough events, how often do we rollback
-    , _nextAggregates    :: !(Seq (Point event))
+    , _pruneEvery      :: !Word
+      -- ^ once we have enough events, how often do we prune
+    , _nextPruning     :: !(Seq (Point event))
       -- ^ list of aggregation points
-    , _stepsBeforeNext   :: !Word
-      -- ^ events requires before next aggregation milestones
-    , _currentDepth      :: !Word
-      -- ^ how many events aren't aggregated yet
+    , _stepsBeforeNext :: !Word
+      -- ^ events required before next aggregation milestones
+    , _currentDepth    :: !Word
+      -- ^ how many events aren't pruned yet
     }
 
-makeLenses ''WithAggregate
+makeLenses ''WithPruning
 
-aggregateAt
-    :: WithAggregate indexer event
-    -> Maybe (Point event, WithAggregate indexer event)
-aggregateAt indexer = let
+pruneAt
+    :: WithPruning indexer event
+    -> Maybe (Point event, WithPruning indexer event)
+pruneAt indexer = let
 
-    reachAggregationPoint = indexer ^. currentDepth >= indexer ^. securityParam + indexer ^. aggregateEvery
+    nextPruningDepth = indexer ^. securityParam + indexer ^. pruneEvery
 
-    dequeueNextAggregatePoint =
-        case indexer ^. nextAggregates of
+    reachPruningPoint = indexer ^. currentDepth >= nextPruningDepth
+
+    dequeueNextPruningPoint =
+        case indexer ^. nextPruning of
             Empty    -> Nothing
-            xs :|> p -> Just (p, indexer & nextAggregates .~ xs)
+            xs :|> p -> Just (p, indexer & nextPruning .~ xs)
 
-    in guard reachAggregationPoint *> dequeueNextAggregatePoint
+    in guard reachPruningPoint *> dequeueNextPruningPoint
 
 
-startNewStep :: Point event -> WithAggregate indexer event -> WithAggregate indexer event
+startNewStep
+    :: Point event
+    -> WithPruning indexer event
+    -> WithPruning indexer event
 startNewStep p indexer
     = indexer
-        & nextAggregates %~ (p <|)
-        & stepsBeforeNext .~ (indexer ^. aggregateEvery)
+        & nextPruning %~ (p <|)
+        & stepsBeforeNext .~ (indexer ^. pruneEvery)
 
 tick
     :: Point event
-    -> WithAggregate indexer event
-    -> (Maybe (Point event), WithAggregate indexer event)
+    -> WithPruning indexer event
+    -> (Maybe (Point event), WithPruning indexer event)
 tick p indexer = let
 
     countEvent = (currentDepth +~ 1) . (stepsBeforeNext -~ 1)
@@ -898,56 +917,67 @@ tick p indexer = let
 
     indexer' = adjustStep $ countEvent indexer
 
-    in maybe (Nothing, indexer') (first Just) $ aggregateAt indexer'
+    in maybe (Nothing, indexer') (first Just) $ pruneAt indexer'
 
 
 instance
-    (Monad m, Aggregable indexer event m, IsIndex indexer event m) =>
-    IsIndex (WithAggregate indexer) event m where
+    (Monad m, Prunable indexer event m, IsIndex indexer event m) =>
+    IsIndex (WithPruning indexer) event m where
 
     index timedEvent indexer = do
-        indexer' <- aggregatedIndexer (index timedEvent) indexer
+        indexer' <- prunedIndexer (index timedEvent) indexer
         let (mp, indexer'') = tick (timedEvent ^. point) indexer'
         maybe
           (pure indexer'')
-          (\p -> aggregatedIndexer (aggregate p) indexer)
+          (\p -> prunedIndexer (prune p) indexer)
           mp
 
-instance IsSync index event m => IsSync (WithAggregate index) event m where
+instance IsSync index event m => IsSync (WithPruning index) event m where
 
-    lastSyncPoint = lastSyncPoint . view aggregatedIndexer
+    lastSyncPoint = lastSyncPoint . view prunedIndexer
 
 instance Queryable indexer event query m =>
-    Queryable (WithAggregate indexer) event query m where
+    Queryable (WithPruning indexer) event query m where
 
-    query p q indexer = query p q (indexer ^. aggregatedIndexer)
+    query p q indexer = query p q (indexer ^. prunedIndexer)
 
--- | The rewindable instance for `WithAggregate` is a defensive heuristic
+-- | The rewindable instance for `WithPruning` is a defensive heuristic
 -- that may provide a non optimal behaviour but ensure that we don't
 -- mess up with the rollbackable events.
 instance
     ( Monad m
     , Rewindable indexer event m
     , Ord (Point event)
-    ) => Rewindable (WithAggregate indexer) event m where
+    ) => Rewindable (WithPruning indexer) event m where
 
     rewind p indexer = let
 
-        rewindWrappedIndexer p' = aggregatedIndexer (MaybeT . rewind p')
+        rewindWrappedIndexer
+            :: Point event
+            -> WithPruning indexer event
+            -> MaybeT m (WithPruning indexer event)
+        rewindWrappedIndexer p' = prunedIndexer (MaybeT . rewind p')
+
+        resetStep :: WithPruning indexer event -> WithPruning indexer event
         resetStep = do
-            stepLength <- view aggregateEvery
+            stepLength <- view pruneEvery
             set stepsBeforeNext stepLength
 
-        cleanAggregatePoints p' = nextAggregates %~ Seq.dropWhileL (> p')
-        countFromAggregatePoints = do
-            points <- view nextAggregates
-            stepLength <- view aggregateEvery
-            -- We can safely consider that for each aggregate point still in the pipe,
+        cleanPruningPoints
+            :: Point event
+            -> WithPruning indexer event -> WithPruning indexer event
+        cleanPruningPoints p' = nextPruning %~ Seq.dropWhileL (> p')
+
+        countFromPruningPoints :: WithPruning indexer event -> WithPruning indexer event
+        countFromPruningPoints = do
+            points <- view nextPruning
+            stepLength <- view pruneEvery
+            -- We can safely consider that for each Pruning point still in the pipe,
             -- we have 'stepLength' events available in the indexer
             set currentDepth (fromIntegral $ length points * fromIntegral stepLength)
 
-        in runMaybeT $
-            countFromAggregatePoints
-            . cleanAggregatePoints p
+        in runMaybeT
+            $ countFromPruningPoints
+            . cleanPruningPoints p
             . resetStep
             <$> rewindWrappedIndexer p indexer
