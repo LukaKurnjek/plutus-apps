@@ -144,7 +144,7 @@ class IsSync indexer event m where
 isNotAheadOfSync ::
     (Ord (Point event), IsSync indexer event m, Functor m) =>
     Point event -> indexer event -> m Bool
-isNotAheadOfSync p indexer = maybe False (p <=) <$> lastSyncPoint indexer
+isNotAheadOfSync p indexer = maybe False (> p) <$> lastSyncPoint indexer
 
 
 -- | Error that can occurs when you query an indexer
@@ -385,7 +385,7 @@ instance (MonadIO m, Monoid insertRecord) =>
 instance (SQL.FromRow (Point event), MonadIO m) =>
     IsSync (SQLiteIndexer insertRecord) event m where
 
-    lastSyncPoint indexer = liftIO $ listToMaybe <$> SQL.query (indexer ^. handle) (indexer ^. dbLastSync) ()
+    lastSyncPoint indexer = liftIO $ listToMaybe <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
 
 -- ** Mixed indexer
 
@@ -706,9 +706,9 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
     Queryable ListIndexer event (EventsMatchingQuery event) m where
 
     query p q ix = do
-        let isBefore e p' = e ^. point <= p'
+        let isAfter p' e = p' > e ^. point
         let result = EventsMatching $ ix ^.. events
-                         . folded . filtered (`isBefore` p)
+                         . folded . filtered (isAfter p)
                          . event . filtered (predicate q)
         check <- isNotAheadOfSync p ix
         if check
