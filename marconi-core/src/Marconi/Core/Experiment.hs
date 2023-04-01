@@ -40,7 +40,7 @@ What's included in this module:
 
   (non-exhaustive) TODO list:
 
-    - Provide an implementation for an SQLite indexer.
+    - Provide more typeclasses implementation for an SQLite indexer.
       We shouldn't have to provide more than the queries and tables in most cases.
       The indexer instances should take care of the global behaviour for all typeclasses.
     - Test, test, test. The current code is not tested, and it's wrong.
@@ -68,7 +68,9 @@ import Control.Monad (forever, guard, when)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
 
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM (TChan, TMVar)
+import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Bifunctor (first)
@@ -76,8 +78,10 @@ import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
+import Data.Maybe (listToMaybe)
 import Data.Sequence (Seq (Empty, (:|>)), (<|))
 import Data.Text (Text)
+import Database.SQLite.Simple qualified as SQL
 
 
 -- * Indexer Types
@@ -126,7 +130,7 @@ class Monad m => IsIndex indexer event m where
         TimedEvent event -> indexer event -> m (indexer event)
 
     -- | Index a bunch of points, associated to their event, in an indexer
-    indexAll :: (Eq (Point event), Foldable f) =>
+    indexAll :: (Eq (Point event), Traversable f) =>
         f (TimedEvent event) -> indexer event -> m (indexer event)
     indexAll = flip (foldrM index)
     {-# MINIMAL index #-}
@@ -297,6 +301,92 @@ instance Applicative m => Resumable ListIndexer event m where
 
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
+-- ** SQLite indexer
+
+-- | When we want to store an event in a database, it may happen that you want to store it in many tables,
+-- ending with several insert.
+--
+-- This leads to two major issues:
+--     - Each query has its own parameter type, we consequently don't have a unique type for a parametrised query.
+--     - When we perform the insert, we want to process in the same way all the queries.
+--     - We can't know in the general case neither how many query will be needed, nor the param types.
+--     - We want to minimise the boilerplate for a end user.
+--
+-- To tackle these issue, we wrap our queries in a opaque type, @InsertQuery@,
+-- which hides the query parameters.
+-- Internally, we only have to deal with a @[InsertQuery]@ to be able to insert an event.
+data InsertQuery
+    = forall param.
+    SQL.ToRow param =>
+    InsertQuery
+        { insertQuery :: !SQL.Query
+        , params      :: ![param]
+         -- ^ It's a list because me want to be able to deal with bulk insert,
+         -- which is often required for performance reasons in Marconi.
+        }
+
+-- | Run a list of insert queries in one single transaction.
+runInserts :: SQL.Connection -> [InsertQuery] -> IO ()
+runInserts c = let
+    runInsert (InsertQuery insertQuery params) = SQL.executeMany c insertQuery params
+    in SQL.withTransaction c
+        . mapConcurrently_ runInsert
+
+-- | Provide the minimal elements required to use a SQLite database to back an indexer.
+data SQLiteIndexer insertRecord event
+    = SQLiteIndexer
+        { _handle        :: !SQL.Connection
+          -- ^ The connection used to interact with the database
+        , _prepareInsert :: !(TimedEvent event -> insertRecord)
+          -- ^ 'insertRecord' is the typed representation of what has to be inserted in the database
+          -- It should be a monoid, to allow insertion of 0 to n rows in a single transaction
+        , _buildInsert   :: !(insertRecord -> [InsertQuery])
+          -- ^ Map the 'insertRecord' representation to 'InsertQuery',
+          -- to actually performed the insertion in the database.
+          -- One can think at the insert record as a typed representation of the parameters of the queries,
+          -- that can be bundle with the query in the opaque @InsertQuery@ type.
+        , _dbLastSync    :: !SQL.Query
+          -- ^ The query to extract the latest sync point from the database.
+        }
+
+singleInsertSQLiteIndexer
+    :: SQL.ToRow param
+    => SQL.Connection
+    -> (TimedEvent event -> param)
+    -> SQL.Query
+    -> SQL.Query
+    -> SQLiteIndexer [param] event
+singleInsertSQLiteIndexer c toParam insertQuery lastSyncQuery
+    = SQLiteIndexer
+        {_handle=c
+        , _prepareInsert= pure . toParam
+        , _buildInsert= pure . InsertQuery insertQuery
+        , _dbLastSync= lastSyncQuery
+        }
+
+makeLenses ''SQLiteIndexer
+
+-- @indexer@ the indexer implementation type
+-- @event@ the indexed events
+-- @m@ the monad in which our indexer operates
+instance (MonadIO m, Monoid insertRecord) =>
+    IsIndex (SQLiteIndexer insertRecord) event m where
+
+    index evt indexer = liftIO $ do
+        let inserts = indexer ^. buildInsert $ indexer ^. prepareInsert $ evt
+        runInserts (indexer ^. handle) inserts
+        pure indexer
+
+    indexAll evts indexer = liftIO $ do
+        let inserts = indexer ^. buildInsert $ foldMap (indexer ^. prepareInsert) evts
+        runInserts (indexer ^. handle) inserts
+        pure indexer
+
+instance (SQL.FromRow (Point event), MonadIO m) =>
+    IsSync (SQLiteIndexer insertRecord) event m where
+
+    lastSyncPoint indexer = liftIO $ listToMaybe <$> SQL.query (indexer ^. handle) (indexer ^. dbLastSync) ()
+
 -- ** Mixed indexer
 
 -- | An indexer that has at most '_blocksListIndexer' events in memory and put the older one in database.
@@ -326,7 +416,7 @@ flush ::
     ( Monad m
     , IsIndex store event m
     , BoundedMemory mem m
-    , Foldable (Container mem)
+    , Traversable (Container mem)
     , Eq (Point event)
     ) => MixedIndexer mem store event ->
     m (MixedIndexer mem store event)
@@ -337,7 +427,7 @@ flush indexer = do
 instance
     ( Monad m
     , BoundedMemory mem m
-    , Foldable (Container mem)
+    , Traversable (Container mem)
     , IsIndex mem event m
     , IsIndex store event m
     ) => IsIndex (MixedIndexer mem store) event m where
