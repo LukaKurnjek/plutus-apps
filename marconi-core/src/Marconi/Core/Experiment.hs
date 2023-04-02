@@ -1,5 +1,8 @@
+{-# LANGUAGE DerivingVia          #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE RankNTypes           #-}
 {- |
  This module propose an alternative to the index implementation proposed in 'RewindableIndex.Storable'.
 
@@ -63,8 +66,8 @@ import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
 import Control.Concurrent (QSemN)
-import Control.Lens (filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~), (^.), (^..),
-                     (^?))
+import Control.Lens (Lens', filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~), (^.),
+                     (^..), (^?))
 import Control.Monad (forever, guard, when)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
@@ -125,7 +128,7 @@ data IndexError indexer event
 --     * @indexer@ the indexer implementation type
 --     * @event@ the indexed events
 --     * @m@ the monad in which our indexer operates
-class Monad m => IsIndex indexer event m where
+class Monad m => IsIndex m event indexer where
 
     -- | index an event at a given point in time
     index :: Eq (Point event) =>
@@ -138,14 +141,14 @@ class Monad m => IsIndex indexer event m where
 
     {-# MINIMAL index #-}
 
-class IsSync indexer event m where
+class IsSync m event indexer where
 
     -- | Last sync of the indexer
     lastSyncPoint :: indexer event -> m (Maybe (Point event))
 
 -- | Check if the given point is ahead of the last syncPoint of an indexer,
 isNotAheadOfSync ::
-    (Ord (Point event), IsSync indexer event m, Functor m) =>
+    (Ord (Point event), IsSync m event indexer, Functor m) =>
     Point event -> indexer event -> m Bool
 isNotAheadOfSync p indexer = maybe False (> p) <$> lastSyncPoint indexer
 
@@ -169,7 +172,7 @@ data QueryError query
 --     * @event@ the indexer events
 --     * @query@ the type of query we want to answer
 --     * @m@ the monad in which our indexer operates
-class Queryable indexer event query m where
+class Queryable m event query indexer where
 
     -- | Query an indexer at a given point in time
     -- It can be read as:
@@ -179,7 +182,7 @@ class Queryable indexer event query m where
 
 -- | Like @query@, but internalise @QueryError@ in the result.
 query'
-    :: (Queryable indexer event query (ExceptT (QueryError query) m), Ord (Point event))
+    :: (Queryable (ExceptT (QueryError query) m) event query indexer, Ord (Point event))
     => Point event -> query -> indexer event -> m (Either (QueryError query) (Result query))
 query' p q = runExceptT . query p q
 
@@ -187,7 +190,7 @@ query' p q = runExceptT . query p q
 --     * @indexer@ is the indexer implementation type
 --     * @event@ the indexer events
 --     * @m@ the monad in which our indexer operates
-class Rewindable indexer event m where
+class Rewindable m event indexer where
 
     rewind :: Ord (Point event) => Point event -> indexer event -> m (Maybe (indexer event))
 
@@ -200,16 +203,16 @@ class Rewindable indexer event m where
 --     * @indexer@ is the indexer implementation type
 --     * @desc@ the descriptor of the indexer, fixing the @Point@ types
 --     * @m@ the monad in which our indexer operates
-class CanPrune indexer event m where
+class CanPrune m event indexer where
 
     -- Prune events of the indexer up to a given point in time
-    prune :: Point event -> indexer event -> m (indexer event)
+    prune :: Ord (Point event) => Point event -> indexer event -> m (indexer event)
 
     -- The latest pruned point (events up to the result are pruned)
     pruningPoint :: indexer event -> m (Maybe (Point event))
 
 -- | Points from which we can restract safely
-class Resumable indexer event m where
+class Resumable m event indexer where
 
     -- | List the points that we still have in the indexers, allowing us to restart from them
     syncPoints :: Ord (Point event) => indexer event -> m [Point event]
@@ -222,7 +225,7 @@ class Resumable indexer event m where
 type family Container (indexer :: * -> *) :: * -> *
 
 -- | Define an in-memory container with a limited memory
-class BoundedMemory indexer m where
+class BoundedMemory m indexer where
 
     -- | Check if there isn't space left in memory
     isFull  :: indexer event -> m Bool
@@ -243,7 +246,7 @@ type instance Container ListIndexer = []
 
 makeLenses 'ListIndexer
 
-instance Applicative m => BoundedMemory ListIndexer m where
+instance Applicative m => BoundedMemory m ListIndexer where
 
     isFull ix = pure $ ix ^. capacity >= fromIntegral (length (ix ^. events))
 
@@ -251,7 +254,7 @@ instance Applicative m => BoundedMemory ListIndexer m where
 
 instance
     (MonadError (IndexError ListIndexer event) m, Monad m) =>
-    IsIndex ListIndexer event m where
+    IsIndex m event ListIndexer where
 
     index timedEvent ix = let
 
@@ -270,10 +273,10 @@ instance
                 & appendEvent
                 & updateLatest
 
-instance Applicative m => IsSync ListIndexer event m where
+instance Applicative m => IsSync m event ListIndexer where
     lastSyncPoint = pure . view latest
 
-instance Applicative m => Rewindable ListIndexer event m where
+instance Applicative m => Rewindable m event ListIndexer where
 
     rewind p ix = let
 
@@ -296,7 +299,7 @@ instance Applicative m => Rewindable ListIndexer event m where
                 & cleanEventsAfterRollback
                 & adjustLatestPoint
 
-instance Applicative m => Resumable ListIndexer event m where
+instance Applicative m => Resumable m event ListIndexer where
 
     syncPoints ix = let
 
@@ -387,7 +390,7 @@ singleInsertSQLiteIndexer c toParam insertQuery lastSyncQuery
         }
 
 instance (MonadIO m, Monoid (InsertRecord event)) =>
-    IsIndex SQLiteIndexer event m where
+    IsIndex m event SQLiteIndexer where
 
     index evt indexer = liftIO $ do
         let inserts = indexer ^. buildInsert $ indexer ^. prepareInsert $ evt
@@ -400,7 +403,7 @@ instance (MonadIO m, Monoid (InsertRecord event)) =>
         pure indexer
 
 instance (SQL.FromRow (Point event), MonadIO m) =>
-    IsSync SQLiteIndexer event m where
+    IsSync m event SQLiteIndexer where
 
     lastSyncPoint indexer = liftIO $ listToMaybe <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
 
@@ -423,7 +426,7 @@ makeLenses 'MixedIndexer
 -- | The indexer can take a result and complete it with its events
 -- It's used by the in-memory part of a 'MixedIndexer' to specify
 -- how we can complete the database result with the memory content.
-class ResumableResult indexer event query m where
+class ResumableResult m event query indexer where
 
     resumeResult ::
        Ord (Point event) =>
@@ -432,8 +435,8 @@ class ResumableResult indexer event query m where
 -- | Flush all the in-memory events to the database, keeping track of the latest index
 flush ::
     ( Monad m
-    , IsIndex store event m
-    , BoundedMemory mem m
+    , IsIndex m event store
+    , BoundedMemory m mem
     , Traversable (Container mem)
     , Eq (Point event)
     ) => MixedIndexer mem store event ->
@@ -444,11 +447,11 @@ flush indexer = do
 
 instance
     ( Monad m
-    , BoundedMemory mem m
+    , BoundedMemory m mem
     , Traversable (Container mem)
-    , IsIndex mem event m
-    , IsIndex store event m
-    ) => IsIndex (MixedIndexer mem store) event m where
+    , IsIndex m event mem
+    , IsIndex m event store
+    ) => IsIndex m event (MixedIndexer mem store) where
 
     index timedEvent indexer = do
         full <- isFull $ indexer ^. inMemory
@@ -458,17 +461,17 @@ instance
                inMemory (index timedEvent) indexer'
            else inMemory (index timedEvent) indexer
 
-instance IsSync mem event m => IsSync (MixedIndexer mem store) event m where
+instance IsSync event m mem => IsSync event m (MixedIndexer mem store) where
     lastSyncPoint = lastSyncPoint . view inMemory
 
 instance
     ( Monad m
-    , Rewindable store event m
-    ) => Rewindable (MixedIndexer ListIndexer store) event m where
+    , Rewindable m event store
+    ) => Rewindable m event (MixedIndexer ListIndexer store) where
 
     rewind p indexer = let
 
-        rewindInStore :: Rewindable index event m => index event -> MaybeT m (index event)
+        rewindInStore :: Rewindable m event index => index event -> MaybeT m (index event)
         rewindInStore = MaybeT . rewind p
 
         in runMaybeT $ do
@@ -477,10 +480,10 @@ instance
             inDatabase rewindInStore ix
 
 instance
-    ( ResumableResult ListIndexer event query m
-    , Queryable store event query m
+    ( ResumableResult m event query ListIndexer
+    , Queryable m event query store
     ) =>
-    Queryable (MixedIndexer ListIndexer store) event query m where
+    Queryable m event query (MixedIndexer ListIndexer store) where
 
     query valid q indexer
         = resumeResult valid q
@@ -502,10 +505,10 @@ data ProcessedInput event
 -- as long as they implement the required interfaces.
 data RunnerM m input point =
     forall indexer event.
-    ( IsIndex indexer event m
-      , IsSync indexer event IO
-    , Resumable indexer event m
-    , Rewindable indexer event m
+    ( IsIndex m event indexer
+    , IsSync m event indexer
+    , Resumable m event indexer
+    , Rewindable m event indexer
     , Point event ~ point
     ) =>
     Runner
@@ -519,10 +522,10 @@ type Runner = RunnerM IO
 
 -- | create a runner for an indexer, retuning the runner and the 'MVar' it's using internally
 createRunner ::
-    ( IsIndex indexer event IO
-    , IsSync indexer event IO
-    , Resumable indexer event IO
-    , Rewindable indexer event IO
+    ( IsIndex IO event indexer
+    , IsSync IO event indexer
+    , Resumable IO event indexer
+    , Rewindable IO event indexer
     , point ~ Point event) =>
     indexer event ->
     (input -> IO (ProcessedInput event)) ->
@@ -638,16 +641,16 @@ newtype CoordinatorIndex event =
 makeLenses 'CoordinatorIndex
 
 -- A coordinator can be consider as an indexer that forwards the input to its runner
-instance IsIndex CoordinatorIndex event IO where
+instance IsIndex IO event CoordinatorIndex where
 
     index timedEvent = coordinator $
             \x -> step (const $ timedEvent ^. point) x $ timedEvent ^. event
 
-instance IsSync CoordinatorIndex event IO where
+instance IsSync IO event CoordinatorIndex where
     lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
 
 -- | To rewind a coordinator, we try and rewind all the runners.
-instance Rewindable CoordinatorIndex event IO where
+instance Rewindable IO event CoordinatorIndex where
 
     rewind p = let
 
@@ -694,7 +697,7 @@ newtype instance Result (EventAtQuery event) =
     EventAtResult {getEvent :: event}
 
 instance MonadError (QueryError (EventAtQuery event)) m =>
-    Queryable ListIndexer event (EventAtQuery event) m where
+    Queryable m event (EventAtQuery event) ListIndexer where
 
     query p EventAtQuery ix = do
         let isAtPoint e p' = e ^. point == p'
@@ -708,7 +711,7 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
         else throwError $ AheadOfLastSync Nothing
 
 instance MonadError (QueryError (EventAtQuery event)) m =>
-    ResumableResult ListIndexer event (EventAtQuery event) m where
+    ResumableResult m event (EventAtQuery event) ListIndexer where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we didn't find a result in the 1st indexer, try in memory
@@ -725,7 +728,7 @@ newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEv
 deriving newtype instance Semigroup (Result (EventsMatchingQuery event))
 
 instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
-    Queryable ListIndexer event (EventsMatchingQuery event) m where
+    Queryable m event (EventsMatchingQuery event) ListIndexer where
 
     query p q ix = do
         let isAfter p' e = p' > e ^. point
@@ -738,7 +741,7 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
             else throwError . AheadOfLastSync . Just $ result
 
 instance MonadError (QueryError (EventsMatchingQuery event)) m =>
-    ResumableResult ListIndexer event (EventsMatchingQuery event) m where
+    ResumableResult m event (EventsMatchingQuery event) ListIndexer where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we find an incomplete result in the first indexer, complete it
@@ -748,33 +751,108 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
 
 -- * Indexer transformer: modify the behaviour of a indexer
 
+-- ** Index wrapper
+
+-- | Wrap an indexer with some extra information to modify its behaviour
+--
+--
+-- The wrapeer comes with some instances that relay the function to the wrapped indexer,
+-- without any extra behaviour.
+--
+-- A real wrapper can be a new type of 'IndexWrapper', reuse some of its instances with @deriving via@,
+-- and specify its own instances when it wants to add logic in it.
+data IndexWrapper config indexer event
+    = IndexWrapper
+        { _wrappedIndexer :: !(indexer event)
+        , _wrapperConfig  :: !(config event)
+        }
+
+makeLenses 'IndexWrapper
+
+instance
+    (Monad m, IsIndex m event indexer) =>
+    IsIndex m event (IndexWrapper config indexer) where
+
+    index timedEvent = wrappedIndexer $ index timedEvent
+
+instance IsSync event m index =>
+    IsSync event m (IndexWrapper config index) where
+
+    lastSyncPoint = lastSyncPoint . view wrappedIndexer
+
+instance Queryable m event query indexer =>
+    Queryable m event query (IndexWrapper config indexer) where
+
+    query p q =  query p q . view wrappedIndexer
+
+instance Resumable m event indexer =>
+    Resumable m event (IndexWrapper config indexer) where
+
+    syncPoints = syncPoints . view wrappedIndexer
+
+-- | Helper to implement the @prune@ functon of 'CanPrune' when we use a wrapper.
+-- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
+pruneVia
+    :: (Functor m, CanPrune m event indexer, Ord (Point event))
+    => Lens' s (indexer event) -> Point event -> s -> m s
+pruneVia l p = l (prune p)
+
+-- | Helper to implement the @pruningPoint@ functon of 'CanPrune' when we use a wrapper.
+-- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
+pruningPointVia
+    :: CanPrune m event indexer
+    => Lens' s (indexer event) -> s -> m (Maybe (Point event))
+pruningPointVia l = pruningPoint . view l
+
+-- | Helper to implement the @rewind@ functon of 'Rewindable' when we use a wrapper.
+-- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
+rewindVia
+    :: (Functor m, Rewindable m event indexer, Ord (Point event))
+    => Lens' s (indexer event)
+    -> Point event -> s -> m (Maybe s)
+rewindVia l p = runMaybeT . l (MaybeT . rewind p)
+
+
 -- ** Tracer Add tracing to an existing indexer
 
+newtype ProcessedInputTracer m event = ProcessedInputTracer { _unwrapTracer :: Tracer m (ProcessedInput event)}
+
+makeLenses 'ProcessedInputTracer
+
 -- | A tracer modifier that adds tracing to an existing indexer
-data WithTracer m indexer event
-    = WithTracer
-    { _tracedIndexer :: !(indexer event)
-    , _tracer        :: !(Tracer m (ProcessedInput event))
-    }
+newtype WithTracer m indexer event
+    = WithTracer { _tracerWrapper :: IndexWrapper (ProcessedInputTracer m) indexer event }
 
 makeLenses 'WithTracer
 
+deriving via (IndexWrapper (ProcessedInputTracer m) indexer)
+    instance IsSync m event indexer => IsSync m event (WithTracer m indexer)
+
+deriving via (IndexWrapper (ProcessedInputTracer m) indexer)
+    instance Queryable m event query indexer => Queryable m event query (WithTracer m indexer)
+
+deriving via (IndexWrapper (ProcessedInputTracer m) indexer)
+    instance Resumable m event indexer => Resumable m event (WithTracer m indexer)
+
+tracer :: Lens' (WithTracer m indexer event) (Tracer m (ProcessedInput event))
+tracer = tracerWrapper . wrapperConfig . unwrapTracer
+
+tracedIndexer :: Lens' (WithTracer m indexer event) (indexer event)
+tracedIndexer = tracerWrapper . wrappedIndexer
+
 instance
-    (Monad m, IsIndex index event m) =>
-    IsIndex (WithTracer m index) event m where
+    (Applicative m, IsIndex m event index) =>
+    IsIndex m event (WithTracer m index) where
 
     index timedEvent indexer = do
         res <- tracedIndexer (index timedEvent) indexer
         Tracer.traceWith (indexer ^. tracer) $ Index timedEvent
         pure res
 
-instance IsSync index event m => IsSync (WithTracer m index) event m where
-    lastSyncPoint = lastSyncPoint . view tracedIndexer
-
 instance
     ( Monad m
-    , Rewindable index event m
-    ) => Rewindable (WithTracer m index) event m where
+    , Rewindable m event index
+    ) => Rewindable m event (WithTracer m index) where
 
     rewind p indexer = let
 
@@ -788,12 +866,23 @@ instance
         res <- runMaybeT $ rewindWrappedIndexer p
         traverse traceSuccessfulRewind res
 
-instance Queryable indexer event query m =>
-    Queryable (WithTracer m indexer) event query m where
+instance (Functor m, CanPrune m event indexer) =>
+    CanPrune m event (WithTracer m indexer) where
 
-    query p q indexer = query p q (indexer ^. tracedIndexer)
+    prune = pruneVia tracedIndexer
+
+    pruningPoint = pruningPointVia tracedIndexer
 
 -- ** Delaying insert
+
+data DelayConfig event
+    = DelayConfig
+        { _configDelayCapacity :: !Word
+        , _configDelayLength   :: !Word
+        , _configDelayBuffer   :: !(Seq (TimedEvent event))
+        }
+
+makeLenses 'DelayConfig
 
 -- | When indexing computation is expensive, you may want to delay it to avoid expensive rollback
 -- 'WithDelay' buffers events before sending them to the underlying indexer.
@@ -801,25 +890,41 @@ instance Queryable indexer event query m =>
 --
 -- An indexer wrapped in 'WithDelay' won't interact nicely with coordinator at the moment,
 -- as 'WithDelay' acts as it's processing an event while it only postpones the processing.
-data WithDelay index event
-    = WithDelay
-    { _delayedIndexer :: !(index event)
-    , _bufferCapacity :: !Word
-    , _bufferSize     :: !Word
-    , _buffer         :: !(Seq (TimedEvent event))
-    }
+newtype WithDelay indexer event
+    = WithDelay { _delayWrapper :: IndexWrapper DelayConfig indexer event}
 
 makeLenses 'WithDelay
 
+deriving via (IndexWrapper DelayConfig indexer)
+    instance IsSync m event indexer => IsSync m event (WithDelay indexer)
+
+deriving via (IndexWrapper DelayConfig indexer)
+    instance Resumable m event indexer => Resumable m event (WithDelay indexer)
+
+deriving via (IndexWrapper DelayConfig indexer)
+    instance Queryable m event query indexer => Queryable m event query (WithDelay indexer)
+
+delayedIndexer :: Lens' (WithDelay indexer event) (indexer event)
+delayedIndexer = delayWrapper . wrappedIndexer
+
+delayCapacity :: Lens' (WithDelay indexer event) Word
+delayCapacity = delayWrapper . wrapperConfig . configDelayCapacity
+
+delayLength :: Lens' (WithDelay indexer event) Word
+delayLength = delayWrapper . wrapperConfig . configDelayLength
+
+delayBuffer :: Lens' (WithDelay indexer event) (Seq (TimedEvent event))
+delayBuffer = delayWrapper . wrapperConfig . configDelayBuffer
+
 instance
-    (Monad m, IsIndex indexer event m) =>
-    IsIndex (WithDelay indexer) event m where
+    (Monad m, IsIndex m event indexer) =>
+    IsIndex m event (WithDelay indexer) where
 
     index timedEvent indexer = let
 
-        bufferIsFull b = (b ^. bufferSize) >= (b ^. bufferCapacity)
+        bufferIsFull b = (b ^. delayLength) >= (b ^. delayCapacity)
 
-        bufferEvent = (bufferSize +~ 1) . (buffer %~ (timedEvent <|))
+        bufferEvent = (delayLength +~ 1) . (delayBuffer %~ (timedEvent <|))
 
         pushAndGetOldest = \case
             Empty            -> (timedEvent, Empty)
@@ -829,61 +934,78 @@ instance
         if not $ bufferIsFull indexer
         then pure $ bufferEvent indexer
         else do
-            let b = indexer ^. buffer
+            let b = indexer ^. delayBuffer
                 (oldest, buffer') = pushAndGetOldest b
             res <- delayedIndexer (index oldest) indexer
-            pure $ res & buffer .~ buffer'
-
-instance IsSync index event m => IsSync (WithDelay index) event m where
-
-    lastSyncPoint = lastSyncPoint . view delayedIndexer
+            pure $ res & delayBuffer .~ buffer'
 
 instance
     ( Monad m
-    , Rewindable indexer event m
+    , Rewindable m event indexer
     , Ord (Point event)
-    ) => Rewindable (WithDelay indexer) event m where
+    ) => Rewindable m event (WithDelay indexer) where
 
     rewind p indexer = let
 
         rewindWrappedIndexer p' = delayedIndexer (MaybeT . rewind p') indexer
 
-        resetBuffer = (bufferSize .~ 0) . (buffer .~ Seq.empty)
+        resetBuffer = (delayLength .~ 0) . (delayBuffer .~ Seq.empty)
 
-        (after, before) =  Seq.spanl ((> p) . view point) $ indexer ^. buffer
+        (after, before) =  Seq.spanl ((> p) . view point) $ indexer ^. delayBuffer
 
         in if Seq.null before
            then runMaybeT $ resetBuffer <$> rewindWrappedIndexer p
            else pure . pure $ indexer
-                   & buffer .~ after
-                   & bufferSize .~ fromIntegral (Seq.length after)
-
-instance Queryable indexer event query m =>
-    Queryable (WithDelay indexer) event query m where
-
-    query p q indexer = query p q (indexer ^. delayedIndexer)
+                   & delayBuffer .~ after
+                   & delayLength .~ fromIntegral (Seq.length after)
 
 -- ** Pruning control
 
+data PruningConfig event
+    = PruningConfig
+        { _configSecurityParam   :: !Word
+          -- ^ how far can a rollback go
+        , _configPruneEvery      :: !Word
+          -- ^ once we have enough events, how often do we prune
+        , _configNextPruning     :: !(Seq (Point event))
+          -- ^ list of pruning point
+        , _configStepsBeforeNext :: !Word
+          -- ^ events required before next aggregation milestones
+        , _configCurrentDepth    :: !Word
+          -- ^ how many events aren't pruned yet
+        }
+
+makeLenses ''PruningConfig
 
 -- | WithPruning control when we should prune an indexer
-data WithPruning indexer event
-    = WithPruning
-    { _prunedIndexer   :: !(indexer event)
-      -- ^ the underlying indexer
-    , _securityParam   :: !Word
-      -- ^ how far can a rollback go
-    , _pruneEvery      :: !Word
-      -- ^ once we have enough events, how often do we prune
-    , _nextPruning     :: !(Seq (Point event))
-      -- ^ list of pruning point
-    , _stepsBeforeNext :: !Word
-      -- ^ events required before next aggregation milestones
-    , _currentDepth    :: !Word
-      -- ^ how many events aren't pruned yet
-    }
+newtype WithPruning indexer event
+    = WithPruning { _pruningWrapper :: IndexWrapper PruningConfig indexer event }
 
 makeLenses ''WithPruning
+
+deriving via (IndexWrapper PruningConfig indexer)
+    instance IsSync m event indexer => IsSync m event (WithPruning indexer)
+
+deriving via (IndexWrapper PruningConfig indexer)
+    instance Queryable m event query indexer => Queryable m event query (WithPruning indexer)
+
+prunedIndexer :: Lens' (WithPruning indexer event) (indexer event)
+prunedIndexer = pruningWrapper . wrappedIndexer
+
+securityParam :: Lens' (WithPruning indexer event) Word
+securityParam = pruningWrapper . wrapperConfig . configSecurityParam
+
+pruneEvery :: Lens' (WithPruning indexer event) Word
+pruneEvery = pruningWrapper . wrapperConfig . configPruneEvery
+
+nextPruning :: Lens' (WithPruning indexer event) (Seq (Point event))
+nextPruning = pruningWrapper . wrapperConfig . configNextPruning
+
+stepsBeforeNext :: Lens' (WithPruning indexer event) Word
+stepsBeforeNext = pruningWrapper . wrapperConfig . configStepsBeforeNext
+
+currentDepth :: Lens' (WithPruning indexer event) Word
+currentDepth = pruningWrapper . wrapperConfig . configCurrentDepth
 
 pruneAt
     :: WithPruning indexer event
@@ -929,35 +1051,26 @@ tick p indexer = let
 
 
 instance
-    (Monad m, CanPrune indexer event m, IsIndex indexer event m) =>
-    IsIndex (WithPruning indexer) event m where
+    (Monad m, Ord (Point event), CanPrune m event indexer, IsIndex m event indexer) =>
+    IsIndex m event (WithPruning indexer) where
 
     index timedEvent indexer = do
         indexer' <- prunedIndexer (index timedEvent) indexer
         let (mp, indexer'') = tick (timedEvent ^. point) indexer'
         maybe
           (pure indexer'')
-          (\p -> prunedIndexer (prune p) indexer)
+          (\p -> pruneVia prunedIndexer p indexer)
           mp
-
-instance IsSync index event m => IsSync (WithPruning index) event m where
-
-    lastSyncPoint = lastSyncPoint . view prunedIndexer
-
-instance Queryable indexer event query m =>
-    Queryable (WithPruning indexer) event query m where
-
-    query p q indexer = query p q (indexer ^. prunedIndexer)
 
 -- | The rewindable instance for `WithPruning` is a defensive heuristic
 -- that may provide a non optimal behaviour but ensure that we don't
 -- mess up with the rollbackable events.
 instance
     ( Monad m
-    , CanPrune indexer event m
-    , Rewindable indexer event m
+    , CanPrune m event indexer
+    , Rewindable m event indexer
     , Ord (Point event)
-    ) => Rewindable (WithPruning indexer) event m where
+    ) => Rewindable m event (WithPruning indexer) where
 
     rewind p indexer = let
 
@@ -965,7 +1078,7 @@ instance
             :: Point event
             -> WithPruning indexer event
             -> MaybeT m (WithPruning indexer event)
-        rewindWrappedIndexer p' = prunedIndexer (MaybeT . rewind p')
+        rewindWrappedIndexer p' = MaybeT . rewindVia prunedIndexer p'
 
         resetStep :: WithPruning indexer event -> WithPruning indexer event
         resetStep = do
