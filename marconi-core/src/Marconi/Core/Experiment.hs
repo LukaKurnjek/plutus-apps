@@ -1,8 +1,8 @@
 {-# LANGUAGE DerivingVia          #-}
 {-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE RankNTypes           #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE RankNTypes           #-}
 {- |
  This module propose an alternative to the index implementation proposed in 'RewindableIndex.Storable'.
 
@@ -57,7 +57,103 @@ What's included in this module:
     * Provide MonadState version of the functions that manipulates the indexer.
 
 -}
-module Marconi.Core.Experiment where
+module Marconi.Core.Experiment
+    (
+    -- * Core types and typeclasses
+    -- ** Core types
+      Point
+    , Result (..)
+    , Container
+    , TimedEvent
+    -- ** Core typeclasses
+    , IsIndex (..)
+    , IsSync (..)
+    , isNotAheadOfSync
+    , Queryable (..)
+    , query'
+    , ResumableResult (..)
+    , Rewindable (..)
+    , Prunable (..)
+    , Resumable (..)
+    -- ** Errors
+    , IndexError (..)
+    , QueryError (..)
+    -- * Core Indexers
+    -- ** In memory
+    , ListIndexer
+        , capacity
+        , events
+        , latest
+    -- ** In database
+    , SQLiteIndexer
+        , handle
+        , prepareInsert
+        , buildInsert
+        , dbLastSync
+    , MixedIndexer
+        , mixedIndexer
+        , inMemory
+        , inDatabase
+    , IndexQuery (..)
+    , InsertRecord
+    , singleInsertSQLiteIndexer
+    -- Running indexers
+    -- ** Runners
+    , RunnerM (..)
+    , Runner
+    , createRunner
+    , startRunner
+    , ProcessedInput (..)
+    -- ** Coordinator
+    , Coordinator
+        , lastSync
+        , runners
+        , tokens
+        , channel
+        , nbRunners
+    , start
+    , step
+    , CoordinatorIndex
+        , coordinator
+    -- * Common queries
+    --
+    -- Queries that can be implemented for all indexers
+    , EventAtQuery (..)
+    , EventsMatchingQuery (..)
+    -- * Indexer Transformers
+    -- ** Tracer
+    , WithTracer
+        , withTracer
+        , tracedIndexer
+        , tracer
+    -- ** Delay
+    , WithDelay
+        , withDelay
+        , delayedIndexer
+        , delayCapacity
+        , delayLength
+        , delayBuffer
+    -- ** Control Pruning
+    , WithPruning
+        , withPruning
+        , prunedIndexer
+        , securityParam
+        , pruneEvery
+        , nextPruning
+        , stepsBeforeNext
+        , currentDepth
+    -- ** Index wrapper
+    , IndexWrapper
+        , wrappedIndexer
+        , wrapperConfig
+    , indexVia
+    , lastSyncPointVia
+    , queryVia
+    , syncPointsVia
+    , pruneVia
+    , pruningPointVia
+    , rewindVia
+    ) where
 
 import Control.Concurrent qualified as Con (newQSemN, signalQSemN, waitQSemN)
 import Control.Concurrent.STM qualified as STM (atomically, dupTChan, newBroadcastTChanIO, newTMVar, putTMVar,
@@ -87,8 +183,6 @@ import Data.Sequence (Seq (Empty, (:|>)), (<|))
 import Data.Text (Text)
 import Database.SQLite.Simple qualified as SQL
 
-
--- * Indexer Types
 
 -- | A point in time, the concrete type of a point is now derived from an indexer event,
 -- instead of an event.
@@ -186,6 +280,13 @@ query'
     => Point event -> query -> indexer event -> m (Either (QueryError query) (Result query))
 query' p q = runExceptT . query p q
 
+-- | The indexer can take a result and complete it with its events
+class ResumableResult m event query indexer where
+
+    resumeResult ::
+       Ord (Point event) =>
+       Point event -> query -> indexer event -> m (Result query) -> m (Result query)
+
 -- | We can reset an indexer to a previous `Point`
 --     * @indexer@ is the indexer implementation type
 --     * @event@ the indexer events
@@ -196,14 +297,14 @@ class Rewindable m event indexer where
 
 -- | The indexer can prune old data.
 -- The main purpose is to speed up query processing.
--- If the indexer is 'Rewindable' and 'CanPrune',
+-- If the indexer is 'Rewindable' and 'Prunable',
 -- it can't 'rewind' behind the 'pruningPoint',
 -- the idea is to call 'prune' on points that can't be rollbacked anymore.
 --
 --     * @indexer@ is the indexer implementation type
 --     * @desc@ the descriptor of the indexer, fixing the @Point@ types
 --     * @m@ the monad in which our indexer operates
-class CanPrune m event indexer where
+class Prunable m event indexer where
 
     -- Prune events of the indexer up to a given point in time
     prune :: Ord (Point event) => Point event -> indexer event -> m (indexer event)
@@ -222,6 +323,7 @@ class Resumable m event indexer where
 
 -- ** Full in-memory indexer
 
+-- | How events can be extracted from an indexer
 type family Container (indexer :: * -> *) :: * -> *
 
 -- | Define an in-memory container with a limited memory
@@ -311,7 +413,6 @@ instance Applicative m => Resumable m event ListIndexer where
 
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
--- ** SQLite indexer
 
 -- | When we want to store an event in a database, it may happen that you want to store it in many tables,
 -- ending with several insert.
@@ -411,87 +512,6 @@ instance (SQL.FromRow (Point event), MonadIO m) =>
         <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
 
 
--- ** Mixed indexer
-
--- | An indexer that has at most '_blocksListIndexer' events in memory and put the older one in database.
--- The query interface for this indexer will alwyas go through the database first and then prune
--- results present in memory.
---
--- @mem@ the indexer that handle old events, when we need to remove stuff from memory
--- @store@ the indexer that handle the most recent events
-data MixedIndexer mem store event = MixedIndexer
-    { _inMemory   :: !(mem event) -- ^ The fast storage for latest elements
-    , _inDatabase :: !(store event) -- ^ In database storage, usually for data that can't be rollbacked
-    }
-
-makeLenses 'MixedIndexer
-
--- | The indexer can take a result and complete it with its events
--- It's used by the in-memory part of a 'MixedIndexer' to specify
--- how we can complete the database result with the memory content.
-class ResumableResult m event query indexer where
-
-    resumeResult ::
-       Ord (Point event) =>
-       Point event -> query -> indexer event -> m (Result query) -> m (Result query)
-
--- | Flush all the in-memory events to the database, keeping track of the latest index
-flush ::
-    ( Monad m
-    , IsIndex m event store
-    , BoundedMemory m mem
-    , Traversable (Container mem)
-    , Eq (Point event)
-    ) => MixedIndexer mem store event ->
-    m (MixedIndexer mem store event)
-flush indexer = do
-    (eventsToFlush, indexer') <- getCompose $ indexer & inMemory (Compose . flushMemory)
-    inDatabase (indexAll eventsToFlush) indexer'
-
-instance
-    ( Monad m
-    , BoundedMemory m mem
-    , Traversable (Container mem)
-    , IsIndex m event mem
-    , IsIndex m event store
-    ) => IsIndex m event (MixedIndexer mem store) where
-
-    index timedEvent indexer = do
-        full <- isFull $ indexer ^. inMemory
-        indexer' <- (if full then flush else pure) indexer
-        inMemory (index timedEvent) indexer'
-
-instance IsSync event m mem => IsSync event m (MixedIndexer mem store) where
-    lastSyncPoint = lastSyncPoint . view inMemory
-
-instance
-    ( Monad m
-    , Rewindable m event store
-    ) => Rewindable m event (MixedIndexer ListIndexer store) where
-
-    rewind p indexer = let
-
-        rewindInStore :: Rewindable m event index => index event -> MaybeT m (index event)
-        rewindInStore = MaybeT . rewind p
-
-        in runMaybeT $ do
-            ix <- inMemory rewindInStore indexer
-            guard $ not $ null $ ix ^. inMemory . events
-            inDatabase rewindInStore ix
-
-instance
-    ( ResumableResult m event query ListIndexer
-    , Queryable m event query store
-    ) =>
-    Queryable m event query (MixedIndexer ListIndexer store) where
-
-    query valid q indexer
-        = resumeResult valid q
-            (indexer ^. inMemory)
-            (query valid q (indexer ^. inDatabase))
-
-
--- ** Runners
 
 -- | The different types of input of a runner
 data ProcessedInput event
@@ -584,6 +604,8 @@ data Coordinator input point = Coordinator
   , _nbRunners :: !Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
   }
 
+
+-- TODO handwrite lenses to avoid invalid states
 makeLenses 'Coordinator
 
 -- | Get the common syncPoints of a group or runners
@@ -632,7 +654,7 @@ step getPoint coordinator input = let
         dispatchNewInput
         waitRunners $> setLastSync coordinator
 
--- A coordinator can be seen as an indexer
+-- A 'Coordinator', viewed as an indexer
 newtype CoordinatorIndex event =
      CoordinatorIndex
           { _coordinator :: Coordinator event (Point event)
@@ -682,10 +704,6 @@ instance Rewindable IO event CoordinatorIndex where
 -- as it's sole interest would be to get the latest synchronisation points,
 -- but 'query' requires a 'Point' to provide a result.
 
-
--- * Common query interfaces
-
--- ** Get Event at a given point in time
 
 -- | Get the event stored by the indexer at a given point in time
 data EventAtQuery event = EventAtQuery
@@ -749,9 +767,6 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
         inDatabaseError          -> throwError inDatabaseError -- For any other error, forward it
 
 
--- * Indexer transformer: modify the behaviour of a indexer
-
--- ** Index wrapper
 
 -- | Wrap an indexer with some extra information to modify its behaviour
 --
@@ -763,8 +778,8 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
 -- and specify its own instances when it wants to add logic in it.
 data IndexWrapper config indexer event
     = IndexWrapper
-        { _wrappedIndexer :: !(indexer event)
-        , _wrapperConfig  :: !(config event)
+        { _wrapperConfig  :: !(config event)
+        , _wrappedIndexer :: !(indexer event)
         }
 
 makeLenses 'IndexWrapper
@@ -820,17 +835,17 @@ instance Resumable m event indexer =>
 
     syncPoints = syncPointsVia wrappedIndexer
 
--- | Helper to implement the @prune@ functon of 'CanPrune' when we use a wrapper.
+-- | Helper to implement the @prune@ functon of 'Prunable' when we use a wrapper.
 -- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
 pruneVia
-    :: (Functor m, CanPrune m event indexer, Ord (Point event))
+    :: (Functor m, Prunable m event indexer, Ord (Point event))
     => Lens' s (indexer event) -> Point event -> s -> m s
 pruneVia l = l . prune
 
--- | Helper to implement the @pruningPoint@ functon of 'CanPrune' when we use a wrapper.
+-- | Helper to implement the @pruningPoint@ functon of 'Prunable' when we use a wrapper.
 -- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
 pruningPointVia
-    :: CanPrune m event indexer
+    :: Prunable m event indexer
     => Getter s (indexer event) -> s -> m (Maybe (Point event))
 pruningPointVia l = pruningPoint . view l
 
@@ -843,8 +858,6 @@ rewindVia
 rewindVia l p = runMaybeT . l (MaybeT . rewind p)
 
 
--- ** Tracer Add tracing to an existing indexer
-
 newtype ProcessedInputTracer m event = ProcessedInputTracer { _unwrapTracer :: Tracer m (ProcessedInput event)}
 
 makeLenses 'ProcessedInputTracer
@@ -852,6 +865,9 @@ makeLenses 'ProcessedInputTracer
 -- | A tracer modifier that adds tracing to an existing indexer
 newtype WithTracer m indexer event
     = WithTracer { _tracerWrapper :: IndexWrapper (ProcessedInputTracer m) indexer event }
+
+withTracer :: Tracer m (ProcessedInput event) -> indexer event -> WithTracer m indexer event
+withTracer tr = WithTracer . IndexWrapper (ProcessedInputTracer tr)
 
 makeLenses 'WithTracer
 
@@ -896,14 +912,12 @@ instance
         res <- runMaybeT $ rewindWrappedIndexer p
         traverse traceSuccessfulRewind res
 
-instance (Functor m, CanPrune m event indexer) =>
-    CanPrune m event (WithTracer m indexer) where
+instance (Functor m, Prunable m event indexer) =>
+    Prunable m event (WithTracer m indexer) where
 
     prune = pruneVia tracedIndexer
 
     pruningPoint = pruningPointVia tracedIndexer
-
--- ** Delaying insert
 
 data DelayConfig event
     = DelayConfig
@@ -922,6 +936,13 @@ makeLenses 'DelayConfig
 -- as 'WithDelay' acts as it's processing an event while it only postpones the processing.
 newtype WithDelay indexer event
     = WithDelay { _delayWrapper :: IndexWrapper DelayConfig indexer event}
+
+-- | A smart constructor for 'WithDelay'
+withDelay
+    :: Word -- ^ capacity
+    -> indexer event
+    -> WithDelay indexer event
+withDelay c = WithDelay . IndexWrapper (DelayConfig c 0 Seq.empty)
 
 makeLenses 'WithDelay
 
@@ -1011,6 +1032,17 @@ makeLenses ''PruningConfig
 newtype WithPruning indexer event
     = WithPruning { _pruningWrapper :: IndexWrapper PruningConfig indexer event }
 
+withPruning
+    :: Word
+          -- ^ how far can a rollback go
+    -> Word
+          -- ^ once we have enough events, how often do we prune
+    -> indexer event
+    -> WithPruning indexer event
+withPruning sec every
+    = WithPruning
+    . IndexWrapper (PruningConfig sec every Seq.empty every 0)
+
 makeLenses ''WithPruning
 
 deriving via (IndexWrapper PruningConfig indexer)
@@ -1049,7 +1081,11 @@ pruneAt indexer = let
     dequeueNextPruningPoint =
         case indexer ^. nextPruning of
             Empty    -> Nothing
-            xs :|> p -> Just (p, indexer & nextPruning .~ xs)
+            xs :|> p -> let
+                indexer' = indexer
+                    & nextPruning .~ xs
+                    & currentDepth -~ indexer ^. pruneEvery
+                in Just (p, indexer')
 
     in guard reachPruningPoint *> dequeueNextPruningPoint
 
@@ -1081,7 +1117,7 @@ tick p indexer = let
 
 
 instance
-    (Monad m, Ord (Point event), CanPrune m event indexer, IsIndex m event indexer) =>
+    (Monad m, Ord (Point event), Prunable m event indexer, IsIndex m event indexer) =>
     IsIndex m event (WithPruning indexer) where
 
     index timedEvent indexer = do
@@ -1097,7 +1133,7 @@ instance
 -- mess up with the rollbackable events.
 instance
     ( Monad m
-    , CanPrune m event indexer
+    , Prunable m event indexer
     , Rewindable m event indexer
     , Ord (Point event)
     ) => Rewindable m event (WithPruning indexer) where
@@ -1139,3 +1175,89 @@ instance
                 . removePruningPointsAfterRollback p
                 . resetStep
                 <$> rewindWrappedIndexer p indexer
+
+-- ** Mixed indexer
+
+newtype MixedIndexerConfig store event
+    = MixedIndexerConfig
+        { _configInDatabase :: store event
+        -- ^ In database storage, usually for data that can't be rollbacked
+        }
+
+makeLenses 'MixedIndexerConfig
+
+-- | An indexer that has at most '_blocksListIndexer' events in memory and put the older one in database.
+-- The query interface for this indexer will alwyas go through the database first and then prune
+-- results present in memory.
+--
+-- @mem@ the indexer that handle old events, when we need to remove stuff from memory
+-- @store@ the indexer that handle the most recent events
+newtype MixedIndexer store mem event
+    = MixedIndexer { _mixedWrapper :: IndexWrapper (MixedIndexerConfig store) mem event}
+
+mixedIndexer :: store event -> mem event -> MixedIndexer store mem event
+mixedIndexer db = MixedIndexer . IndexWrapper(MixedIndexerConfig db)
+
+makeLenses 'MixedIndexer
+
+inDatabase :: Lens' (MixedIndexer store mem event) (mem event)
+inDatabase = mixedWrapper . wrappedIndexer
+
+inMemory :: Lens' (MixedIndexer store mem event) (store event)
+inMemory = mixedWrapper . wrapperConfig . configInDatabase
+
+-- | Flush all the in-memory events to the database, keeping track of the latest index
+flush ::
+    ( Monad m
+    , IsIndex m event store
+    , BoundedMemory m mem
+    , Traversable (Container mem)
+    , Eq (Point event)
+    ) => MixedIndexer mem store event ->
+    m (MixedIndexer mem store event)
+flush indexer = do
+    (eventsToFlush, indexer') <- getCompose $ indexer & inMemory (Compose . flushMemory)
+    inDatabase (indexAll eventsToFlush) indexer'
+
+instance
+    ( Monad m
+    , BoundedMemory m mem
+    , Traversable (Container mem)
+    , IsIndex m event mem
+    , IsIndex m event store
+    ) => IsIndex m event (MixedIndexer mem store) where
+
+    index timedEvent indexer = do
+        full <- isFull $ indexer ^. inMemory
+        indexer' <- (if full then flush else pure) indexer
+        inMemory (index timedEvent) indexer'
+
+instance IsSync event m mem => IsSync event m (MixedIndexer mem store) where
+    lastSyncPoint = lastSyncPoint . view inMemory
+
+instance
+    ( Monad m
+    , Rewindable m event store
+    ) => Rewindable m event (MixedIndexer ListIndexer store) where
+
+    rewind p indexer = let
+
+        rewindInStore :: Rewindable m event index => index event -> MaybeT m (index event)
+        rewindInStore = MaybeT . rewind p
+
+        in runMaybeT $ do
+            ix <- inMemory rewindInStore indexer
+            guard $ not $ null $ ix ^. inMemory . events
+            inDatabase rewindInStore ix
+
+instance
+    ( ResumableResult m event query ListIndexer
+    , Queryable m event query store
+    ) =>
+    Queryable m event query (MixedIndexer ListIndexer store) where
+
+    query valid q indexer
+        = resumeResult valid q
+            (indexer ^. inMemory)
+            (query valid q (indexer ^. inDatabase))
+
