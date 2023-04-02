@@ -421,7 +421,7 @@ instance (SQL.FromRow (Point event), MonadIO m) =>
 -- @store@ the indexer that handle the most recent events
 data MixedIndexer mem store event = MixedIndexer
     { _inMemory   :: !(mem event) -- ^ The fast storage for latest elements
-    , _inDatabase :: !(store event) -- ^ In database storage usually for data that can't be rollbacked
+    , _inDatabase :: !(store event) -- ^ In database storage, usually for data that can't be rollbacked
     }
 
 makeLenses 'MixedIndexer
@@ -875,7 +875,7 @@ instance
     IsIndex m event (WithTracer m index) where
 
     index timedEvent indexer = do
-        res <- tracedIndexer (index timedEvent) indexer
+        res <- indexVia tracedIndexer timedEvent indexer
         Tracer.traceWith (indexer ^. tracer) $ Index timedEvent
         pure res
 
@@ -886,7 +886,7 @@ instance
 
     rewind p indexer = let
 
-         rewindWrappedIndexer p' = tracedIndexer (MaybeT . rewind p') indexer
+         rewindWrappedIndexer p' = MaybeT $ rewindVia tracedIndexer p' indexer
 
          traceSuccessfulRewind indexer' = do
               Tracer.traceWith (indexer' ^. tracer) (Rollback p)
@@ -966,7 +966,7 @@ instance
         else do
             let b = indexer ^. delayBuffer
                 (oldest, buffer') = pushAndGetOldest b
-            res <- delayedIndexer (index oldest) indexer
+            res <- indexVia delayedIndexer oldest indexer
             pure $ res & delayBuffer .~ buffer'
 
 instance
@@ -977,7 +977,7 @@ instance
 
     rewind p indexer = let
 
-        rewindWrappedIndexer p' = delayedIndexer (MaybeT . rewind p') indexer
+        rewindWrappedIndexer p' = MaybeT $ rewindVia delayedIndexer p' indexer
 
         resetBuffer = (delayLength .~ 0) . (delayBuffer .~ Seq.empty)
 
@@ -1085,7 +1085,7 @@ instance
     IsIndex m event (WithPruning indexer) where
 
     index timedEvent indexer = do
-        indexer' <- prunedIndexer (index timedEvent) indexer
+        indexer' <- indexVia prunedIndexer timedEvent indexer
         let (mp, indexer'') = tick (timedEvent ^. point) indexer'
         maybe
           (pure indexer'')
@@ -1115,10 +1115,10 @@ instance
             stepLength <- view pruneEvery
             set stepsBeforeNext stepLength
 
-        cleanPruningPoints
+        removePruningPointsAfterRollback
             :: Point event
             -> WithPruning indexer event -> WithPruning indexer event
-        cleanPruningPoints p' = nextPruning %~ Seq.dropWhileL (> p')
+        removePruningPointsAfterRollback p' = nextPruning %~ Seq.dropWhileL (> p')
 
         countFromPruningPoints :: WithPruning indexer event -> WithPruning indexer event
         countFromPruningPoints = do
@@ -1136,6 +1136,6 @@ instance
         in runMaybeT $ do
             guard =<< isRollbackAfterPruning
             countFromPruningPoints
-                . cleanPruningPoints p
+                . removePruningPointsAfterRollback p
                 . resetStep
                 <$> rewindWrappedIndexer p indexer
