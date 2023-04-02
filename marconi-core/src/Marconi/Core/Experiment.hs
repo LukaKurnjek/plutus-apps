@@ -5,54 +5,53 @@
 
  The point we wanted to address are the folowing:
 
-   - 'Storable' implementation is designed in a way that strongly promote indexer that rely on a mix of database and
-     in-memory storage. We try to propose a more generic design that would allow
+    * 'Storable' implementation is designed in a way that strongly promotes indexers
+      that rely on a mix of database and in-memory storage.
+      We try to propose a more generic design that would allow:
 
-        - full in-memory indexers
-        - indexer backed by a simple file
-        - indexer transformers, that add capability (logging, caching...) to an indexer
-        - mock indexer, for testing purpose, with predefined behaviour
-        - group of indexers, synchronised as a single indexer
-        - implement in-memory/database storage that rely on other query heuristic
+        * full in-memory indexers
+        * indexer backed by a simple file
+        * indexer transformers, that add capability (logging, caching...) to an indexer
+        * mock indexer, for testing purpose, with predefined behaviour
+        * group of indexers, synchronised as a single indexer
+        * implement in-memory/database storage that rely on other query heuristic
 
-   - We want to be able to compose easily indexers to build new ones. For example, the original indexer design can be
-     seen as the combination of two indexers, a full in-memory indexer, and a full in database indexer.
+    * The original implementation considered the 'StorablePoint' as data that can be derived from 'Event',
+      leading to the design of synthetic events to deal with indexer that didn't index enough data.
 
-   - The original implementation considered the 'StorablePoint' as data that can be derived from 'Event',
-     leading to the design of synthetic events to deal with indexer that didn't index enough data.
-
-   - In marconi, the original design uses a callback design to handle `MVar` modification,
-     we wanted to address this point as well.
+    * In marconi, the original design uses a callback design to handle `MVar` modification,
+      we wanted to address this point as well.
 
 What's included in this module:
 
-    - Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback
-    - A full in-memory indexer (naive), an indexer that compose it with a SQL layer for persistence
-    - A coordinator for indexers, that can be exposed as an itdexer itself
-    - Some queries that can be applied to many indexers
-    - Several modifiers for indexers:
-        - Tracing, as a modifier to an existing indexer
+    * Base type classes to define an indexer, its query interface, and the required plumbing to handle rollback.
+    * A full in-memory indexer (naive), a full SQLite indexer
+      and an indexer that compose it with a SQL layer for persistence.
+    * A coordinator for indexers, that can be exposed as an itdexer itself.
+    * Some queries that can be applied to many indexers.
+    * Several modifiers for indexers:
+        * Tracing, as a modifier to an existing indexer.
           (it allows us to opt-in for traces if we want, indexer by indexer)
-        - Delay to delay event processing for heavy computation
-        - Pruning, to compact data that can't be rollbacked
+        * Delay to delay event processing for heavy computation.
+        * Pruning, to compact data that can't be rollbacked.
 
   Contrary to the original Marconi design, indexers don't have a unique (in-memory/sqlite) implementation.
 
   (non-exhaustive) TODO list:
 
-    - Provide more typeclasses implementation for an SQLite indexer.
+    * Provide more typeclasses implementation for an SQLite indexer.
       We shouldn't have to provide more than the queries and tables in most cases.
       The indexer instances should take care of the global behaviour for all typeclasses.
-    - Provide a less naive in-memory indexer implementation than the list one
-    - Test, test, test. The current code is not tested, and it's wrong.
+    * Provide a less naive in-memory indexer implementation than the list one
+    * Test, test, test. The current code is not tested, and it's wrong.
       Ideally, we should be able to provide a model-based testing approach to specify
       what we expect from indexers.
-    - Re-implement some of our indexers.
-    - Split up this mess in modules.
-    - Generate haddock, double-check it, fill the void.
-    - Provide a tutorial on how to write indexer, transformers, and how to instantiate them.
-    - Cold start from disk.
-    - Provide MonadState version of the functions that manipulates the indexer.
+    * Re-implement some of our indexers.
+    * Split up this mess in modules.
+    * Generate haddock, double-check it, fill the void.
+    * Provide a tutorial on how to write indexer, transformers, and how to instantiate them.
+    * Cold start from disk.
+    * Provide MonadState version of the functions that manipulates the indexer.
 
 -}
 module Marconi.Core.Experiment where
@@ -120,11 +119,12 @@ data IndexError indexer event
      -- ^ Any other cause of failure
 
 -- | The base class of an indexer.
--- The indexer should provide two main functionality: indexing events, and providing its last synchronisation point.
+-- The indexer should provide two main functionalities:
+-- indexing events, and providing its last synchronisation point.
 --
--- @indexer@ the indexer implementation type
--- @event@ the indexed events
--- @m@ the monad in which our indexer operates
+--     * @indexer@ the indexer implementation type
+--     * @event@ the indexed events
+--     * @m@ the monad in which our indexer operates
 class Monad m => IsIndex indexer event m where
 
     -- | index an event at a given point in time
@@ -135,6 +135,7 @@ class Monad m => IsIndex indexer event m where
     indexAll :: (Eq (Point event), Traversable f) =>
         f (TimedEvent event) -> indexer event -> m (indexer event)
     indexAll = flip (foldrM index)
+
     {-# MINIMAL index #-}
 
 class IsSync indexer event m where
@@ -192,20 +193,20 @@ class Rewindable indexer event m where
 
 -- | The indexer can prune old data.
 -- The main purpose is to speed up query processing.
--- If the indexer is 'Rewindable' and 'Prunable',
+-- If the indexer is 'Rewindable' and 'CanPrune',
 -- it can't 'rewind' behind the 'pruningPoint',
 -- the idea is to call 'prune' on points that can't be rollbacked anymore.
 --
 --     * @indexer@ is the indexer implementation type
 --     * @desc@ the descriptor of the indexer, fixing the @Point@ types
 --     * @m@ the monad in which our indexer operates
-class Prunable indexer event m where
+class CanPrune indexer event m where
 
-    -- Pruning events of the indexer up to a given point in time
+    -- Prune events of the indexer up to a given point in time
     prune :: Point event -> indexer event -> m (indexer event)
 
     -- The latest pruned point (events up to the result are pruned)
-    pruningPoint :: indexer event -> m (Point event)
+    pruningPoint :: indexer event -> m (Maybe (Point event))
 
 -- | Points from which we can restract safely
 class Resumable indexer event m where
@@ -230,12 +231,12 @@ class BoundedMemory indexer m where
     flushMemory :: indexer event -> m (Container indexer (TimedEvent event), indexer event)
 
 -- | A Full in memory indexer, it uses list because I was too lazy to port the 'Vector' implementation.
--- If we wanna move to these indexer, we should switch the implementation to the 'Vector' one.
+-- If we wanna move to these indexers, we should switch the implementation to the 'Vector' one.
 data ListIndexer event =
     ListIndexer
     { _capacity :: !Word
     , _events   :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
-    , _latest   :: !(Maybe (Point event)) -- ^ Ease access to the latest datapoint
+    , _latest   :: !(Maybe (Point event)) -- ^ Ease access to the latest sync point
     }
 
 type instance Container ListIndexer = []
@@ -278,10 +279,13 @@ instance Applicative m => Rewindable ListIndexer event m where
 
         adjustLatestPoint :: ListIndexer event -> ListIndexer event
         adjustLatestPoint = latest ?~ p
+
         cleanEventsAfterRollback :: ListIndexer event -> ListIndexer event
         cleanEventsAfterRollback = events %~ dropWhile isEventAfterRollback
+
         isIndexBeforeRollback :: ListIndexer event -> Bool
         isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
+
         isEventAfterRollback :: TimedEvent event -> Bool
         isEventAfterRollback = (p <) . view point
 
@@ -435,7 +439,7 @@ flush ::
     ) => MixedIndexer mem store event ->
     m (MixedIndexer mem store event)
 flush indexer = do
-    (eventsToFlush, indexer') <- getCompose $ inMemory (Compose . flushMemory) indexer
+    (eventsToFlush, indexer') <- getCompose $ indexer & inMemory (Compose . flushMemory)
     inDatabase (indexAll eventsToFlush) indexer'
 
 instance
@@ -532,8 +536,10 @@ createRunner ix f = do
 startRunner :: Ord point => TChan input -> QSemN -> Runner input point -> IO ()
 startRunner chan tokens (Runner ix processInput) = let
 
+    unlockCoordinator :: IO ()
     unlockCoordinator = Con.signalQSemN tokens 1
 
+    fresherThan :: Ord (Point event) => TimedEvent event -> Maybe (Point event) -> Bool
     fresherThan evt p = maybe True (< evt ^. point) p
 
     indexEvent timedEvent = do
@@ -611,8 +617,10 @@ start runners' = let
 step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
 step getPoint coordinator input = let
 
+      waitRunners :: IO ()
       waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
 
+      dispatchNewInput :: IO ()
       dispatchNewInput = STM.atomically $ STM.writeTChan (coordinator ^. channel) input
 
       setLastSync c = c & lastSync ?~ getPoint input
@@ -868,7 +876,7 @@ data WithPruning indexer event
     , _pruneEvery      :: !Word
       -- ^ once we have enough events, how often do we prune
     , _nextPruning     :: !(Seq (Point event))
-      -- ^ list of aggregation points
+      -- ^ list of pruning point
     , _stepsBeforeNext :: !Word
       -- ^ events required before next aggregation milestones
     , _currentDepth    :: !Word
@@ -921,7 +929,7 @@ tick p indexer = let
 
 
 instance
-    (Monad m, Prunable indexer event m, IsIndex indexer event m) =>
+    (Monad m, CanPrune indexer event m, IsIndex indexer event m) =>
     IsIndex (WithPruning indexer) event m where
 
     index timedEvent indexer = do
@@ -946,6 +954,7 @@ instance Queryable indexer event query m =>
 -- mess up with the rollbackable events.
 instance
     ( Monad m
+    , CanPrune indexer event m
     , Rewindable indexer event m
     , Ord (Point event)
     ) => Rewindable (WithPruning indexer) event m where
@@ -976,8 +985,14 @@ instance
             -- we have 'stepLength' events available in the indexer
             set currentDepth (fromIntegral $ length points * fromIntegral stepLength)
 
-        in runMaybeT
-            $ countFromPruningPoints
-            . cleanPruningPoints p
-            . resetStep
-            <$> rewindWrappedIndexer p indexer
+        isRollbackAfterPruning :: MaybeT m Bool
+        isRollbackAfterPruning = MaybeT $ do
+            p' <- pruningPoint $ indexer ^. prunedIndexer
+            pure $ pure $ maybe True (p >=) p'
+
+        in runMaybeT $ do
+            guard =<< isRollbackAfterPruning
+            countFromPruningPoints
+                . cleanPruningPoints p
+                . resetStep
+                <$> rewindWrappedIndexer p indexer
