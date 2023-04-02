@@ -66,8 +66,8 @@ import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
 import Control.Concurrent (QSemN)
-import Control.Lens (Lens', filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~), (^.),
-                     (^..), (^?))
+import Control.Lens (Getter, Lens', filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~),
+                     (^.), (^..), (^?))
 import Control.Monad (forever, guard, when)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
@@ -322,13 +322,13 @@ instance Applicative m => Resumable m event ListIndexer where
 --     - We can't know in the general case neither how many query will be needed, nor the param types.
 --     - We want to minimise the boilerplate for a end user.
 --
--- To tackle these issue, we wrap our queries in a opaque type, @InsertQuery@,
+-- To tackle these issue, we wrap our queries in a opaque type, @IndexQuery@,
 -- which hides the query parameters.
--- Internally, we only have to deal with a @[InsertQuery]@ to be able to insert an event.
-data InsertQuery
+-- Internally, we only have to deal with a @[IndexQuery]@ to be able to insert an event.
+data IndexQuery
     = forall param.
     SQL.ToRow param =>
-    InsertQuery
+    IndexQuery
         { insertQuery :: !SQL.Query
         , params      :: ![param]
          -- ^ It's a list because me want to be able to deal with bulk insert,
@@ -336,11 +336,12 @@ data InsertQuery
         }
 
 -- | Run a list of insert queries in one single transaction.
-runInserts :: SQL.Connection -> [InsertQuery] -> IO ()
-runInserts c = let
-    runInsert (InsertQuery insertQuery params) = SQL.executeMany c insertQuery params
+runIndexQueries :: SQL.Connection -> [IndexQuery] -> IO ()
+runIndexQueries _ [] = pure ()
+runIndexQueries c xs = let
+    runIndexQuery (IndexQuery insertQuery params) = SQL.executeMany c insertQuery params
     in SQL.withTransaction c
-        . mapConcurrently_ runInsert
+        $ mapConcurrently_ runIndexQuery xs
 
 -- | How we map an event to its sql representation
 --
@@ -356,11 +357,11 @@ data SQLiteIndexer event
         , _prepareInsert :: !(TimedEvent event -> InsertRecord event)
           -- ^ 'insertRecord' is the typed representation of what has to be inserted in the database
           -- It should be a monoid, to allow insertion of 0 to n rows in a single transaction
-        , _buildInsert   :: !(InsertRecord event -> [InsertQuery])
-          -- ^ Map the 'insertRecord' representation to 'InsertQuery',
+        , _buildInsert   :: !(InsertRecord event -> [IndexQuery])
+          -- ^ Map the 'insertRecord' representation to 'IndexQuery',
           -- to actually performed the insertion in the database.
           -- One can think at the insert record as a typed representation of the parameters of the queries,
-          -- that can be bundle with the query in the opaque @InsertQuery@ type.
+          -- that can be bundle with the query in the opaque @IndexQuery@ type.
         , _dbLastSync    :: !SQL.Query
           -- ^ The query to extract the latest sync point from the database.
         }
@@ -385,7 +386,7 @@ singleInsertSQLiteIndexer c toParam insertQuery lastSyncQuery
     = SQLiteIndexer
         {_handle = c
         , _prepareInsert = pure . toParam
-        , _buildInsert = pure . InsertQuery insertQuery
+        , _buildInsert = pure . IndexQuery insertQuery
         , _dbLastSync = lastSyncQuery
         }
 
@@ -393,19 +394,21 @@ instance (MonadIO m, Monoid (InsertRecord event)) =>
     IsIndex m event SQLiteIndexer where
 
     index evt indexer = liftIO $ do
-        let inserts = indexer ^. buildInsert $ indexer ^. prepareInsert $ evt
-        runInserts (indexer ^. handle) inserts
+        let indexQueries = indexer ^. buildInsert $ indexer ^. prepareInsert $ evt
+        runIndexQueries (indexer ^. handle) indexQueries
         pure indexer
 
     indexAll evts indexer = liftIO $ do
-        let inserts = indexer ^. buildInsert $ foldMap (indexer ^. prepareInsert) evts
-        runInserts (indexer ^. handle) inserts
+        let indexQueries = indexer ^. buildInsert $ foldMap (indexer ^. prepareInsert) evts
+        runIndexQueries (indexer ^. handle) indexQueries
         pure indexer
 
 instance (SQL.FromRow (Point event), MonadIO m) =>
     IsSync m event SQLiteIndexer where
 
-    lastSyncPoint indexer = liftIO $ listToMaybe <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
+    lastSyncPoint indexer
+        = liftIO $ listToMaybe
+        <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
 
 
 -- ** Mixed indexer
@@ -418,7 +421,7 @@ instance (SQL.FromRow (Point event), MonadIO m) =>
 -- @store@ the indexer that handle the most recent events
 data MixedIndexer mem store event = MixedIndexer
     { _inMemory   :: !(mem event) -- ^ The fast storage for latest elements
-    , _inDatabase :: !(store event) -- ^ In database storage, should be similar to the original indexer
+    , _inDatabase :: !(store event) -- ^ In database storage usually for data that can't be rollbacked
     }
 
 makeLenses 'MixedIndexer
@@ -455,11 +458,8 @@ instance
 
     index timedEvent indexer = do
         full <- isFull $ indexer ^. inMemory
-        if full
-           then do
-               indexer' <- flush indexer
-               inMemory (index timedEvent) indexer'
-           else inMemory (index timedEvent) indexer
+        indexer' <- (if full then flush else pure) indexer
+        inMemory (index timedEvent) indexer'
 
 instance IsSync event m mem => IsSync event m (MixedIndexer mem store) where
     lastSyncPoint = lastSyncPoint . view inMemory
@@ -769,39 +769,69 @@ data IndexWrapper config indexer event
 
 makeLenses 'IndexWrapper
 
+-- | Helper to implement the @index@ functon of 'IsIndex' when we use a wrapper.
+-- If you don't want to perform any other side logic, use @deriving via@ instead.
+indexVia
+    :: (IsIndex m event indexer, Eq (Point event))
+    => Lens' s (indexer event) -> TimedEvent event -> s -> m s
+indexVia l = l . index
+
 instance
     (Monad m, IsIndex m event indexer) =>
     IsIndex m event (IndexWrapper config indexer) where
 
-    index timedEvent = wrappedIndexer $ index timedEvent
+    index = indexVia wrappedIndexer
+
+-- | Helper to implement the @lastSyncPoint@ functon of 'IsSync' when we use a wrapper.
+-- If you don't want to perform any other side logic, use @deriving via@ instead.
+lastSyncPointVia
+    :: IsSync m event indexer
+    => Getter s (indexer event) -> s -> m (Maybe (Point event))
+lastSyncPointVia l = lastSyncPoint . view l
 
 instance IsSync event m index =>
     IsSync event m (IndexWrapper config index) where
 
-    lastSyncPoint = lastSyncPoint . view wrappedIndexer
+    lastSyncPoint = lastSyncPointVia wrappedIndexer
+
+-- | Helper to implement the @query@ functon of 'Queryable' when we use a wrapper.
+-- If you don't want to perform any other side logic, use @deriving via@ instead.
+queryVia
+    :: (Queryable m event query indexer, Ord (Point event))
+    => Getter s (indexer event)
+    -> Point event -> query -> s -> m (Result query)
+queryVia l p q = query p q . view l
 
 instance Queryable m event query indexer =>
     Queryable m event query (IndexWrapper config indexer) where
 
-    query p q =  query p q . view wrappedIndexer
+    query =  queryVia wrappedIndexer
+
+-- | Helper to implement the @query@ functon of 'Resumable' when we use a wrapper.
+-- If you don't want to perform any other side logic, use @deriving via@ instead.
+syncPointsVia
+    :: (Resumable m event indexer, Ord (Point event))
+    => Getter s (indexer event) -> s -> m [Point event]
+syncPointsVia l = syncPoints . view l
+
 
 instance Resumable m event indexer =>
     Resumable m event (IndexWrapper config indexer) where
 
-    syncPoints = syncPoints . view wrappedIndexer
+    syncPoints = syncPointsVia wrappedIndexer
 
 -- | Helper to implement the @prune@ functon of 'CanPrune' when we use a wrapper.
 -- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
 pruneVia
     :: (Functor m, CanPrune m event indexer, Ord (Point event))
     => Lens' s (indexer event) -> Point event -> s -> m s
-pruneVia l p = l (prune p)
+pruneVia l = l . prune
 
 -- | Helper to implement the @pruningPoint@ functon of 'CanPrune' when we use a wrapper.
 -- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
 pruningPointVia
     :: CanPrune m event indexer
-    => Lens' s (indexer event) -> s -> m (Maybe (Point event))
+    => Getter s (indexer event) -> s -> m (Maybe (Point event))
 pruningPointVia l = pruningPoint . view l
 
 -- | Helper to implement the @rewind@ functon of 'Rewindable' when we use a wrapper.
