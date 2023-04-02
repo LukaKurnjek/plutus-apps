@@ -164,7 +164,7 @@ import Data.Sequence qualified as Seq
 import Control.Concurrent (QSemN)
 import Control.Lens (Getter, Lens', filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~),
                      (^.), (^..), (^?))
-import Control.Monad (forever, guard, when)
+import Control.Monad (forever, guard)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
 
@@ -327,13 +327,17 @@ class Resumable m event indexer where
 type family Container (indexer :: * -> *) :: * -> *
 
 -- | Define an in-memory container with a limited memory
-class BoundedMemory m indexer where
+class Flushable m indexer where
 
     -- | Check if there isn't space left in memory
-    isFull  :: indexer event -> m Bool
+    isFull :: indexer event -> m Bool
 
     -- | Clear the memory and return its content
-    flushMemory :: indexer event -> m (Container indexer (TimedEvent event), indexer event)
+    flushMemory
+        :: Word
+           -- ^ How many event do we keep
+        -> indexer event
+        -> m (Container indexer (TimedEvent event), indexer event)
 
 -- | A Full in memory indexer, it uses list because I was too lazy to port the 'Vector' implementation.
 -- If we wanna move to these indexers, we should switch the implementation to the 'Vector' one.
@@ -348,11 +352,11 @@ type instance Container ListIndexer = []
 
 makeLenses 'ListIndexer
 
-instance Applicative m => BoundedMemory m ListIndexer where
+instance Applicative m => Flushable m ListIndexer where
 
     isFull ix = pure $ ix ^. capacity >= fromIntegral (length (ix ^. events))
 
-    flushMemory ix = pure $ ix & events <<.~ []
+    flushMemory _ ix = pure $ ix & events <<.~ []
 
 instance
     (MonadError (IndexError ListIndexer event) m, Monad m) =>
@@ -366,11 +370,7 @@ instance
         updateLatest :: ListIndexer event -> ListIndexer event
         updateLatest = latest ?~ (timedEvent ^. point)
 
-        checkOverflow :: Bool -> m ()
-        checkOverflow b = when b $ throwError $ NoSpaceLeft ix
-
         in do
-            checkOverflow =<< isFull ix
             pure $ ix
                 & appendEvent
                 & updateLatest
@@ -1178,9 +1178,11 @@ instance
 
 -- ** Mixed indexer
 
-newtype MixedIndexerConfig store event
+data MixedIndexerConfig store event
     = MixedIndexerConfig
-        { _configInDatabase :: store event
+        { _configKeepInMemory :: Word
+        -- ^ how many events are kept in memory after a flush
+        , _configInDatabase   :: store event
         -- ^ In database storage, usually for data that can't be rollbacked
         }
 
@@ -1195,50 +1197,60 @@ makeLenses 'MixedIndexerConfig
 newtype MixedIndexer store mem event
     = MixedIndexer { _mixedWrapper :: IndexWrapper (MixedIndexerConfig store) mem event}
 
-mixedIndexer :: store event -> mem event -> MixedIndexer store mem event
-mixedIndexer db = MixedIndexer . IndexWrapper(MixedIndexerConfig db)
+mixedIndexer
+    :: Word
+    -- ^ how many events are kept in memory after a flush
+    -> store event
+    -> mem event
+    -> MixedIndexer store mem event
+mixedIndexer keepNb db
+    = MixedIndexer . IndexWrapper (MixedIndexerConfig keepNb db)
 
 makeLenses 'MixedIndexer
 
-inDatabase :: Lens' (MixedIndexer store mem event) (mem event)
-inDatabase = mixedWrapper . wrappedIndexer
+keepInMemory :: Lens' (MixedIndexer store mem event) Word
+keepInMemory = mixedWrapper . wrapperConfig . configKeepInMemory
 
-inMemory :: Lens' (MixedIndexer store mem event) (store event)
-inMemory = mixedWrapper . wrapperConfig . configInDatabase
+inMemory :: Lens' (MixedIndexer store mem event) (mem event)
+inMemory = mixedWrapper . wrappedIndexer
+
+inDatabase :: Lens' (MixedIndexer store mem event) (store event)
+inDatabase = mixedWrapper . wrapperConfig . configInDatabase
 
 -- | Flush all the in-memory events to the database, keeping track of the latest index
 flush ::
     ( Monad m
     , IsIndex m event store
-    , BoundedMemory m mem
+    , Flushable m mem
     , Traversable (Container mem)
     , Eq (Point event)
-    ) => MixedIndexer mem store event ->
-    m (MixedIndexer mem store event)
+    ) => MixedIndexer store mem event ->
+    m (MixedIndexer store mem event)
 flush indexer = do
-    (eventsToFlush, indexer') <- getCompose $ indexer & inMemory (Compose . flushMemory)
+    let keep = indexer ^. keepInMemory
+    (eventsToFlush, indexer') <- getCompose $ inMemory (Compose . flushMemory keep) indexer
     inDatabase (indexAll eventsToFlush) indexer'
 
 instance
     ( Monad m
-    , BoundedMemory m mem
+    , Flushable m mem
     , Traversable (Container mem)
     , IsIndex m event mem
     , IsIndex m event store
-    ) => IsIndex m event (MixedIndexer mem store) where
+    ) => IsIndex m event (MixedIndexer store mem) where
 
     index timedEvent indexer = do
         full <- isFull $ indexer ^. inMemory
         indexer' <- (if full then flush else pure) indexer
-        inMemory (index timedEvent) indexer'
+        indexVia inMemory timedEvent indexer'
 
-instance IsSync event m mem => IsSync event m (MixedIndexer mem store) where
+instance IsSync event m mem => IsSync event m (MixedIndexer store mem) where
     lastSyncPoint = lastSyncPoint . view inMemory
 
 instance
     ( Monad m
     , Rewindable m event store
-    ) => Rewindable m event (MixedIndexer ListIndexer store) where
+    ) => Rewindable m event (MixedIndexer store ListIndexer) where
 
     rewind p indexer = let
 
@@ -1254,7 +1266,7 @@ instance
     ( ResumableResult m event query ListIndexer
     , Queryable m event query store
     ) =>
-    Queryable m event query (MixedIndexer ListIndexer store) where
+    Queryable m event query (MixedIndexer store ListIndexer) where
 
     query valid q indexer
         = resumeResult valid q
