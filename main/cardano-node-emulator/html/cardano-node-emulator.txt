@@ -487,6 +487,13 @@ queueTx :: MonadEmulator m => CardanoTx -> m ()
 -- | Process the queued transactions and increase the slot number.
 nextSlot :: MonadEmulator m => m ()
 
+-- | Get the current slot number of the emulated node.
+currentSlot :: MonadEmulator m => m Slot
+
+-- | Call <a>nextSlot</a> until the current slot number equals or exceeds
+--   the given slot number.
+awaitSlot :: MonadEmulator m => Slot -> m ()
+
 -- | Query the unspent transaction outputs at the given address.
 utxosAt :: MonadEmulator m => CardanoAddress -> m (Map TxOutRef DecoratedTxOut)
 
@@ -505,13 +512,6 @@ submitUnbalancedTx :: (MonadEmulator m, Foldable f) => UtxoIndex -> CardanoAddre
 -- | Create a transaction that transfers funds from one address to another,
 --   and sign and submit it.
 payToAddress :: MonadEmulator m => (CardanoAddress, PaymentPrivateKey) -> CardanoAddress -> Value -> m TxId
-
--- | Test the number of validated transactions and the total number of
---   transactions. Returns a failure message if the numbers don't match up.
-hasValidatedTransactionCountOfTotal :: Int -> Int -> Seq ChainEvent -> Maybe String
-
--- | Render the logs in a format useful for debugging why a test failed.
-renderLogs :: Seq ChainEvent -> String
 data EmulatorState
 EmulatorState :: ChainState -> AddressMap -> EmulatorState
 esChainState :: Lens' EmulatorState ChainState
@@ -525,6 +525,34 @@ type EmulatorT m = ExceptT EmulatorError (RWST Params (Seq ChainEvent) EmulatorS
 type EmulatorM = EmulatorT Identity
 emptyEmulatorState :: EmulatorState
 emptyEmulatorStateWithInitialDist :: Map CardanoAddress Value -> EmulatorState
+getParams :: MonadEmulator m => m Params
 handleChain :: MonadEmulator m => Eff [ChainControlEffect, ChainEffect] a -> m a
 instance GHC.Show.Show Cardano.Node.Emulator.MTL.EmulatorError
 instance GHC.Show.Show Cardano.Node.Emulator.MTL.EmulatorState
+
+module Cardano.Node.Emulator.MTL.Test
+
+-- | Test the number of validated transactions and the total number of
+--   transactions. Returns a failure message if the numbers don't match up.
+hasValidatedTransactionCountOfTotal :: Int -> Int -> Seq ChainEvent -> Maybe String
+
+-- | Render the logs in a format useful for debugging why a test failed.
+renderLogs :: Seq ChainEvent -> String
+
+-- | Sanity check a <a>ContractModel</a>. Ensures that wallet balances are
+--   not always unchanged.
+propSanityCheckModel :: forall state. ContractModel state => Property
+
+-- | Sanity check a <a>ContractModel</a>. Ensures that all assertions in
+--   the property generation succeed.
+propSanityCheckAssertions :: forall state. ContractModel state => Actions state -> Property
+
+-- | Run <a>Actions</a> in the emulator and check that the model and the
+--   emulator agree on the final wallet balance changes. Starts with
+--   100.000.000 Ada for each wallet and the default parameters.
+propRunActions_ :: forall state. RunModel state EmulatorM => Actions state -> Property
+propRunActions :: forall state. RunModel state EmulatorM => (ModelState state -> Seq ChainEvent -> Maybe String) -> Actions state -> Property
+propRunActionsWithOptions :: forall state. RunModel state EmulatorM => Map CardanoAddress Value -> Params -> (ModelState state -> Seq ChainEvent -> Maybe String) -> Actions state -> Property
+chainStateToChainIndex :: NetworkId -> ChainState -> ChainIndex
+instance Test.QuickCheck.ContractModel.Internal.IsRunnable Cardano.Node.Emulator.MTL.EmulatorM
+instance Test.QuickCheck.ContractModel.Internal.ChainIndex.HasChainIndex Cardano.Node.Emulator.MTL.EmulatorM
