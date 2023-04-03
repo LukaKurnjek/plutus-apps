@@ -28,7 +28,7 @@ module Marconi.Core.Model
   , prop_insertRewindNotifications
   ) where
 
-import Control.Monad (replicateM)
+import Control.Monad (guard, replicateM)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 
@@ -66,6 +66,15 @@ import Test.Tasty.QuickCheck (Arbitrary (arbitrary, shrink), CoArbitrary, Fun, G
     depth >= size
 -}
 
+-- | Index is a base model for an indexer.
+-- It chains the primitive actions we can apply to an indexer:
+--     - creating one;
+--     - insent an element into it;
+--     - rewind it from a given number of steps.
+--
+-- - 'a' aggregate
+-- - 'e' event
+-- - 'n' notification
 data Index a e n = New (a -> e -> (a, Maybe n)) Int a
                  | Insert e (Index a e n)
                  | Rewind Int (Index a e n)
@@ -75,9 +84,14 @@ instance (Show a, Show e) => Show (Index a e n) where
   show (Insert b ix)     = "Insert " <> show b <> " (" <> show ix <> ")"
   show (Rewind n ix)     = "Rewind " <> show n <> " (" <> show ix <> ")"
 
+-- | A wrapper around Index to generate a list of action
 newtype GrammarBuilder a e n = GrammarBuilder (Index a e n)
   deriving (Show)
 
+-- | A wrapper around Index to generate a list of action.
+-- It will never generate a rewind, that's why it's called
+-- "Observed": it generates an Indexer as we can observe it at a point in time,
+-- with its creation (`new`) and the inserted elements ('insert').:
 newtype ObservedBuilder a e n = ObservedBuilder (Index a e n)
   deriving (Show)
 
@@ -87,7 +101,7 @@ data IndexView a = IndexView
   , ixSize  :: Int -- ^ Size represents the stored history elements
   } deriving (Show, Ord, Eq, Typeable, Generic)
 
--- | Constructors
+-- * Constructors
 
 new :: (a -> e -> (a, Maybe n)) -> Int -> a -> Index a e n
 new = New
@@ -98,16 +112,15 @@ insert = Insert
 rewind :: Int -> Index a e n -> Index a e n
 rewind = Rewind
 
--- | Observations
+-- * Observations
 
 view :: Index a e n -> Maybe (IndexView a)
-view (New _ depth initial) =
-  if depth > 0
-  then pure $ IndexView { ixDepth = depth
-                        , ixView  = initial
-                        , ixSize  = 1
-                        }
-  else Nothing
+view (New _ depth initial) = do
+  guard (depth > 0)
+  pure $ IndexView { ixDepth = depth
+                   , ixView  = initial
+                   , ixSize  = 1
+                   }
 view (Insert e ix) = do
   let f = getFunction ix
   v <- view ix
