@@ -46,10 +46,10 @@ import Test.Tasty.QuickCheck (Arbitrary (arbitrary, shrink), CoArbitrary, Fun, G
   Laws derived by constructors/observations:
 
     view (new f d a) =
-      | d > 0     = IndexView [d a 0]
+      | d > 0     = Just (IndexView d a 0)
       | otherwise = Nothing
     getHistory (new f d a) = [a]
-    view (insertL bs (new f d a)) = IndexView [d (foldl' f a bs) (max (length bs) d)]
+    view (insertL bs (new f d a)) = IndexView d (foldl' f a bs) (max (length bs) d)
     getHistory (insertL bs (new f d a)) = take d bs
     rewind n (new f d a) = Nothing
     view <$> (rewind n (insertL bs (new f d a))) =
