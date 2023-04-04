@@ -64,11 +64,13 @@ module Marconi.Core.Experiment
       Point
     , Result (..)
     , Container
-    , TimedEvent
+    , TimedEvent (TimedEvent)
+        , point
+        , event
     -- ** Core typeclasses
     , IsIndex (..)
     , IsSync (..)
-    , isNotAheadOfSync
+    , isAheadOfSync
     , Queryable (..)
     , query'
     , ResumableResult (..)
@@ -80,7 +82,8 @@ module Marconi.Core.Experiment
     , QueryError (..)
     -- * Core Indexers
     -- ** In memory
-    , ListIndexer
+    , ListIndexer (ListIndexer)
+        , listIndexer
         , capacity
         , events
         , latest
@@ -120,6 +123,7 @@ module Marconi.Core.Experiment
     -- Queries that can be implemented for all indexers
     , EventAtQuery (..)
     , EventsMatchingQuery (..)
+    , allEvents
     -- * Indexer Transformers
     -- ** Tracer
     , WithTracer
@@ -143,16 +147,18 @@ module Marconi.Core.Experiment
         , stepsBeforeNext
         , currentDepth
     -- ** Index wrapper
+    -- *** Derive via machinery
     , IndexWrapper
         , wrappedIndexer
         , wrapperConfig
+    , pruneVia
+    , pruningPointVia
+    , rewindVia
+    -- *** Helpers
     , indexVia
     , lastSyncPointVia
     , queryVia
     , syncPointsVia
-    , pruneVia
-    , pruningPointVia
-    , rewindVia
     ) where
 
 import Control.Concurrent qualified as Con (newQSemN, signalQSemN, waitQSemN)
@@ -206,6 +212,8 @@ data TimedEvent event =
          , _event :: !event
          }
 
+deriving stock instance (Show event, Show (Point event)) => Show (TimedEvent event)
+
 makeLenses 'TimedEvent
 
 -- | Error that can occur when you index events
@@ -214,6 +222,8 @@ data IndexError indexer event
      -- ^ An indexer with limited capacity is full and is unable to index an event
    | OtherError !Text
      -- ^ Any other cause of failure
+
+deriving stock instance (Show (indexer event), Show (Point event)) => Show (IndexError indexer event)
 
 -- | The base class of an indexer.
 -- The indexer should provide two main functionalities:
@@ -241,10 +251,10 @@ class IsSync m event indexer where
     lastSyncPoint :: indexer event -> m (Maybe (Point event))
 
 -- | Check if the given point is ahead of the last syncPoint of an indexer,
-isNotAheadOfSync ::
+isAheadOfSync ::
     (Ord (Point event), IsSync m event indexer, Functor m) =>
     Point event -> indexer event -> m Bool
-isNotAheadOfSync p indexer = maybe False (> p) <$> lastSyncPoint indexer
+isAheadOfSync p indexer = maybe True (p >) <$> lastSyncPoint indexer
 
 
 -- | Error that can occurs when you query an indexer
@@ -259,6 +269,8 @@ data QueryError query
      -- ^ The requested point is too far in the past and has been pruned
    | IndexerQueryError !Text
      -- ^ The indexer query failed
+
+deriving stock instance (Show (Result query)) => Show (QueryError query)
 
 -- | The indexer can answer a Query to produce the corresponding result of that query.
 --
@@ -348,9 +360,14 @@ data ListIndexer event =
     , _latest   :: !(Maybe (Point event)) -- ^ Ease access to the latest sync point
     }
 
+deriving stock instance (Show event, Show (Point event)) => Show (ListIndexer event)
+
 type instance Container ListIndexer = []
 
 makeLenses 'ListIndexer
+
+listIndexer :: Word -> ListIndexer event
+listIndexer cap = ListIndexer cap [] Nothing
 
 instance Applicative m => Flushable m ListIndexer where
 
@@ -719,7 +736,7 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
 
     query p EventAtQuery ix = do
         let isAtPoint e p' = e ^. point == p'
-        check <- isNotAheadOfSync p ix
+        check <- not <$> isAheadOfSync p ix
         if check
         then maybe
              -- If we can't find the point and if it's in the past, we probably pruned it
@@ -740,20 +757,25 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
 -- | Query an indexer to find all events that match a given predicate
 newtype EventsMatchingQuery event = EventsMatchingQuery {predicate :: event -> Bool}
 
+allEvents :: EventsMatchingQuery event
+allEvents = EventsMatchingQuery (const True)
+
 -- | The result of an @EventMatchingQuery@
 newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEvents :: [event]}
 
 deriving newtype instance Semigroup (Result (EventsMatchingQuery event))
+deriving newtype instance Show event => Show (Result (EventsMatchingQuery event))
+
 
 instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
     Queryable m event (EventsMatchingQuery event) ListIndexer where
 
     query p q ix = do
-        let isAfter p' e = p' > e ^. point
+        let isBefore p' e = p' >= e ^. point
         let result = EventsMatching $ ix ^.. events
-                         . folded . filtered (isAfter p)
+                         . folded . filtered (isBefore p)
                          . event . filtered (predicate q)
-        check <- isNotAheadOfSync p ix
+        check <- not <$> isAheadOfSync p ix
         if check
             then pure result
             else throwError . AheadOfLastSync . Just $ result
