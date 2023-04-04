@@ -653,7 +653,7 @@ start runners' = let
         startRunners channel' tokens'
         pure $ Coordinator Nothing runners' tokens' channel' nb
 
--- A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
+-- | A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
 step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
 step getPoint coordinator input = let
 
