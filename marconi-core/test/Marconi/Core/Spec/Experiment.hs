@@ -56,7 +56,7 @@ import Data.Foldable (Foldable (foldl'))
 import Data.Function ((&))
 import Data.List (inits)
 
-import Test.QuickCheck (Arbitrary, Gen, Property, Testable (property), (===))
+import Test.QuickCheck (Arbitrary, Gen, Property, (===))
 import Test.QuickCheck qualified as Test
 import Test.QuickCheck.Monadic (PropertyM)
 import Test.QuickCheck.Monadic qualified as GenM
@@ -172,10 +172,8 @@ data IndexerTestRunner m event indexer
 makeLenses ''IndexerTestRunner
 
 -- | Compare an execution on the base model and one on the indexer
-behaveLikeModel
+compareToModelWith
     :: Monad m
-    => Eq a
-    => Show a
     => Show event
     => Show (indexer event)
     => Point event ~ Word
@@ -185,8 +183,9 @@ behaveLikeModel
     -> IndexerTestRunner m event indexer
     -> (IndexerModel event -> a)
     -> (indexer event -> m a)
+    -> (a -> a -> Property)
     -> Property
-behaveLikeModel genChain mapper modelComputation indexerComputation
+compareToModelWith genChain mapper modelComputation indexerComputation prop
     = let
         process = \case
             Insert ix event -> MaybeT . fmap Just . index (TimedEvent ix event)
@@ -199,7 +198,27 @@ behaveLikeModel genChain mapper modelComputation indexerComputation
         iResult <- GenM.run $ traverse indexerComputation indexer
         let model' = runModel chain
             mResult = modelComputation model'
-        GenM.stop $ iResult === Just mResult
+        GenM.stop . maybe
+            (failWith "invalid rewind")
+            (`prop` mResult)
+            $ iResult
+
+-- | Compare an execution on the base model and one on the indexer
+behaveLikeModel
+    :: Eq a
+    => Show a
+    => Show event
+    => Show (indexer event)
+    => Point event ~ Word
+    => IsIndex m event indexer
+    => Rewindable m event indexer
+    => Gen [Item event]
+    -> IndexerTestRunner m event indexer
+    -> (IndexerModel event -> a)
+    -> (indexer event -> m a)
+    -> Property
+behaveLikeModel genChain mapper modelComputation indexerComputation
+    = compareToModelWith genChain mapper modelComputation indexerComputation (===)
 
 -- | A test tree for the core functionalities of an indexer
 testIndexer
@@ -281,4 +300,9 @@ lastSyncBasedModelProperty gen mapper
 -- | A runner for a `ListIndexer`
 listIndexerRunner :: IndexerTestRunner (Either (IndexError ListIndexer Int)) e ListIndexer
 listIndexerRunner
-    = IndexerTestRunner (GenM.monadic $ fromRight (property False)) (pure listIndexer)
+    = IndexerTestRunner
+        (GenM.monadic $ fromRight (failWith "indexing error"))
+        (pure listIndexer)
+
+failWith :: String -> Property
+failWith message = Test.counterexample message False
