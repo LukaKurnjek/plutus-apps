@@ -755,6 +755,7 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
 -- | Query an indexer to find all events that match a given predicate
 newtype EventsMatchingQuery event = EventsMatchingQuery {predicate :: event -> Bool}
 
+-- | Get all the events that are stored in the indexer
 allEvents :: EventsMatchingQuery event
 allEvents = EventsMatchingQuery (const True)
 
