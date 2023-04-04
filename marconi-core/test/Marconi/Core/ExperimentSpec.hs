@@ -127,12 +127,12 @@ behaveLikeModelM
     => Point event ~ Word
     => IsIndex m event indexer
     => Rewindable m event indexer
-    => ModelMapper m event indexer
-    -> Gen [Item event]
+    => Gen [Item event]
+    -> ModelMapper m event indexer
     -> (IndexerModel event -> a)
     -> (indexer event -> m a)
     -> Property
-behaveLikeModelM mapper genChain modelComputation indexerComputation
+behaveLikeModelM genChain mapper modelComputation indexerComputation
     = let
         process = \case
             Insert ix event -> MaybeT . fmap Just . index (TimedEvent ix event)
@@ -156,20 +156,27 @@ testIndexer
     ) => ModelMapper m Int indexer -> Tasty.TestTree
 testIndexer mapper
     = Tasty.testGroup "Check core indexer properties"
-        [ Tasty.testProperty "it stores events"
-            $ Test.withMaxSuccess 1000 $ insertBasedModelProperty mapper
+        [ Tasty.testProperty "it stores events without rollback"
+            $ Test.withMaxSuccess 1000
+            $ insertBasedModelProperty (view forwardChain <$> Test.arbitrary) mapper
+        , Tasty.testProperty "it stores events with rollbacks"
+            $ Test.withMaxSuccess 1000
+            $ insertBasedModelProperty (view defaultChain <$> Test.arbitrary) mapper
         ]
 
 insertBasedModelProperty
-    :: ( Rewindable m Int indexer
+    ::
+    ( Rewindable m Int indexer
     , IsIndex m Int indexer
     , IsSync m Int indexer
     , Point Int ~ Word
     , Show (indexer Int)
     , Queryable (ExceptT (QueryError (EventsMatchingQuery Int)) m) Int (EventsMatchingQuery Int) indexer
-    ) => ModelMapper m Int indexer
+    )
+    => Gen [Item Int]
+    -> ModelMapper m Int indexer
     -> Property
-insertBasedModelProperty mapper
+insertBasedModelProperty gen mapper
     = let
 
         indexerEvents indexer = do
@@ -180,8 +187,8 @@ insertBasedModelProperty mapper
                 mp
 
     in behaveLikeModelM
+        gen
         mapper
-        (view defaultChain <$> Test.arbitrary @(DefaultChain Int))
         (views model (fmap snd))
         indexerEvents
 
