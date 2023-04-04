@@ -14,9 +14,12 @@ import Data.Function ((&))
 import Data.List (inits)
 
 import Test.QuickCheck (Arbitrary, Gen, Property, Testable (property), (===))
-import Test.QuickCheck qualified as Gen
+import Test.QuickCheck qualified as Test
 import Test.QuickCheck.Monadic (PropertyM)
 import Test.QuickCheck.Monadic qualified as GenM
+
+import Test.Tasty qualified as Tasty
+import Test.Tasty.QuickCheck qualified as Tasty
 
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
@@ -24,9 +27,9 @@ import Data.Either (fromRight)
 import Marconi.Core.Experiment (EventsMatchingQuery, IndexError, IsIndex (index), IsSync (lastSyncPoint), ListIndexer,
                                 Point, QueryError, Queryable, Result (filteredEvents), Rewindable (rewind),
                                 TimedEvent (TimedEvent), allEvents, listIndexer, query')
-import Test.QuickCheck qualified as Test
-import Test.Tasty qualified as Tasty
-import Test.Tasty.QuickCheck qualified as Tasty
+
+
+
 -- * Events
 
 data Item event
@@ -41,12 +44,12 @@ makeLenses 'GenState
 
 genInsert :: Arbitrary event => GenState -> Gen (Item event)
 genInsert s = do
-    xs <- Gen.arbitrary
+    xs <- Test.arbitrary
     pure $ Insert (s ^. slotNo) xs
 
 genRollback :: GenState -> Gen (Item event)
 genRollback s = do
-    n <- Gen.choose (0, s ^. slotNo)
+    n <- Test.choose (0, s ^. slotNo)
     pure $ Rollback n
 
 genItem
@@ -57,7 +60,7 @@ genItem f = do
     s <- get
     no <- use slotNo
     let f' = if no > 0 then f else 0
-    item <- lift $ Gen.frequency
+    item <- lift $ Test.frequency
         [ (f',  genRollback s)
         , (100, genInsert s)
         ]
@@ -72,7 +75,7 @@ makeLenses 'DefaultChain
 
 instance Arbitrary event => Arbitrary (DefaultChain event) where
 
-    arbitrary = Gen.sized $ \n -> do
+    arbitrary = Test.sized $ \n -> do
         DefaultChain <$> evalStateT (replicateM n (genItem 10)) (GenState 0)
 
     shrink = defaultChain inits
@@ -83,7 +86,7 @@ makeLenses 'ForwardChain
 
 instance Arbitrary event => Arbitrary (ForwardChain event) where
 
-    arbitrary = Gen.sized $ \n -> do
+    arbitrary = Test.sized $ \n -> do
         ForwardChain <$> evalStateT (replicateM n (genItem 0)) (GenState 0)
 
     shrink = forwardChain inits
@@ -178,11 +181,11 @@ insertBasedModelProperty mapper
 
     in behaveLikeModelM
         mapper
-        (view defaultChain <$> Gen.arbitrary @(DefaultChain Int))
+        (view defaultChain <$> Test.arbitrary @(DefaultChain Int))
         (views model (fmap snd))
         indexerEvents
 
 listIndexerMapper :: ModelMapper (Either (IndexError ListIndexer Int)) e ListIndexer
 listIndexerMapper
-    = ModelMapper (GenM.monadic $ fromRight (property False)) (pure $ listIndexer 4096)
+    = ModelMapper (GenM.monadic $ fromRight (property False)) (pure listIndexer)
 

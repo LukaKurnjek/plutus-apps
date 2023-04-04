@@ -84,7 +84,6 @@ module Marconi.Core.Experiment
     -- ** In memory
     , ListIndexer (ListIndexer)
         , listIndexer
-        , capacity
         , events
         , latest
     -- ** In database
@@ -168,8 +167,8 @@ import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
 import Control.Concurrent (QSemN)
-import Control.Lens (Getter, Lens', filtered, folded, makeLenses, set, view, (%~), (&), (+~), (-~), (.~), (<<.~), (?~),
-                     (^.), (^..), (^?))
+import Control.Lens (Getter, Lens', filtered, folded, makeLenses, set, to, view, (%~), (&), (+~), (-~), (.~), (<<.~),
+                     (?~), (^.), (^..), (^?))
 import Control.Monad (forever, guard)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
@@ -342,7 +341,7 @@ type family Container (indexer :: * -> *) :: * -> *
 class Flushable m indexer where
 
     -- | Check if there isn't space left in memory
-    isFull :: indexer event -> m Bool
+    currentLength :: indexer event -> m Word
 
     -- | Clear the memory and return its content
     flushMemory
@@ -355,9 +354,8 @@ class Flushable m indexer where
 -- If we wanna move to these indexers, we should switch the implementation to the 'Vector' one.
 data ListIndexer event =
     ListIndexer
-    { _capacity :: !Word
-    , _events   :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
-    , _latest   :: !(Maybe (Point event)) -- ^ Ease access to the latest sync point
+    { _events :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
+    , _latest :: !(Maybe (Point event)) -- ^ Ease access to the latest sync point
     }
 
 deriving stock instance (Show event, Show (Point event)) => Show (ListIndexer event)
@@ -366,12 +364,12 @@ type instance Container ListIndexer = []
 
 makeLenses 'ListIndexer
 
-listIndexer :: Word -> ListIndexer event
-listIndexer cap = ListIndexer cap [] Nothing
+listIndexer :: ListIndexer event
+listIndexer = ListIndexer [] Nothing
 
 instance Applicative m => Flushable m ListIndexer where
 
-    isFull ix = pure $ ix ^. capacity >= fromIntegral (length (ix ^. events))
+    currentLength ix = pure $ fromIntegral (length (ix ^. events))
 
     flushMemory _ ix = pure $ ix & events <<.~ []
 
@@ -1202,7 +1200,9 @@ instance
 
 data MixedIndexerConfig store event
     = MixedIndexerConfig
-        { _configKeepInMemory :: Word
+        { _configCapacity     :: Word
+        -- ^ maximum capacity in memory (flush when reached)
+        , _configKeepInMemory :: Word
         -- ^ how many events are kept in memory after a flush
         , _configInDatabase   :: store event
         -- ^ In database storage, usually for data that can't be rollbacked
@@ -1221,14 +1221,19 @@ newtype MixedIndexer store mem event
 
 mixedIndexer
     :: Word
+    -- ^ memory size before a flush to store
+    -> Word
     -- ^ how many events are kept in memory after a flush
     -> store event
     -> mem event
     -> MixedIndexer store mem event
-mixedIndexer keepNb db
-    = MixedIndexer . IndexWrapper (MixedIndexerConfig keepNb db)
+mixedIndexer memCapacity keepNb db
+    = MixedIndexer . IndexWrapper (MixedIndexerConfig memCapacity keepNb db)
 
 makeLenses 'MixedIndexer
+
+capacity :: Lens' (MixedIndexer store mem event) Word
+capacity = mixedWrapper . wrapperConfig . configCapacity
 
 keepInMemory :: Lens' (MixedIndexer store mem event) Word
 keepInMemory = mixedWrapper . wrapperConfig . configKeepInMemory
@@ -1261,8 +1266,12 @@ instance
     , IsIndex m event store
     ) => IsIndex m event (MixedIndexer store mem) where
 
-    index timedEvent indexer = do
-        full <- isFull $ indexer ^. inMemory
+    index timedEvent indexer = let
+
+        isFull = (>= indexer ^. capacity) <$> indexer ^. inMemory . to currentLength
+
+        in do
+        full <- isFull
         indexer' <- (if full then flush else pure) indexer
         indexVia inMemory timedEvent indexer'
 
