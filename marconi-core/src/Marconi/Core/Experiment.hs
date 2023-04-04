@@ -115,8 +115,6 @@ module Marconi.Core.Experiment
         , nbRunners
     , start
     , step
-    , CoordinatorIndex
-        , coordinator
     -- * Common queries
     --
     -- Queries that can be implemented for all indexers
@@ -183,7 +181,7 @@ import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Sequence (Seq (Empty, (:|>)), (<|))
 import Data.Text (Text)
 import Database.SQLite.Simple qualified as SQL
@@ -533,6 +531,13 @@ data ProcessedInput event
    = Rollback !(Point event)
    | Index !(TimedEvent event)
 
+mapIndex
+    :: Applicative f
+    => Point event ~ Point event'
+    => (event -> f event') -> ProcessedInput event -> f (ProcessedInput event')
+mapIndex _ (Rollback p)       = pure $ Rollback p
+mapIndex f (Index timedEvent) = Index . TimedEvent (timedEvent ^. point) <$> f (timedEvent ^. event)
+
 -- * Runners
 
 -- | A runner encapsulate an indexer in an opaque type.
@@ -547,9 +552,9 @@ data RunnerM m input point =
     , Point event ~ point
     ) =>
     Runner
-        { runnerState  :: !(TMVar (indexer event))
+        { runnerState    :: !(TMVar (indexer event))
 
-        , processInput :: !(input -> m (ProcessedInput event))
+        , transformInput :: !(input -> m event)
           -- ^ used by the runner to check whether an input is a rollback or an event
         }
 
@@ -563,7 +568,7 @@ createRunner ::
     , Rewindable IO event indexer
     , point ~ Point event) =>
     indexer event ->
-    (input -> IO (ProcessedInput event)) ->
+    (input -> IO event) ->
     IO (TMVar (indexer event), Runner input point)
 createRunner ix f = do
   mvar <- STM.atomically $ STM.newTMVar ix
@@ -571,8 +576,8 @@ createRunner ix f = do
 
 -- | The runner notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
-startRunner :: Ord point => TChan input -> QSemN -> Runner input point -> IO ()
-startRunner chan tokens (Runner ix processInput) = let
+startRunner :: Ord (Point input) => TChan (ProcessedInput input) -> QSemN -> Runner input (Point input) -> IO ()
+startRunner chan tokens (Runner ix transformInput) = let
 
     unlockCoordinator :: IO ()
     unlockCoordinator = Con.signalQSemN tokens 1
@@ -602,20 +607,20 @@ startRunner chan tokens (Runner ix processInput) = let
         input <- STM.atomically $ STM.readTChan chan'
         forever $ do
             unlockCoordinator
-            processedInput <- processInput input
-            case processedInput of
-                 Rollback p -> handleRollback p
-                 Index e    -> indexEvent e
+            processedEvent <- mapIndex transformInput input
+            case processedEvent of
+                Rollback p -> handleRollback p
+                Index e    -> indexEvent e
 
 -- | A coordinator synchronises the event processing of a list of indexers.
 -- A coordinator is itself is an indexer.
 -- It means that we can create a tree of indexer, with coordinators that partially process the data at each node,
 -- and with concrete indexers at the leaves.
-data Coordinator input point = Coordinator
-  { _lastSync  :: !(Maybe point) -- ^ the last common sync point for the runners
-  , _runners   :: ![Runner input point] -- ^ the list of runners managed by this coordinator
+data Coordinator input = Coordinator
+  { _lastSync  :: !(Maybe (Point input)) -- ^ the last common sync point for the runners
+  , _runners   :: ![Runner input (Point input)] -- ^ the list of runners managed by this coordinator
   , _tokens    :: !QSemN -- ^ use to synchronise the runner
-  , _channel   :: !(TChan input) -- ^ to dispatch input to runners
+  , _channel   :: !(TChan (ProcessedInput input)) -- ^ to dispatch input to runners
   , _nbRunners :: !Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
   }
 
@@ -641,7 +646,7 @@ runnerSyncPoints (r:rs) = let
         foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
 
 -- | create a coordinator with started runners
-start :: Ord point => [Runner input point] -> IO (Coordinator input point)
+start :: Ord (Point input) => [Runner input (Point input)] -> IO (Coordinator input)
 start runners' = let
 
     startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
@@ -654,46 +659,38 @@ start runners' = let
         pure $ Coordinator Nothing runners' tokens' channel' nb
 
 -- | A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
-step :: (input -> point) -> Coordinator input point -> input -> IO (Coordinator input point)
-step getPoint coordinator input = let
-
-      waitRunners :: IO ()
-      waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
-
-      dispatchNewInput :: IO ()
-      dispatchNewInput = STM.atomically $ STM.writeTChan (coordinator ^. channel) input
-
-      setLastSync c = c & lastSync ?~ getPoint input
-
-    in do
-        dispatchNewInput
-        waitRunners $> setLastSync coordinator
-
--- A 'Coordinator', viewed as an indexer
-newtype CoordinatorIndex event =
-     CoordinatorIndex
-          { _coordinator :: Coordinator event (Point event)
-          }
-
-makeLenses 'CoordinatorIndex
+step :: (Ord (Point input)) => Coordinator input -> ProcessedInput input -> IO (Coordinator input)
+step coordinator input = case input of
+    Index e    -> index e coordinator
+    Rollback p -> fromMaybe coordinator <$> rewind p coordinator
 
 -- A coordinator can be consider as an indexer that forwards the input to its runner
-instance IsIndex IO event CoordinatorIndex where
+instance IsIndex IO event Coordinator where
 
-    index timedEvent = coordinator $
-            \x -> step (const $ timedEvent ^. point) x $ timedEvent ^. event
+    index timedEvent coordinator = let
 
-instance IsSync IO event CoordinatorIndex where
-    lastSyncPoint indexer = pure $ indexer ^. coordinator . lastSync
+        dispatchNewInput = STM.atomically . STM.writeTChan (coordinator ^. channel)
+
+        waitRunners :: IO ()
+        waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
+
+        setLastSync c e = c & lastSync ?~ (e ^. point)
+
+        in do
+            dispatchNewInput $ Index timedEvent
+            waitRunners $> setLastSync coordinator timedEvent
+
+instance IsSync IO event Coordinator where
+    lastSyncPoint indexer = pure $ indexer ^. lastSync
 
 -- | To rewind a coordinator, we try and rewind all the runners.
-instance Rewindable IO event CoordinatorIndex where
+instance Rewindable IO event Coordinator where
 
     rewind p = let
 
         rewindRunners ::
-            Coordinator event (Point event) ->
-            MaybeT IO (Coordinator event (Point event))
+            Coordinator event ->
+            MaybeT IO (Coordinator event)
         rewindRunners c = do
             availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
             -- we start by checking if the given point is a valid sync point
@@ -713,7 +710,7 @@ instance Rewindable IO event CoordinatorIndex where
                 ((Just r <$) . STM.atomically . STM.putTMVar runnerState)
                 res
 
-        in  runMaybeT . coordinator rewindRunners
+        in  runMaybeT . rewindRunners
 
 -- There is no point in providing a 'Queryable' interface for 'CoordinatorIndex' though,
 -- as it's sole interest would be to get the latest synchronisation points,
