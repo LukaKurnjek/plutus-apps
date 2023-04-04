@@ -695,7 +695,7 @@ instance Rewindable IO event Coordinator where
             availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
             -- we start by checking if the given point is a valid sync point
             guard $ p `elem` availableSyncs
-            runners (traverse $ MaybeT . rewindRunner) c
+            runners (traverse $ MaybeT . rewindRunner) $ c & lastSync ?~ p
 
         rewindRunner ::
             Runner event (Point event) ->

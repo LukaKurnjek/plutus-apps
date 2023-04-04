@@ -1,7 +1,50 @@
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Marconi.Core.ExperimentSpec where
+{- | A model base test for indexers.
+ -
+ - The idea is that we have a naive modelof indexer ('Model') that stores information in a list
+ - (from the most recent to the oldest).
+ -
+ - When we want to test an indexer implementation, we write a 'IndexerTestRunner' for this indexer.
+ -
+ - It allows us to run the chain of events on both the model and the indexer.
+ - We can then query both and compare their results (using 'behaveLikeModel').
+ -
+ - A set of basic properties for indexers is available and ready to run once you have an `IndexerTestRunner`.
+ -
+ - A limitation is that our model use 'Word' as a 'Point' type.
+ - If you want to test an indexer with your own events, that have their own 'Point' type,
+ - you'll probably need to wrap the event in a @newtype@ to use 'Word' as a 'Point'.
+-}
+module Marconi.Core.Spec.Experiment
+    (
+    -- * The test suite
+      testIndexer
+    -- * Mock chain
+    , DefaultChain
+        , defaultChain
+    , ForwardChain
+        , forwardChain
+    -- ** Events
+    , Item (..)
+    -- ** Generators
+    , genInsert
+    , genRollback
+    , genItem
+    -- * Model
+    , IndexerModel (..)
+        , model
+    , runModel
+    -- ** Mapping
+    , IndexerTestRunner
+        , indexerRunner
+        , indexerGenerator
+    -- ** Testing
+    , behaveLikeModel
+    -- * Instances
+    , listIndexerRunner
+    ) where
 
 import Control.Lens (makeLenses, use, view, views, (%~), (-=), (.=), (^.))
 
@@ -29,9 +72,6 @@ import Marconi.Core.Experiment (EventsMatchingQuery, IndexError, IsIndex (index)
                                 Point, QueryError, Queryable, Result (filteredEvents), Rewindable (rewind),
                                 TimedEvent (TimedEvent), allEvents, listIndexer, query')
 
-
-
--- * Events
 
 
 -- | We simplify the events to either `Insert` or `Rollback`
@@ -123,16 +163,16 @@ runModel = let
     in foldl' modelStep (IndexerModel [])
 
 -- | Used to map an indexer to a model
-data ModelMapper m event indexer
-    = ModelMapper
+data IndexerTestRunner m event indexer
+    = IndexerTestRunner
         { _indexerRunner    :: !(PropertyM m Property -> Property)
         , _indexerGenerator :: !(Gen (indexer event))
         }
 
-makeLenses ''ModelMapper
+makeLenses ''IndexerTestRunner
 
 -- | Compare an execution on the base model and one on the indexer
-behaveLikeModelM
+behaveLikeModel
     :: Monad m
     => Eq a
     => Show a
@@ -142,11 +182,11 @@ behaveLikeModelM
     => IsIndex m event indexer
     => Rewindable m event indexer
     => Gen [Item event]
-    -> ModelMapper m event indexer
+    -> IndexerTestRunner m event indexer
     -> (IndexerModel event -> a)
     -> (indexer event -> m a)
     -> Property
-behaveLikeModelM genChain mapper modelComputation indexerComputation
+behaveLikeModel genChain mapper modelComputation indexerComputation
     = let
         process = \case
             Insert ix event -> MaybeT . fmap Just . index (TimedEvent ix event)
@@ -168,9 +208,9 @@ testIndexer
     , IsSync m Int indexer
     , Show (indexer Int)
     , Queryable (ExceptT (QueryError (EventsMatchingQuery Int)) m) Int (EventsMatchingQuery Int) indexer
-    ) => ModelMapper m Int indexer -> Tasty.TestTree
-testIndexer mapper
-    = Tasty.testGroup "Check core indexer properties"
+    ) => String -> IndexerTestRunner m Int indexer -> Tasty.TestTree
+testIndexer indexerName mapper
+    = Tasty.testGroup (indexerName <> " core properties")
         [ Tasty.testGroup "Check storage"
             [ Tasty.testProperty "it stores events without rollback"
                 $ Test.withMaxSuccess 1000
@@ -201,7 +241,7 @@ storageBasedModelProperty
     , Queryable (ExceptT (QueryError (EventsMatchingQuery event)) m) event (EventsMatchingQuery event) indexer
     )
     => Gen [Item event]
-    -> ModelMapper m event indexer
+    -> IndexerTestRunner m event indexer
     -> Property
 storageBasedModelProperty gen mapper
     = let
@@ -213,7 +253,7 @@ storageBasedModelProperty gen mapper
                 (\p -> either (const []) filteredEvents <$> query' p allEvents indexer)
                 mp
 
-    in behaveLikeModelM
+    in behaveLikeModel
         gen
         mapper
         (views model (fmap snd))
@@ -229,15 +269,16 @@ lastSyncBasedModelProperty
     , Show event
     )
     => Gen [Item event]
-    -> ModelMapper m event indexer
+    -> IndexerTestRunner m event indexer
     -> Property
 lastSyncBasedModelProperty gen mapper
-    = behaveLikeModelM
+    = behaveLikeModel
         gen
         mapper
         (views model (fmap fst . listToMaybe))
         lastSyncPoint
 
-listIndexerMapper :: ModelMapper (Either (IndexError ListIndexer Int)) e ListIndexer
-listIndexerMapper
-    = ModelMapper (GenM.monadic $ fromRight (property False)) (pure listIndexer)
+-- | A runner for a `ListIndexer`
+listIndexerRunner :: IndexerTestRunner (Either (IndexError ListIndexer Int)) e ListIndexer
+listIndexerRunner
+    = IndexerTestRunner (GenM.monadic $ fromRight (property False)) (pure listIndexer)

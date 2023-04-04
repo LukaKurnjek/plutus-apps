@@ -2,6 +2,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.QuickCheck (testProperty, withMaxSuccess)
 
 import Marconi.Core.Model qualified as Ix
+import Marconi.Core.Spec.Experiment qualified as E
 import Marconi.Core.Spec.Sqlite qualified as S
 import Marconi.Core.Spec.TracedSqlite qualified as TS
 import Marconi.Core.Spec.VSplit qualified as V
@@ -9,7 +10,7 @@ import Marconi.Core.Spec.VSqlite qualified as VS
 import Marconi.Core.Trace qualified as Ix
 
 tests :: TestTree
-tests = testGroup "Everything" [ indexTests, traceTests ]
+tests = testGroup "Everything" [ indexTests, traceTests, experimentTests ]
 
 indexTests :: TestTree
 indexTests = testGroup "Index" [ ixProperties, sProperties, viProperties, vsProperties
@@ -17,6 +18,9 @@ indexTests = testGroup "Index" [ ixProperties, sProperties, viProperties, vsProp
 
 traceTests :: TestTree
 traceTests = testGroup "Trace" [ traceModelProperties, traceIndexerProperties ]
+
+experimentTests :: TestTree
+experimentTests = testGroup "Experiment" [ E.testIndexer "ListIndexer" E.listIndexerRunner ]
 
 traceModelProperties :: TestTree
 traceModelProperties = testGroup "Model traces"
