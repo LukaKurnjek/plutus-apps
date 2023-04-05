@@ -59,6 +59,7 @@ What's included in this module:
 -}
 module Marconi.Core.Experiment
     (
+
     -- * Core types and typeclasses
     -- ** Core types
       Point
@@ -81,6 +82,7 @@ module Marconi.Core.Experiment
     -- ** Errors
     , IndexError (..)
     , QueryError (..)
+
     -- * Core Indexers
     -- ** In memory
     , ListIndexer (ListIndexer)
@@ -93,6 +95,7 @@ module Marconi.Core.Experiment
         , prepareInsert
         , buildInsert
         , dbLastSync
+        , rewindSQLiteIndexerWith
     , MixedIndexer
         , mixedIndexer
         , inMemory
@@ -100,7 +103,8 @@ module Marconi.Core.Experiment
     , IndexQuery (..)
     , InsertRecord
     , singleInsertSQLiteIndexer
-    -- Running indexers
+
+    -- * Running indexers
     -- ** Runners
     , RunnerM (..)
     , Runner
@@ -116,6 +120,7 @@ module Marconi.Core.Experiment
         , nbRunners
     , start
     , step
+
     -- * Common queries
     --
     -- Queries that can be implemented for all indexers
@@ -531,6 +536,19 @@ instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m) =>
             $ fromMaybe genesis
             . listToMaybe
             <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
+
+-- | A helper for the definition of the 'Rewind' typeclass for 'SQLite indexer'
+rewindSQLiteIndexerWith
+    :: (MonadIO m, SQL.ToRow (Point event))
+    => SQL.Query
+    -> Point event
+    -> SQLiteIndexer event
+    -> m (Maybe (SQLiteIndexer event))
+rewindSQLiteIndexerWith q p indexer = do
+         let c = indexer ^. handle
+         liftIO $ SQL.withTransaction c
+             (SQL.execute c q p)
+         pure $ Just indexer
 
 -- | The different types of input of a runner
 data ProcessedInput event

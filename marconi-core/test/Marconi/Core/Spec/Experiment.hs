@@ -93,6 +93,7 @@ newtype TestPoint = TestPoint { unwrapTestPoint :: Int }
     deriving stock (Generic)
     deriving newtype (Eq, Ord, Enum, Num, Real, Integral, Show, FromField, ToField)
     deriving anyclass (SQL.FromRow)
+    deriving anyclass (SQL.ToRow)
 
 instance Core.HasGenesis TestPoint where
     genesis = 0
@@ -354,13 +355,7 @@ sqliteModelIndexer con
 
 instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
 
-    rewind (TestPoint p) indexer = do
-         let c = indexer ^. Core.handle
-         liftIO $ SQL.withTransaction c
-             (SQL.execute c
-                 "DELETE FROM index_model WHERE point > ?"
-                 (SQL.Only p))
-         pure $ Just indexer
+    rewind = Core.rewindSQLiteIndexerWith "DELETE FROM index_model WHERE point > ?"
 
 instance
     (MonadIO m, MonadError (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m)
@@ -373,7 +368,7 @@ instance
              \ FROM index_model    \
              \ WHERE point <= ?    \
              \ ORDER BY point DESC "
-             (SQL.Only p)
+             p
          pure $ Core.EventsMatching $ uncurry Core.TimedEvent <$> filter (predicate . snd) res
 
 -- | A runner for a 'SQLiteIndexer'
