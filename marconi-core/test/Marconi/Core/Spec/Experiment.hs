@@ -350,7 +350,7 @@ sqliteModelIndexer con
     = Core.singleInsertSQLiteIndexer con
         (\t -> (t ^. Core.point, t ^. Core.event))
         "INSERT INTO index_model VALUES (?, ?)"
-        "SELECT point FROM index_model ORD DESC LIMIT 1"
+        "SELECT point FROM index_model ORDER BY point DESC LIMIT 1"
 
 instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
 
@@ -358,7 +358,7 @@ instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
          let c = indexer ^. Core.handle
          liftIO $ SQL.withTransaction c
              (SQL.execute c
-                 "DELETE FROM index_model WHERE index_model.point > p"
+                 "DELETE FROM index_model WHERE point > ?"
                  (SQL.Only p))
          pure $ Just indexer
 
@@ -368,7 +368,12 @@ instance
 
     query p (Core.EventsMatchingQuery predicate) indexer = do
          let c = indexer ^. Core.handle
-         res <- liftIO $ SQL.query c "SELECT point, value FROM index_model WHERE point <= ?" (SQL.Only p)
+         res <- liftIO $ SQL.query c
+             " SELECT point, value \
+             \ FROM index_model    \
+             \ WHERE point <= ?    \
+             \ ORDER BY point DESC "
+             (SQL.Only p)
          pure $ Core.EventsMatching $ uncurry Core.TimedEvent <$> filter (predicate . snd) res
 
 -- | A runner for a 'SQLiteIndexer'

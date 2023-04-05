@@ -22,7 +22,7 @@ traceTests = testGroup "Trace" [ traceModelProperties, traceIndexerProperties ]
 experimentTests :: TestTree
 experimentTests = testGroup "Experiment"
     [ E.testIndexer "ListIndexer" E.listIndexerRunner
-    -- , E.testIndexer "SqliteIndexer" E.sqliteIndexerRunner
+    , E.testIndexer "SqliteIndexer" E.sqliteIndexerRunner
     ]
 
 traceModelProperties :: TestTree
