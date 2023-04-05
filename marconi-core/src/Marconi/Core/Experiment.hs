@@ -96,6 +96,7 @@ module Marconi.Core.Experiment
         , buildInsert
         , dbLastSync
         , rewindSQLiteIndexerWith
+        , querySQLiteIndexerWith
     , MixedIndexer
         , mixedIndexer
         , inMemory
@@ -537,18 +538,46 @@ instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m) =>
             . listToMaybe
             <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
 
--- | A helper for the definition of the 'Rewind' typeclass for 'SQLite indexer'
+-- | A helper for the definition of the 'Rewind' typeclass for 'SQLiteIndexer'
 rewindSQLiteIndexerWith
     :: (MonadIO m, SQL.ToRow (Point event))
     => SQL.Query
+    -- ^ The rewind statement
     -> Point event
+    -- ^ Point will be passed as a parameter to the query
     -> SQLiteIndexer event
+    -- ^ We're just using the connection
     -> m (Maybe (SQLiteIndexer event))
 rewindSQLiteIndexerWith q p indexer = do
-         let c = indexer ^. handle
-         liftIO $ SQL.withTransaction c
-             (SQL.execute c q p)
-         pure $ Just indexer
+    let c = indexer ^. handle
+    liftIO $ SQL.withTransaction c
+        (SQL.execute c q p)
+    pure $ Just indexer
+
+-- | A helper for the definition of the 'Query' typeclass for 'SQLiteIndexer'
+--
+-- The helper just remove a bit of the boilerplate needed to transform data
+-- to query the database.
+-- It doesn't contain any logic.
+-- In particular, it doesn't filter the result based on the given data point.
+--
+-- No error handling, it can be added by catching the SQLite exception.
+querySQLiteIndexerWith
+    :: MonadIO m
+    => Ord (Point event)
+    => SQL.FromRow r
+    => (Point event -> query -> [SQL.NamedParam])
+    -> SQL.Query
+    -- ^ The sqlite query statement
+    -- ^ A preprocessing of the query, to obtain SQL parameters
+    -> (query -> [r] -> Result query)
+    -- ^ Post processing of the result, to obtain the final result
+    -> Point event -> query -> SQLiteIndexer event -> m (Result query)
+querySQLiteIndexerWith toNamedParam sqlQuery fromRows p q indexer
+    = do
+        let c = indexer ^. handle
+        res <- liftIO $ SQL.queryNamed c sqlQuery (toNamedParam p q)
+        pure $ fromRows q res
 
 -- | The different types of input of a runner
 data ProcessedInput event

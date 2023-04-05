@@ -75,7 +75,7 @@ import Test.QuickCheck.Monadic qualified as GenM
 import Test.Tasty qualified as Tasty
 import Test.Tasty.QuickCheck qualified as Tasty
 
-import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 
@@ -86,7 +86,6 @@ import Database.SQLite.Simple qualified as SQL
 import Database.SQLite.Simple.FromField (FromField)
 import Database.SQLite.Simple.ToField (ToField)
 
-import Control.Monad.Except (MonadError)
 import Marconi.Core.Experiment qualified as Core
 
 newtype TestPoint = TestPoint { unwrapTestPoint :: Int }
@@ -130,7 +129,7 @@ genItem
 genItem f = do
     s <- get
     no <- use slotNo
-    let f' = if no > 0 then f else 0
+    let f' = if no > 0 then f else 0 -- no rollback on genesis
     item <- lift $ Test.frequency
         [ (fromIntegral f',  genRollback s)
         , (100 - fromIntegral f', genInsert s)
@@ -293,7 +292,9 @@ storageBasedModelProperty gen runner
 
         indexerEvents indexer = do
             p <- Core.lastSyncPoint indexer
-            fmap (view Core.event) . either (const []) Core.filteredEvents <$> Core.query' p Core.allEvents indexer
+            fmap (view Core.event)
+                . either (const []) Core.filteredEvents
+                <$> Core.query' p Core.allEvents indexer
 
     in behaveLikeModel
         gen
@@ -358,18 +359,23 @@ instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
     rewind = Core.rewindSQLiteIndexerWith "DELETE FROM index_model WHERE point > ?"
 
 instance
-    (MonadIO m, MonadError (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m)
-    => Core.Queryable m TestEvent (Core.EventsMatchingQuery TestEvent) Core.SQLiteIndexer where
+    MonadIO m =>
+    Core.Queryable m TestEvent (Core.EventsMatchingQuery TestEvent) Core.SQLiteIndexer where
 
-    query p (Core.EventsMatchingQuery predicate) indexer = do
-         let c = indexer ^. Core.handle
-         res <- liftIO $ SQL.query c
-             " SELECT point, value \
-             \ FROM index_model    \
-             \ WHERE point <= ?    \
-             \ ORDER BY point DESC "
-             p
-         pure $ Core.EventsMatching $ uncurry Core.TimedEvent <$> filter (predicate . snd) res
+    query = let
+
+        rowToResult (Core.EventsMatchingQuery predicate)
+            = Core.EventsMatching
+            . fmap (uncurry Core.TimedEvent)
+            . filter (predicate . snd)
+
+        in Core.querySQLiteIndexerWith
+            (\p _ -> [":point" SQL.:= p])
+            " SELECT point, value \
+            \ FROM index_model \
+            \ WHERE point <= :point \
+            \ ORDER BY point DESC"
+            rowToResult
 
 -- | A runner for a 'SQLiteIndexer'
 sqliteIndexerRunner
