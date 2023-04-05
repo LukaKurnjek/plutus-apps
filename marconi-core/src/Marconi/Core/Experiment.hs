@@ -69,6 +69,7 @@ module Marconi.Core.Experiment
         , event
     -- ** Core typeclasses
     , IsIndex (..)
+    , HasGenesis (..)
     , IsSync (..)
     , isAheadOfSync
     , Queryable (..)
@@ -166,7 +167,7 @@ import Data.Sequence qualified as Seq
 
 import Control.Concurrent (QSemN)
 import Control.Lens (Getter, Lens', filtered, folded, makeLenses, set, to, view, (%~), (&), (+~), (-~), (.~), (<<.~),
-                     (?~), (^.), (^..), (^?))
+                     (^.), (^..), (^?))
 import Control.Monad (forever, guard)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
@@ -242,16 +243,21 @@ class Monad m => IsIndex m event indexer where
 
     {-# MINIMAL index #-}
 
+class HasGenesis t where
+
+    -- The point before anything starts
+    genesis :: t
+
 class IsSync m event indexer where
 
     -- | Last sync of the indexer
-    lastSyncPoint :: indexer event -> m (Maybe (Point event))
+    lastSyncPoint :: indexer event -> m (Point event)
 
 -- | Check if the given point is ahead of the last syncPoint of an indexer,
 isAheadOfSync ::
     (Ord (Point event), IsSync m event indexer, Functor m) =>
     Point event -> indexer event -> m Bool
-isAheadOfSync p indexer = maybe True (p >) <$> lastSyncPoint indexer
+isAheadOfSync p indexer = (p >) <$> lastSyncPoint indexer
 
 
 -- | Error that can occurs when you query an indexer
@@ -353,7 +359,7 @@ class Flushable m indexer where
 data ListIndexer event =
     ListIndexer
     { _events :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
-    , _latest :: !(Maybe (Point event)) -- ^ Ease access to the latest sync point
+    , _latest :: !(Point event) -- ^ Ease access to the latest sync point
     }
 
 deriving stock instance (Show event, Show (Point event)) => Show (ListIndexer event)
@@ -362,8 +368,8 @@ type instance Container ListIndexer = []
 
 makeLenses 'ListIndexer
 
-listIndexer :: ListIndexer event
-listIndexer = ListIndexer [] Nothing
+listIndexer :: HasGenesis (Point event) => ListIndexer event
+listIndexer = ListIndexer [] genesis
 
 instance Applicative m => Flushable m ListIndexer where
 
@@ -381,7 +387,7 @@ instance
         appendEvent = events %~ (timedEvent:)
 
         updateLatest :: ListIndexer event -> ListIndexer event
-        updateLatest = latest ?~ (timedEvent ^. point)
+        updateLatest = latest .~ (timedEvent ^. point)
 
         in do
             pure $ ix
@@ -396,13 +402,13 @@ instance Applicative m => Rewindable m event ListIndexer where
     rewind p ix = let
 
         adjustLatestPoint :: ListIndexer event -> ListIndexer event
-        adjustLatestPoint = latest ?~ p
+        adjustLatestPoint = latest .~ p
 
         cleanEventsAfterRollback :: ListIndexer event -> ListIndexer event
         cleanEventsAfterRollback = events %~ dropWhile isEventAfterRollback
 
         isIndexBeforeRollback :: ListIndexer event -> Bool
-        isIndexBeforeRollback x = maybe True (p >=) $ x ^. latest
+        isIndexBeforeRollback x = p >= x ^. latest
 
         isEventAfterRollback :: TimedEvent event -> Bool
         isEventAfterRollback = (p <) . view point
@@ -420,9 +426,8 @@ instance Applicative m => Resumable m event ListIndexer where
 
       indexPoints = ix ^.. events . folded . point
       -- if the latest point of the index is not a stored event, we add it to the list of points
-      addLatestIfNeeded Nothing ps         = ps
-      addLatestIfNeeded (Just p) []        = [p]
-      addLatestIfNeeded (Just p) ps@(p':_) = if p == p' then ps else p:ps
+      addLatestIfNeeded p []        = [p]
+      addLatestIfNeeded p ps@(p':_) = if p == p' then ps else p:ps
 
       in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
@@ -454,8 +459,9 @@ runIndexQueries :: SQL.Connection -> [IndexQuery] -> IO ()
 runIndexQueries _ [] = pure ()
 runIndexQueries c xs = let
     runIndexQuery (IndexQuery insertQuery params) = SQL.executeMany c insertQuery params
-    in SQL.withTransaction c
-        $ mapConcurrently_ runIndexQuery xs
+    in do
+        SQL.withTransaction c
+            $ mapConcurrently_ runIndexQuery xs
 
 -- | How we map an event to its sql representation
 --
@@ -517,14 +523,14 @@ instance (MonadIO m, Monoid (InsertRecord event)) =>
         runIndexQueries (indexer ^. handle) indexQueries
         pure indexer
 
-instance (SQL.FromRow (Point event), MonadIO m) =>
+instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m) =>
     IsSync m event SQLiteIndexer where
 
     lastSyncPoint indexer
-        = liftIO $ listToMaybe
-        <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
-
-
+        = liftIO
+            $ fromMaybe genesis
+            . listToMaybe
+            <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
 
 -- | The different types of input of a runner
 data ProcessedInput event
@@ -582,8 +588,8 @@ startRunner chan tokens (Runner ix transformInput) = let
     unlockCoordinator :: IO ()
     unlockCoordinator = Con.signalQSemN tokens 1
 
-    fresherThan :: Ord (Point event) => TimedEvent event -> Maybe (Point event) -> Bool
-    fresherThan evt p = maybe True (< evt ^. point) p
+    fresherThan :: Ord (Point event) => TimedEvent event -> Point event -> Bool
+    fresherThan evt p = (< evt ^. point) p
 
     indexEvent timedEvent = do
         indexer <- STM.atomically $ STM.takeTMVar ix
@@ -617,7 +623,7 @@ startRunner chan tokens (Runner ix transformInput) = let
 -- It means that we can create a tree of indexer, with coordinators that partially process the data at each node,
 -- and with concrete indexers at the leaves.
 data Coordinator input = Coordinator
-  { _lastSync  :: !(Maybe (Point input)) -- ^ the last common sync point for the runners
+  { _lastSync  :: !(Point input) -- ^ the last common sync point for the runners
   , _runners   :: ![Runner input (Point input)] -- ^ the list of runners managed by this coordinator
   , _tokens    :: !QSemN -- ^ use to synchronise the runner
   , _channel   :: !(TChan (ProcessedInput input)) -- ^ to dispatch input to runners
@@ -646,7 +652,10 @@ runnerSyncPoints (r:rs) = let
         foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
 
 -- | create a coordinator with started runners
-start :: Ord (Point input) => [Runner input (Point input)] -> IO (Coordinator input)
+start
+    :: HasGenesis (Point input)
+    => Ord (Point input)
+    => [Runner input (Point input)] -> IO (Coordinator input)
 start runners' = let
 
     startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
@@ -656,7 +665,7 @@ start runners' = let
         tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the runners will start
         channel' <- STM.newBroadcastTChanIO
         startRunners channel' tokens'
-        pure $ Coordinator Nothing runners' tokens' channel' nb
+        pure $ Coordinator genesis runners' tokens' channel' nb
 
 -- | A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
 step :: (Ord (Point input)) => Coordinator input -> ProcessedInput input -> IO (Coordinator input)
@@ -674,7 +683,7 @@ instance IsIndex IO event Coordinator where
         waitRunners :: IO ()
         waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
 
-        setLastSync c e = c & lastSync ?~ (e ^. point)
+        setLastSync c e = c & lastSync .~ (e ^. point)
 
         in do
             dispatchNewInput $ Index timedEvent
@@ -695,7 +704,7 @@ instance Rewindable IO event Coordinator where
             availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
             -- we start by checking if the given point is a valid sync point
             guard $ p `elem` availableSyncs
-            runners (traverse $ MaybeT . rewindRunner) $ c & lastSync ?~ p
+            runners (traverse $ MaybeT . rewindRunner) $ c & lastSync .~ p
 
         rewindRunner ::
             Runner event (Point event) ->
@@ -757,10 +766,10 @@ allEvents :: EventsMatchingQuery event
 allEvents = EventsMatchingQuery (const True)
 
 -- | The result of an @EventMatchingQuery@
-newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEvents :: [event]}
+newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEvents :: [TimedEvent event]}
 
 deriving newtype instance Semigroup (Result (EventsMatchingQuery event))
-deriving newtype instance Show event => Show (Result (EventsMatchingQuery event))
+deriving newtype instance Show (TimedEvent event) => Show (Result (EventsMatchingQuery event))
 
 
 instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
@@ -770,7 +779,7 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
         let isBefore p' e = p' >= e ^. point
         let result = EventsMatching $ ix ^.. events
                          . folded . filtered (isBefore p)
-                         . event . filtered (predicate q)
+                         . filtered (predicate q . view event)
         check <- not <$> isAheadOfSync p ix
         if check
             then pure result
@@ -819,7 +828,7 @@ instance
 -- If you don't want to perform any other side logic, use @deriving via@ instead.
 lastSyncPointVia
     :: IsSync m event indexer
-    => Getter s (indexer event) -> s -> m (Maybe (Point event))
+    => Getter s (indexer event) -> s -> m (Point event)
 lastSyncPointVia l = lastSyncPoint . view l
 
 instance IsSync event m index =>

@@ -20,7 +20,10 @@ traceTests :: TestTree
 traceTests = testGroup "Trace" [ traceModelProperties, traceIndexerProperties ]
 
 experimentTests :: TestTree
-experimentTests = testGroup "Experiment" [ E.testIndexer "ListIndexer" E.listIndexerRunner ]
+experimentTests = testGroup "Experiment"
+    [ E.testIndexer "ListIndexer" E.listIndexerRunner
+    -- , E.testIndexer "SqliteIndexer" E.sqliteIndexerRunner
+    ]
 
 traceModelProperties :: TestTree
 traceModelProperties = testGroup "Model traces"
