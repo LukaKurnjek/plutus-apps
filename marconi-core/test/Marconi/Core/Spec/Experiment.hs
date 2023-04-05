@@ -350,7 +350,7 @@ sqliteModelIndexer con
     = Core.singleInsertSQLiteIndexer con
         (\t -> (t ^. Core.point, t ^. Core.event))
         "INSERT INTO index_model VALUES (?, ?)"
-        "SELECT point FROM index_model WHERE point = MAX(point)"
+        "SELECT point FROM index_model ORD DESC LIMIT 1"
 
 instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
 
