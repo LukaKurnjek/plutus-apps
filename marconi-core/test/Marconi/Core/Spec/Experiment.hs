@@ -22,6 +22,9 @@ module Marconi.Core.Spec.Experiment
     (
     -- * The test suite
       testIndexer
+    -- ** individual tests
+    , storageBasedModelProperty
+    , lastSyncBasedModelProperty
     -- * Mock chain
     , DefaultChain
         , defaultChain
@@ -189,7 +192,7 @@ runModel = let
 data IndexerTestRunner m event indexer
     = IndexerTestRunner
         { _indexerRunner    :: !(PropertyM m Property -> Property)
-        , _indexerGenerator :: !(PropertyM m (indexer event))
+        , _indexerGenerator :: !(m (indexer event))
         }
 
 makeLenses ''IndexerTestRunner
@@ -215,7 +218,7 @@ compareToModelWith genChain runner modelComputation indexerComputation prop
         r = runner ^. indexerRunner
         genIndexer = runner ^. indexerGenerator
     in Test.forAll genChain $ \chain -> r $ do
-        initialIndexer <- genIndexer
+        initialIndexer <- GenM.run genIndexer
         indexer <- GenM.run $ runMaybeT $ foldM (flip process) initialIndexer chain
         iResult <- GenM.run $ traverse indexerComputation indexer
         let model' = runModel chain
@@ -347,7 +350,7 @@ sqliteModelIndexer con
     = Core.singleInsertSQLiteIndexer con
         (\t -> (t ^. Core.point, t ^. Core.event))
         "INSERT INTO index_model VALUES (?, ?)"
-        "SELECT MAX(point) FROM index_model"
+        "SELECT point FROM index_model WHERE point = MAX(point)"
 
 instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
 
@@ -365,8 +368,7 @@ instance
 
     query p (Core.EventsMatchingQuery predicate) indexer = do
          let c = indexer ^. Core.handle
-         (res :: Core.InsertRecord TestEvent) <-
-             liftIO $ SQL.query c "SELECT point, value FROM index_model WHERE point <= ?" (SQL.Only p)
+         res <- liftIO $ SQL.query c "SELECT point, value FROM index_model WHERE point <= ?" (SQL.Only p)
          pure $ Core.EventsMatching $ uncurry Core.TimedEvent <$> filter (predicate . snd) res
 
 -- | A runner for a 'SQLiteIndexer'
@@ -375,4 +377,4 @@ sqliteIndexerRunner
 sqliteIndexerRunner
     = IndexerTestRunner
         GenM.monadicIO
-        (sqliteModelIndexer <$> GenM.run initSQLite)
+        (sqliteModelIndexer <$> initSQLite)
