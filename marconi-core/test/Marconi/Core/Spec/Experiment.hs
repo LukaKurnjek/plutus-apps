@@ -51,7 +51,8 @@ module Marconi.Core.Spec.Experiment
     -- * Instances
     , listIndexerRunner
     , sqliteIndexerRunner
-    , mixedIndexerRunner
+    , mixedLowMemoryIndexerRunner
+    , mixedHighMemoryIndexerRunner
     -- ** Instances internal
     , initSQLite
     , sqliteModelIndexer
@@ -259,7 +260,7 @@ testIndexer indexerName runner
     = Tasty.testGroup (indexerName <> " core properties")
         [ Tasty.testGroup "Check storage"
             [ Tasty.testProperty "it stores events without rollback"
-                $ Test.withMaxSuccess 5000
+                $ Test.withMaxSuccess 20000
                 $ storageBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
             , Tasty.testProperty "it stores events with rollbacks"
                 $ Test.withMaxSuccess 10000
@@ -267,7 +268,7 @@ testIndexer indexerName runner
             ]
         , Tasty.testGroup "Check lastSync"
             [ Tasty.testProperty "in a chain without rollback"
-                $ Test.withMaxSuccess 5000
+                $ Test.withMaxSuccess 20000
                 $ lastSyncBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
             , Tasty.testProperty "in a chain with rollbacks"
                 $ Test.withMaxSuccess 10000
@@ -388,20 +389,38 @@ sqliteIndexerRunner
         GenM.monadicIO
         (sqliteModelIndexer <$> initSQLite)
 
-mixedModelIndexer
+mixedModelLowMemoryIndexer
     :: SQL.Connection
     -> Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer TestEvent
-mixedModelIndexer con
+mixedModelLowMemoryIndexer con
     = Core.mixedIndexer
         10
         2
         (sqliteModelIndexer con)
         Core.listIndexer
 
+mixedModelHighMemoryIndexer
+    :: SQL.Connection
+    -> Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer TestEvent
+mixedModelHighMemoryIndexer con
+    = Core.mixedIndexer
+        8192
+        4096
+        (sqliteModelIndexer con)
+        Core.listIndexer
+
 -- | A runner for a 'SQLiteIndexer'
-mixedIndexerRunner
+mixedLowMemoryIndexerRunner
     :: IndexerTestRunner IO TestEvent (Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer)
-mixedIndexerRunner
+mixedLowMemoryIndexerRunner
     = IndexerTestRunner
         GenM.monadicIO
-        (mixedModelIndexer <$> initSQLite)
+        (mixedModelLowMemoryIndexer <$> initSQLite)
+
+-- | A runner for a 'SQLiteIndexer'
+mixedHighMemoryIndexerRunner
+    :: IndexerTestRunner IO TestEvent (Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer)
+mixedHighMemoryIndexerRunner
+    = IndexerTestRunner
+        GenM.monadicIO
+        (mixedModelHighMemoryIndexer <$> initSQLite)
