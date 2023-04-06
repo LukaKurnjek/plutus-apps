@@ -25,6 +25,7 @@ experimentTests = testGroup "Experiment"
     , E.indexingTestGroup "SqliteIndexer" E.sqliteIndexerRunner
     , E.indexingTestGroup "MixedIndexer - low memory" E.mixedLowMemoryIndexerRunner
     , E.indexingTestGroup "MixedIndexer - high memory" E.mixedHighMemoryIndexerRunner
+    , E.indexingTestGroup "WithTracer" $ E.withTracerRunner E.listIndexerRunner
     ]
 
 traceModelProperties :: TestTree

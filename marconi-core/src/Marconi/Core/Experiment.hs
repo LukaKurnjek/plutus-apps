@@ -2,13 +2,13 @@
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE RankNTypes           #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-} -- for DerivingVia
 {- |
  This module propose an alternative to the index implementation proposed in 'RewindableIndex.Storable'.
 
  The point we wanted to address are the folowing:
 
-    * 'Storable' implementation is designed in a way that strongly promotes indexers
+    * @Storable@ implementation is designed in a way that strongly promotes indexers
       that rely on a mix of database and in-memory storage.
       We try to propose a more generic design that would allow:
 
@@ -19,7 +19,7 @@
         * group of indexers, synchronised as a single indexer
         * implement in-memory/database storage that rely on other query heuristic
 
-    * The original implementation considered the 'StorablePoint' as data that can be derived from 'Event',
+    * The original implementation considered the @StorablePoint@ as data that can be derived from @Event@,
       leading to the design of synthetic events to deal with indexer that didn't index enough data.
 
     * In marconi, the original design uses a callback design to handle `MVar` modification,
@@ -76,11 +76,11 @@ Howto:
             If you went for a 'MixedIndexer' with a 'ListIndexer' and a 'SQLiteIndexer',
             these instances are already defined.
 
-        4. You can then continue with 'Rewind' instances for your indexer
+        4. You can then continue with 'Rewindable' instances for your indexer
            that handles the rollbacks.
 
             With the default 'MixedIndexer'/'ListIndexer'/'SQLiteIndexer' mix,
-            you only need to define the instance for 'SQLite'.
+            you only need to define the instance for 'SQLiteIndexer'.
             'rewindSQLiteIndexerWith' can help to avoid boilerplate.
 
         5. The next step is probably to define a query type for your indexer.
@@ -96,6 +96,16 @@ Howto:
 
         7. You have the minimal needed to run your indexer.
 
+    * Writing a new indexer: The steps are almost the same as those for reusing an
+    indexer, except that you have to think about how it should be done in the general
+    case.
+
+        Best practices is to implement as much as we can 'event'/'query' agnostic
+        instances of the typeclasses of these module for the new indexer.
+        When it's impossible to write a typeclass, think about how we can reduce the
+        boilerplate with a helper function, and expose it.
+
+        Try to provide a smart constructor to hide most of the complexity of your indexer.
 
 -}
 module Marconi.Core.Experiment
@@ -105,7 +115,8 @@ module Marconi.Core.Experiment
 
     -- ** Core types
     --
-    -- Marconi's indexers relies on three main concepts:
+    -- | Marconi's indexers relies on three main concepts:
+    --
     --     1. @event@ the information we index;
     --     2. @indexer@ that stores relevant (for them) pieces of information
     --     from the @event@s;
@@ -135,7 +146,7 @@ module Marconi.Core.Experiment
 
     -- * Core Indexers
     -- ** In memory
-    , ListIndexer (ListIndexer)
+    , ListIndexer
         , listIndexer
         , events
         , latest
@@ -232,6 +243,7 @@ import Control.Tracer (Tracer)
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM (TChan, TMVar)
 import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Trans (MonadTrans)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Bifunctor (first)
@@ -438,11 +450,13 @@ class Flushable m indexer where
         -> indexer event
         -> m (Container indexer (TimedEvent event), indexer event)
 
--- | A Full in memory indexer, it uses list because I was too lazy to port the 'Vector' implementation.
--- If we wanna move to these indexers, we should switch the implementation to the 'Vector' one.
+-- | A Full in memory indexer, it uses list because I was too lazy to port the @Vector@ implementation.
+-- If we wanna move to these indexers, we should switch the implementation to the @Vector@ one.
+--
+-- The constructor is not exposed, use 'listIndexer' instead.
 data ListIndexer event =
     ListIndexer
-    { _events :: ![TimedEvent event] -- ^ Stored 'Event', associated with their history 'Point'
+    { _events :: ![TimedEvent event] -- ^ Stored @event@s, associated with their history 'Point'
     , _latest :: !(Point event) -- ^ Ease access to the latest sync point
     }
 
@@ -559,10 +573,14 @@ data SQLiteIndexer event
         { _handle        :: !SQL.Connection
           -- ^ The connection used to interact with the database
         , _prepareInsert :: !(TimedEvent event -> InsertRecord event)
-          -- ^ 'insertRecord' is the typed representation of what has to be inserted in the database
-          -- It should be a monoid, to allow insertion of 0 to n rows in a single transaction
+          -- ^ 'InsertRecord' is the typed representation of what has to be inserted in the database
+          -- It should be a monoid, to allow insertion of 0 to n rows in a single transaction.
+          --
+          -- A list of something is fine if you plan to perform an single insert to store your evnt.
+          -- If you need several inserts, a record where each field correspond to a list is probably
+          -- a good choice.
         , _buildInsert   :: !(InsertRecord event -> [IndexQuery])
-          -- ^ Map the 'insertRecord' representation to 'IndexQuery',
+          -- ^ Map the 'InsertRecord' representation to 'IndexQuery',
           -- to actually performed the insertion in the database.
           -- One can think at the insert record as a typed representation of the parameters of the queries,
           -- ^ The query to extract the latest sync point from the database.
@@ -581,7 +599,7 @@ singleInsertSQLiteIndexer
     => HasGenesis (Point event)
     => SQL.Connection
     -> (TimedEvent event -> param)
-    -- ^ extract 'param' out of a 'TimedEvent'
+    -- ^ extract @param@ out of a 'TimedEvent'
     -> SQL.Query
     -- ^ the insert query
     -> SQLiteIndexer event
@@ -617,7 +635,7 @@ instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m) =>
     lastSyncPoint indexer
         = pure $ indexer ^. dbLastSync
 
--- | A helper for the definition of the 'Rewind' typeclass for 'SQLiteIndexer'
+-- | A helper for the definition of the 'Rewindable' typeclass for 'SQLiteIndexer'
 rewindSQLiteIndexerWith
     :: (MonadIO m, SQL.ToRow (Point event))
     => SQL.Query
@@ -633,7 +651,7 @@ rewindSQLiteIndexerWith q p indexer = do
         (SQL.execute c q p)
     pure $ Just $ indexer & dbLastSync .~ p
 
--- | A helper for the definition of the 'Query' typeclass for 'SQLiteIndexer'
+-- | A helper for the definition of the 'Queryable' typeclass for 'SQLiteIndexer'
 --
 -- The helper just remove a bit of the boilerplate needed to transform data
 -- to query the database.
@@ -664,7 +682,7 @@ querySQLiteIndexerWith toNamedParam sqlQuery fromRows p q indexer
             $ throwError (AheadOfLastSync $ Just $ fromRows q res)
         pure $ fromRows q res
 
--- | A helper for the definition of the 'Query' typeclass for 'SQLiteIndexer'
+-- | A helper for the definition of the 'Queryable' typeclass for 'SQLiteIndexer'
 --
 -- The helper just remove a bit of the boilerplate needed to transform data
 -- to query the database.
@@ -727,7 +745,7 @@ data RunnerM m input point =
 
 type Runner = RunnerM IO
 
--- | create a runner for an indexer, retuning the runner and the 'MVar' it's using internally
+-- | create a runner for an indexer, retuning the runner and the @MVar@ it's using internally
 createRunner ::
     ( IsIndex IO event indexer
     , IsSync IO event indexer
@@ -1033,21 +1051,21 @@ instance Resumable m event indexer =>
     syncPoints = syncPointsVia wrappedIndexer
 
 -- | Helper to implement the @prune@ functon of 'Prunable' when we use a wrapper.
--- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
+-- Unfortunately, as @m@ must have a functor instance, we can't use @deriving via@ directly.
 pruneVia
     :: (Functor m, Prunable m event indexer, Ord (Point event))
     => Lens' s (indexer event) -> Point event -> s -> m s
 pruneVia l = l . prune
 
 -- | Helper to implement the @pruningPoint@ functon of 'Prunable' when we use a wrapper.
--- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
+-- Unfortunately, as @m@ must have a functor instance, we can't use @deriving via@ directly.
 pruningPointVia
     :: Prunable m event indexer
     => Getter s (indexer event) -> s -> m (Maybe (Point event))
 pruningPointVia l = pruningPoint . view l
 
 -- | Helper to implement the @rewind@ functon of 'Rewindable' when we use a wrapper.
--- Unfortunately, as 'm' must have a functor instance, we can't use @deriving via@ directly.
+-- Unfortunately, as @m@ must have a functor instance, we can't use @deriving via@ directly.
 rewindVia
     :: (Functor m, Rewindable m event indexer, Ord (Point event))
     => Lens' s (indexer event)
@@ -1115,6 +1133,25 @@ instance (Functor m, Prunable m event indexer) =>
     prune = pruneVia tracedIndexer
 
     pruningPoint = pruningPointVia tracedIndexer
+
+instance (MonadTrans t, Monad m, IsSync (t m) event index)
+    => IsSync (t m) event (WithTracer m index) where
+
+    lastSyncPoint = lastSyncPointVia tracedIndexer
+
+instance (MonadTrans t, Monad m, Monad (t m),  IsIndex (t m) event index)
+    => IsIndex (t m) event (WithTracer m index) where
+
+    index timedEvent indexer = do
+        res <- indexVia tracedIndexer timedEvent indexer
+        lift $ Tracer.traceWith (indexer ^. tracer) $ Index timedEvent
+        pure res
+
+instance (MonadTrans t, Monad m, Monad (t m),  Queryable (t m) event query index)
+    => Queryable (t m) event query (WithTracer m index) where
+
+    query = queryVia tracedIndexer
+
 
 data DelayConfig event
     = DelayConfig
@@ -1387,7 +1424,7 @@ data MixedIndexerConfig store event
 
 makeLenses 'MixedIndexerConfig
 
--- | An indexer that has at most '_blocksListIndexer' events in memory and put the older one in database.
+-- | An indexer that has at most '_configCapacity' events in memory and put the older one in database.
 -- The query interface for this indexer will alwyas go through the database first and then prune
 -- results present in memory.
 --

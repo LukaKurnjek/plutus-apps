@@ -53,6 +53,7 @@ module Marconi.Core.Spec.Experiment
     , sqliteIndexerRunner
     , mixedLowMemoryIndexerRunner
     , mixedHighMemoryIndexerRunner
+    , withTracerRunner
     -- ** Instances internal
     , initSQLite
     , sqliteModelIndexer
@@ -64,6 +65,7 @@ import Control.Monad (foldM, replicateM)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, evalStateT, get)
+import Control.Tracer qualified as Tracer
 
 import Data.Foldable (Foldable (foldl'))
 import Data.Function ((&))
@@ -258,15 +260,15 @@ indexingTestGroup
     ) => String -> IndexerTestRunner m TestEvent indexer -> Tasty.TestTree
 indexingTestGroup indexerName runner
     = Tasty.testGroup (indexerName <> " core properties")
-        [ Tasty.testGroup "Check storage"
-            [ Tasty.testProperty "it stores events without rollback"
+        [ Tasty.testGroup "index"
+            [ Tasty.testProperty "indexes events without rollback"
                 $ Test.withMaxSuccess 20000
                 $ storageBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
-            , Tasty.testProperty "it stores events with rollbacks"
+            , Tasty.testProperty "indexes events with rollbacks"
                 $ Test.withMaxSuccess 10000
                 $ storageBasedModelProperty (view defaultChain <$> Test.arbitrary) runner
             ]
-        , Tasty.testGroup "Check lastSync"
+        , Tasty.testGroup "lastSync points to the las point"
             [ Tasty.testProperty "in a chain without rollback"
                 $ Test.withMaxSuccess 20000
                 $ lastSyncBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
@@ -409,7 +411,7 @@ mixedModelHighMemoryIndexer con
         (sqliteModelIndexer con)
         Core.listIndexer
 
--- | A runner for a 'SQLiteIndexer'
+-- | A runner for a 'MixedIndexer' with a small in-memory storage
 mixedLowMemoryIndexerRunner
     :: IndexerTestRunner IO TestEvent (Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer)
 mixedLowMemoryIndexerRunner
@@ -417,10 +419,20 @@ mixedLowMemoryIndexerRunner
         GenM.monadicIO
         (mixedModelLowMemoryIndexer <$> initSQLite)
 
--- | A runner for a 'SQLiteIndexer'
+-- | A runner for a 'MixedIndexer' with a large in-memory storage
 mixedHighMemoryIndexerRunner
     :: IndexerTestRunner IO TestEvent (Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer)
 mixedHighMemoryIndexerRunner
     = IndexerTestRunner
         GenM.monadicIO
         (mixedModelHighMemoryIndexer <$> initSQLite)
+
+-- | A runner for a the 'WithTracer' tranformer
+withTracerRunner
+    :: Monad m
+    => IndexerTestRunner m event wrapped
+    -> IndexerTestRunner m event (Core.WithTracer m wrapped)
+withTracerRunner wRunner
+    = IndexerTestRunner (wRunner ^. indexerRunner) (Core.withTracer Tracer.nullTracer <$> wRunner ^. indexerGenerator)
+
+--
