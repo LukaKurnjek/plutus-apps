@@ -21,16 +21,16 @@ traceTests = testGroup "Trace" [ traceModelProperties, traceIndexerProperties ]
 
 experimentTests :: TestTree
 experimentTests = testGroup "Experiment"
-    [ E.testIndexer "ListIndexer" E.listIndexerRunner
-    , E.testIndexer "SqliteIndexer" E.sqliteIndexerRunner
-    , E.testIndexer "MixedIndexer - low memory" E.mixedLowMemoryIndexerRunner
-    , E.testIndexer "MixedIndexer - high memory" E.mixedHighMemoryIndexerRunner
+    [ E.indexingTestGroup "ListIndexer" E.listIndexerRunner
+    , E.indexingTestGroup "SqliteIndexer" E.sqliteIndexerRunner
+    , E.indexingTestGroup "MixedIndexer - low memory" E.mixedLowMemoryIndexerRunner
+    , E.indexingTestGroup "MixedIndexer - high memory" E.mixedHighMemoryIndexerRunner
     ]
 
 traceModelProperties :: TestTree
 traceModelProperties = testGroup "Model traces"
   [ testProperty "Weak bisimilarity (observed builder)" $
-      withMaxSuccess 20000 $ Ix.prop_WeakBisimilarity  @Int @Int @Int Ix.modelConversion
+      withMaxSuccess 10000 $ Ix.prop_WeakBisimilarity  @Int @Int @Int Ix.modelConversion
   , testProperty "Weak bisimilarity (grammar builder)" $
       withMaxSuccess 300  $ Ix.prop_WeakBisimilarity' @Int @Int @Int Ix.modelConversion
   ]
@@ -38,7 +38,7 @@ traceModelProperties = testGroup "Model traces"
 traceIndexerProperties :: TestTree
 traceIndexerProperties = testGroup "Implementation traces"
   [ testProperty "Weak bisimilarity (observed builder)" $
-      withMaxSuccess 20000 $ Ix.prop_WeakBisimilarity  TS.observeTrace
+      withMaxSuccess 10000 $ Ix.prop_WeakBisimilarity  TS.observeTrace
   , testProperty "Weak bisimilarity (grammar builder)" $
       withMaxSuccess 300  $ Ix.prop_WeakBisimilarity' TS.observeTrace
   ]

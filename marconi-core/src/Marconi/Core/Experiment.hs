@@ -42,9 +42,6 @@ What's included in this module:
 
   (non-exhaustive) TODO list:
 
-    * Provide more typeclasses implementation for an SQLite indexer.
-      We shouldn't have to provide more than the queries and tables in most cases.
-      The indexer instances should take care of the global behaviour for all typeclasses.
     * Provide a less naive in-memory indexer implementation than the list one
     * Test, test, test. The current code is not tested, and it's wrong.
       Ideally, we should be able to provide a model-based testing approach to specify
@@ -56,12 +53,63 @@ What's included in this module:
     * Cold start from disk.
     * Provide MonadState version of the functions that manipulates the indexer.
 
+Howto:
+
+    * Setup an existing indexer
+
+        1. You need to define a type for @event@ (the input of your indexer).
+        As soon as it's done, define the 'Point' type instance for this event,
+        'Point' is a way to know when the Point was emitted.
+        It can be a time, a slot number, whatever information that tracks when
+        an event happen.
+
+        2. Choose the based indexing instances that you need to index your events.
+
+            The most common approach is to go for a 'MixedIndexer'
+            with an in memory indexer and a disk indexer.
+            At the moment, 'ListIndexer' is the only pre-existing in memory indexer
+            and 'SQLiteIndexer' is the only pre-existing on disk indexer.
+
+        3. You then need to implement the 'IsIndex' and 'IsSync'
+           typeclasses for your indexer.
+
+            If you went for a 'MixedIndexer' with a 'ListIndexer' and a 'SQLiteIndexer',
+            these instances are already defined.
+
+        4. You can then continue with 'Rewind' instances for your indexer
+           that handles the rollbacks.
+
+            With the default 'MixedIndexer'/'ListIndexer'/'SQLiteIndexer' mix,
+            you only need to define the instance for 'SQLite'.
+            'rewindSQLiteIndexerWith' can help to avoid boilerplate.
+
+        5. The next step is probably to define a query type for your indexer.
+        A query type usually come with a 'Result' type instance,
+        the expected answer for this query.
+
+        6. Then, for this query you need to define the 'Queryable' instances that
+        correspond to your indexer.
+
+            If you use a 'MixedIndexer' you need to define 'Queryable'
+            only for the on-disk storage (@store@) and 'ResumableResult'
+            for the in-memory part (@mem@).
+
+        7. You have the minimal needed to run your indexer.
+
+
 -}
 module Marconi.Core.Experiment
     (
 
     -- * Core types and typeclasses
+
     -- ** Core types
+    --
+    -- Marconi's indexers relies on three main concepts:
+    --     1. @event@ the information we index;
+    --     2. @indexer@ that stores relevant (for them) pieces of information
+    --     from the @event@s;
+    --     3. @query@ that define what can be asked to an @indexer@.
       Point
     , Result
     , Container
@@ -254,7 +302,7 @@ class Monad m => IsIndex m event indexer where
 
     {-# MINIMAL index #-}
 
--- | Like @query@, but internalise @QueryError@ in the result.
+-- | Like @index@, but internalise @IndexError@ in the result.
 index'
     ::
     ( IsIndex (ExceptT IndexError m) event indexer
@@ -266,7 +314,7 @@ index'
     -> m (Either IndexError (indexer event))
 index' evt = runExceptT . index evt
 
--- | Like @query@, but internalise @QueryError@ in the result.
+-- | Like @indexAll@, but internalise @IndexError@ in the result.
 indexAll'
     ::
     ( IsIndex (ExceptT IndexError m) event indexer
@@ -871,7 +919,10 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
 -- ** Filtering available events
 
 -- | Query an indexer to find all events that match a given predicate
-newtype EventsMatchingQuery event = EventsMatchingQuery {predicate :: event -> Bool}
+--
+-- The result should return the most recent first
+newtype EventsMatchingQuery event
+    = EventsMatchingQuery {predicate :: event -> Bool}
 
 -- | Get all the events that are stored in the indexer
 allEvents :: EventsMatchingQuery event
@@ -1050,13 +1101,13 @@ instance
 
          rewindWrappedIndexer p' = MaybeT $ rewindVia tracedIndexer p' indexer
 
-         traceSuccessfulRewind indexer' = do
-              Tracer.traceWith (indexer' ^. tracer) (Rollback p)
-              pure indexer'
+         traceRewind =
+              Tracer.traceWith (indexer ^. tracer) (Rollback p)
 
         in do
-        res <- runMaybeT $ rewindWrappedIndexer p
-        traverse traceSuccessfulRewind res
+        -- Warn about the rewind first
+        traceRewind
+        runMaybeT $ rewindWrappedIndexer p
 
 instance (Functor m, Prunable m event indexer) =>
     Prunable m event (WithTracer m indexer) where

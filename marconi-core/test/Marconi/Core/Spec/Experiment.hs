@@ -21,7 +21,7 @@
 module Marconi.Core.Spec.Experiment
     (
     -- * The test suite
-      testIndexer
+      indexingTestGroup
     -- ** individual tests
     , storageBasedModelProperty
     , lastSyncBasedModelProperty
@@ -246,7 +246,7 @@ behaveLikeModel genChain runner modelComputation indexerComputation
     = compareToModelWith genChain runner modelComputation indexerComputation (===)
 
 -- | A test tree for the core functionalities of an indexer
-testIndexer
+indexingTestGroup
     :: ( Core.Rewindable m TestEvent indexer
     , Core.IsIndex (ExceptT Core.IndexError m) TestEvent indexer
     , Core.IsSync m TestEvent indexer
@@ -256,7 +256,7 @@ testIndexer
         (Core.EventsMatchingQuery TestEvent) indexer
     , Monad m
     ) => String -> IndexerTestRunner m TestEvent indexer -> Tasty.TestTree
-testIndexer indexerName runner
+indexingTestGroup indexerName runner
     = Tasty.testGroup (indexerName <> " core properties")
         [ Tasty.testGroup "Check storage"
             [ Tasty.testProperty "it stores events without rollback"
