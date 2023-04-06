@@ -51,6 +51,8 @@ module Marconi.Core.Spec.Experiment
     -- * Instances
     , listIndexerRunner
     , sqliteIndexerRunner
+    , mixedIndexerRunner
+    -- ** Instances internal
     , initSQLite
     , sqliteModelIndexer
     ) where
@@ -58,6 +60,7 @@ module Marconi.Core.Spec.Experiment
 import Control.Lens (makeLenses, use, view, views, (%~), (.=), (^.))
 
 import Control.Monad (foldM, replicateM)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, evalStateT, get)
 
@@ -78,7 +81,6 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 
-import Data.Either (fromRight)
 import Data.Maybe (listToMaybe)
 
 import Database.SQLite.Simple qualified as SQL
@@ -197,7 +199,7 @@ compareToModelWith
     :: Monad m
     => Show event
     => Core.Point event ~ TestPoint
-    => Core.IsIndex m event indexer
+    => Core.IsIndex (ExceptT Core.IndexError m) event indexer
     => Core.Rewindable m event indexer
     => Gen [Item event]
     -> IndexerTestRunner m event indexer
@@ -207,8 +209,9 @@ compareToModelWith
     -> Property
 compareToModelWith genChain runner modelComputation indexerComputation prop
     = let
+        rightToMaybe = either (const Nothing) Just
         process = \case
-            Insert ix evt -> MaybeT . fmap Just . Core.index (Core.TimedEvent ix evt)
+            Insert ix evt -> MaybeT . fmap rightToMaybe . Core.index' (Core.TimedEvent ix evt)
             Rollback n    -> MaybeT . Core.rewind n
         r = runner ^. indexerRunner
         genIndexer = runner ^. indexerGenerator
@@ -228,8 +231,9 @@ behaveLikeModel
     :: Eq a
     => Show a
     => Show event
+    => Monad m
     => Core.Point event ~ TestPoint
-    => Core.IsIndex m event indexer
+    => Core.IsIndex (ExceptT Core.IndexError m) event indexer
     => Core.Rewindable m event indexer
     => Gen [Item event]
     -> IndexerTestRunner m event indexer
@@ -242,29 +246,30 @@ behaveLikeModel genChain runner modelComputation indexerComputation
 -- | A test tree for the core functionalities of an indexer
 testIndexer
     :: ( Core.Rewindable m TestEvent indexer
-    , Core.IsIndex m TestEvent indexer
+    , Core.IsIndex (ExceptT Core.IndexError m) TestEvent indexer
     , Core.IsSync m TestEvent indexer
     , Core.Queryable
         (ExceptT (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m)
         TestEvent
         (Core.EventsMatchingQuery TestEvent) indexer
+    , Monad m
     ) => String -> IndexerTestRunner m TestEvent indexer -> Tasty.TestTree
 testIndexer indexerName runner
     = Tasty.testGroup (indexerName <> " core properties")
         [ Tasty.testGroup "Check storage"
             [ Tasty.testProperty "it stores events without rollback"
-                $ Test.withMaxSuccess 1000
+                $ Test.withMaxSuccess 5000
                 $ storageBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
             , Tasty.testProperty "it stores events with rollbacks"
-                $ Test.withMaxSuccess 2000
+                $ Test.withMaxSuccess 10000
                 $ storageBasedModelProperty (view defaultChain <$> Test.arbitrary) runner
             ]
         , Tasty.testGroup "Check lastSync"
             [ Tasty.testProperty "in a chain without rollback"
-                $ Test.withMaxSuccess 1000
+                $ Test.withMaxSuccess 5000
                 $ lastSyncBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
             , Tasty.testProperty "in a chain with rollbacks"
-                $ Test.withMaxSuccess 2000
+                $ Test.withMaxSuccess 10000
                 $ lastSyncBasedModelProperty (view defaultChain <$> Test.arbitrary) runner
             ]
         ]
@@ -272,9 +277,10 @@ testIndexer indexerName runner
 storageBasedModelProperty
     ::
     ( Core.Rewindable m event indexer
-    , Core.IsIndex m event indexer
+    , Core.IsIndex (ExceptT Core.IndexError m) event indexer
     , Core.IsSync m event indexer
     , Core.Point event ~ TestPoint
+    , Monad m
     , Show event
     , Eq event
     , Core.Queryable (ExceptT (Core.QueryError (Core.EventsMatchingQuery event)) m) event (Core.EventsMatchingQuery event) indexer
@@ -300,9 +306,10 @@ storageBasedModelProperty gen runner
 lastSyncBasedModelProperty
     ::
     ( Core.Rewindable m event indexer
-    , Core.IsIndex m event indexer
+    , Core.IsIndex (ExceptT Core.IndexError m) event indexer
     , Core.IsSync m event indexer
     , Core.Point event ~ TestPoint
+    , Monad m
     , Show event
     )
     => Gen [Item event]
@@ -318,10 +325,10 @@ lastSyncBasedModelProperty gen runner
 -- | A runner for a 'ListIndexer'
 listIndexerRunner
     :: Core.HasGenesis (Core.Point e)
-    => IndexerTestRunner (Either (Core.IndexError Core.ListIndexer e)) e Core.ListIndexer
+    => IndexerTestRunner IO e Core.ListIndexer
 listIndexerRunner
     = IndexerTestRunner
-        (GenM.monadic $ fromRight (failWith "indexing error"))
+        GenM.monadicIO
         (pure Core.listIndexer)
 
 failWith :: String -> Property
@@ -347,14 +354,15 @@ sqliteModelIndexer con
     = Core.singleInsertSQLiteIndexer con
         (\t -> (t ^. Core.point, t ^. Core.event))
         "INSERT INTO index_model VALUES (?, ?)"
-        "SELECT point FROM index_model ORDER BY point DESC LIMIT 1"
 
 instance MonadIO m => Core.Rewindable m TestEvent Core.SQLiteIndexer where
 
     rewind = Core.rewindSQLiteIndexerWith "DELETE FROM index_model WHERE point > ?"
 
 instance
-    MonadIO m =>
+    ( MonadIO m
+    , MonadError (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m
+    ) =>
     Core.Queryable m TestEvent (Core.EventsMatchingQuery TestEvent) Core.SQLiteIndexer where
 
     query = let
@@ -379,3 +387,21 @@ sqliteIndexerRunner
     = IndexerTestRunner
         GenM.monadicIO
         (sqliteModelIndexer <$> initSQLite)
+
+mixedModelIndexer
+    :: SQL.Connection
+    -> Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer TestEvent
+mixedModelIndexer con
+    = Core.mixedIndexer
+        10
+        2
+        (sqliteModelIndexer con)
+        Core.listIndexer
+
+-- | A runner for a 'SQLiteIndexer'
+mixedIndexerRunner
+    :: IndexerTestRunner IO TestEvent (Core.MixedIndexer Core.SQLiteIndexer Core.ListIndexer)
+mixedIndexerRunner
+    = IndexerTestRunner
+        GenM.monadicIO
+        (mixedModelIndexer <$> initSQLite)

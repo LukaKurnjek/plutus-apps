@@ -70,6 +70,8 @@ module Marconi.Core.Experiment
         , event
     -- ** Core typeclasses
     , IsIndex (..)
+    , index'
+    , indexAll'
     , HasGenesis (..)
     , IsSync (..)
     , isAheadOfSync
@@ -222,13 +224,13 @@ deriving stock instance (Show event, Show (Point event)) => Show (TimedEvent eve
 makeLenses 'TimedEvent
 
 -- | Error that can occur when you index events
-data IndexError indexer event
-   = NoSpaceLeft !(indexer event)
+data IndexError
+   = NoSpaceLeft
      -- ^ An indexer with limited capacity is full and is unable to index an event
-   | OtherError !Text
+   | OtherIndexError !Text
      -- ^ Any other cause of failure
 
-deriving stock instance (Show (indexer event), Show (Point event)) => Show (IndexError indexer event)
+deriving stock instance Show IndexError
 
 -- | The base class of an indexer.
 -- The indexer should provide two main functionalities:
@@ -240,15 +242,42 @@ deriving stock instance (Show (indexer event), Show (Point event)) => Show (Inde
 class Monad m => IsIndex m event indexer where
 
     -- | index an event at a given point in time
-    index :: Eq (Point event) =>
-        TimedEvent event -> indexer event -> m (indexer event)
+    index
+        :: Eq (Point event)
+        => TimedEvent event -> indexer event -> m (indexer event)
 
     -- | Index a bunch of points, associated to their event, in an indexer
-    indexAll :: (Ord (Point event), Traversable f) =>
-        f (TimedEvent event) -> indexer event -> m (indexer event)
+    indexAll
+        :: (Ord (Point event), Traversable f)
+        => f (TimedEvent event) -> indexer event -> m (indexer event)
     indexAll = flip (foldrM index)
 
     {-# MINIMAL index #-}
+
+-- | Like @query@, but internalise @QueryError@ in the result.
+index'
+    ::
+    ( IsIndex (ExceptT IndexError m) event indexer
+    , Monad m
+    , Eq (Point event)
+    )
+    => TimedEvent event
+    -> indexer event
+    -> m (Either IndexError (indexer event))
+index' evt = runExceptT . index evt
+
+-- | Like @query@, but internalise @QueryError@ in the result.
+indexAll'
+    ::
+    ( IsIndex (ExceptT IndexError m) event indexer
+    , Monad m
+    , Traversable f
+    , Ord (Point event)
+    )
+    => f (TimedEvent event)
+    -> indexer event
+    -> m (Either IndexError (indexer event))
+indexAll' evt = runExceptT . indexAll evt
 
 class HasGenesis t where
 
@@ -385,7 +414,7 @@ instance Applicative m => Flushable m ListIndexer where
     flushMemory _ ix = pure $ ix & events <<.~ []
 
 instance
-    (MonadError (IndexError ListIndexer event) m, Monad m) =>
+    (MonadError IndexError m, Monad m) =>
     IsIndex m event ListIndexer where
 
     index timedEvent ix = let
@@ -887,7 +916,7 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
         in do
             dbResult <- extractDbResult
             memoryResult <- extractMemoryResult
-            pure $ dbResult <> memoryResult
+            pure $ memoryResult <> dbResult
 
 
 -- | Wrap an indexer with some extra information to modify its behaviour
@@ -1395,8 +1424,9 @@ instance
 
         in runMaybeT $ do
             ix <- inMemory rewindInStore indexer
-            guard $ not $ null $ ix ^. inMemory . events
-            inDatabase rewindInStore ix
+            if not $ null $ ix ^. inMemory . events
+                then pure ix
+                else inDatabase rewindInStore ix
 
 instance
     ( ResumableResult m event query ListIndexer

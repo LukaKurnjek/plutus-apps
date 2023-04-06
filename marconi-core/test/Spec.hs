@@ -23,6 +23,7 @@ experimentTests :: TestTree
 experimentTests = testGroup "Experiment"
     [ E.testIndexer "ListIndexer" E.listIndexerRunner
     , E.testIndexer "SqliteIndexer" E.sqliteIndexerRunner
+    , E.testIndexer "MixedIndexer" E.mixedIndexerRunner
     ]
 
 traceModelProperties :: TestTree
