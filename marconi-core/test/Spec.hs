@@ -21,11 +21,17 @@ traceTests = testGroup "Trace" [ traceModelProperties, traceIndexerProperties ]
 
 experimentTests :: TestTree
 experimentTests = testGroup "Experiment"
-    [ E.indexingTestGroup "ListIndexer" E.listIndexerRunner
-    , E.indexingTestGroup "SqliteIndexer" E.sqliteIndexerRunner
-    , E.indexingTestGroup "MixedIndexer - low memory" E.mixedLowMemoryIndexerRunner
-    , E.indexingTestGroup "MixedIndexer - high memory" E.mixedHighMemoryIndexerRunner
-    , E.indexingTestGroup "WithTracer" $ E.withTracerRunner E.listIndexerRunner
+    [ testGroup "Indexing"
+        [ E.indexingTestGroup "ListIndexer" E.listIndexerRunner
+        , E.indexingTestGroup "SqliteIndexer" E.sqliteIndexerRunner
+        , E.indexingTestGroup "MixedIndexer - low memory" E.mixedLowMemoryIndexerRunner
+        , E.indexingTestGroup "MixedIndexer - high memory" E.mixedHighMemoryIndexerRunner
+        , E.indexingTestGroup "WithTracer" $ E.withTracerRunner E.listIndexerRunner
+        ]
+    , testGroup "Performance"
+        [ E.indexingPerformanceTest "ListIndexer" E.listIndexerRunner
+        , E.indexingPerformanceTest "MixedIndexer" E.mixedHighMemoryIndexerRunner
+        ]
     ]
 
 traceModelProperties :: TestTree

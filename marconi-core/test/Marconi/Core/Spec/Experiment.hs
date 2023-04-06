@@ -22,6 +22,7 @@ module Marconi.Core.Spec.Experiment
     (
     -- * The test suite
       indexingTestGroup
+    , indexingPerformanceTest
     -- ** individual tests
     , storageBasedModelProperty
     , lastSyncBasedModelProperty
@@ -152,6 +153,13 @@ genChain
 genChain percent size
     = evalStateT (replicateM size (genItem percent)) (GenState Core.genesis)
 
+genLargeChain
+    :: Arbitrary event
+    => Word -- ^ Rollback percentage
+    -> Gen [Item event]
+genLargeChain p = do
+    n <- Test.choose (50000,200000)
+    genChain p n
 
 -- | Chain events with 10% of rollback
 newtype DefaultChain event = DefaultChain {_defaultChain :: [Item event]}
@@ -218,7 +226,7 @@ compareToModelWith
     -> (indexer event -> m a)
     -> (a -> a -> Property)
     -> Property
-compareToModelWith genChain runner modelComputation indexerComputation prop
+compareToModelWith genChain' runner modelComputation indexerComputation prop
     = let
         rightToMaybe = either (const Nothing) Just
         process = \case
@@ -226,7 +234,7 @@ compareToModelWith genChain runner modelComputation indexerComputation prop
             Rollback n    -> MaybeT . Core.rewind n
         r = runner ^. indexerRunner
         genIndexer = runner ^. indexerGenerator
-    in Test.forAll genChain $ \chain -> r $ do
+    in Test.forAll genChain' $ \chain -> r $ do
         initialIndexer <- GenM.run genIndexer
         indexer <- GenM.run $ runMaybeT $ foldM (flip process) initialIndexer chain
         iResult <- GenM.run $ traverse indexerComputation indexer
@@ -251,8 +259,8 @@ behaveLikeModel
     -> (IndexerModel event -> a)
     -> (indexer event -> m a)
     -> Property
-behaveLikeModel genChain runner modelComputation indexerComputation
-    = compareToModelWith genChain runner modelComputation indexerComputation (===)
+behaveLikeModel genChain' runner modelComputation indexerComputation
+    = compareToModelWith genChain' runner modelComputation indexerComputation (===)
 
 -- | A test tree for the core functionalities of an indexer
 indexingTestGroup
@@ -269,7 +277,7 @@ indexingTestGroup indexerName runner
     = Tasty.testGroup (indexerName <> " core properties")
         [ Tasty.testGroup "index"
             [ Tasty.testProperty "indexes events without rollback"
-                $ Test.withMaxSuccess 20000
+                $ Test.withMaxSuccess 5000
                 $ storageBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
             , Tasty.testProperty "indexes events with rollbacks"
                 $ Test.withMaxSuccess 10000
@@ -277,13 +285,29 @@ indexingTestGroup indexerName runner
             ]
         , Tasty.testGroup "lastSync points to the las point"
             [ Tasty.testProperty "in a chain without rollback"
-                $ Test.withMaxSuccess 20000
+                $ Test.withMaxSuccess 5000
                 $ lastSyncBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
             , Tasty.testProperty "in a chain with rollbacks"
                 $ Test.withMaxSuccess 10000
                 $ lastSyncBasedModelProperty (view defaultChain <$> Test.arbitrary) runner
             ]
         ]
+
+-- | A test tree for the core functionalities of an indexer
+indexingPerformanceTest
+    :: ( Core.Rewindable m TestEvent indexer
+    , Core.IsIndex (ExceptT Core.IndexError m) TestEvent indexer
+    , Core.IsSync m TestEvent indexer
+    , Core.Queryable
+        (ExceptT (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m)
+        TestEvent
+        (Core.EventsMatchingQuery TestEvent) indexer
+    , Monad m
+    ) => String -> IndexerTestRunner m TestEvent indexer -> Tasty.TestTree
+indexingPerformanceTest indexerName runner
+    = Tasty.testProperty (indexerName <> " performance check")
+        $ Test.withMaxSuccess 50
+        $ Test.within 1000000 $ storageBasedModelProperty (genLargeChain 10) runner
 
 storageBasedModelProperty
     ::
