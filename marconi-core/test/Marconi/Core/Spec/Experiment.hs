@@ -63,7 +63,6 @@ import Control.Monad.Trans.State (StateT, evalStateT, get)
 
 import Data.Foldable (Foldable (foldl'))
 import Data.Function ((&))
-import Data.List (inits)
 
 import GHC.Generics (Generic)
 
@@ -149,8 +148,6 @@ instance Arbitrary event => Arbitrary (DefaultChain event) where
     arbitrary = Test.sized $ \n -> do
         DefaultChain <$> evalStateT (replicateM n (genItem 10)) (GenState Core.genesis)
 
-    shrink = defaultChain inits
-
 -- | Chain events without any rollback
 newtype ForwardChain event = ForwardChain {_forwardChain :: [Item event]}
 
@@ -160,8 +157,6 @@ instance Arbitrary event => Arbitrary (ForwardChain event) where
 
     arbitrary = Test.sized $ \n -> do
         ForwardChain <$> evalStateT (replicateM n (genItem 0)) (GenState Core.genesis)
-
-    shrink = forwardChain inits
 
 -- ** Event instances
 

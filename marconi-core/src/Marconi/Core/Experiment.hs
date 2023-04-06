@@ -97,6 +97,7 @@ module Marconi.Core.Experiment
         , dbLastSync
         , rewindSQLiteIndexerWith
         , querySQLiteIndexerWith
+        , querySyncedOnlySQLiteIndexerWith
     , MixedIndexer
         , mixedIndexer
         , inMemory
@@ -172,9 +173,9 @@ import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
 import Control.Concurrent (QSemN)
-import Control.Lens (Getter, Lens', filtered, folded, makeLenses, set, to, view, (%~), (&), (+~), (-~), (.~), (<<.~),
-                     (^.), (^..), (^?))
-import Control.Monad (forever, guard)
+import Control.Lens (Getter, Lens', filtered, folded, makeLenses, maximumOf, set, to, view, (%~), (&), (+~), (-~), (.~),
+                     (<<.~), (^.), (^..), (^?))
+import Control.Monad (forever, guard, when)
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
 
@@ -188,7 +189,7 @@ import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Sequence (Seq (Empty, (:|>)), (<|))
 import Data.Text (Text)
 import Database.SQLite.Simple qualified as SQL
@@ -243,7 +244,7 @@ class Monad m => IsIndex m event indexer where
         TimedEvent event -> indexer event -> m (indexer event)
 
     -- | Index a bunch of points, associated to their event, in an indexer
-    indexAll :: (Eq (Point event), Traversable f) =>
+    indexAll :: (Ord (Point event), Traversable f) =>
         f (TimedEvent event) -> indexer event -> m (indexer event)
     indexAll = flip (foldrM index)
 
@@ -487,9 +488,9 @@ data SQLiteIndexer event
           -- ^ Map the 'insertRecord' representation to 'IndexQuery',
           -- to actually performed the insertion in the database.
           -- One can think at the insert record as a typed representation of the parameters of the queries,
-          -- that can be bundle with the query in the opaque @IndexQuery@ type.
-        , _dbLastSync    :: !SQL.Query
           -- ^ The query to extract the latest sync point from the database.
+        , _dbLastSync    :: !(Point event)
+          -- ^ We keep the sync point in memory to avoid a request as Much as possible
         }
 
 makeLenses ''SQLiteIndexer
@@ -500,43 +501,44 @@ makeLenses ''SQLiteIndexer
 singleInsertSQLiteIndexer
     :: SQL.ToRow param
     => InsertRecord event ~ [param]
+    => HasGenesis (Point event)
     => SQL.Connection
     -> (TimedEvent event -> param)
     -- ^ extract 'param' out of a 'TimedEvent'
     -> SQL.Query
     -- ^ the insert query
-    -> SQL.Query
-    -- ^ the last sync query
     -> SQLiteIndexer event
-singleInsertSQLiteIndexer c toParam insertQuery lastSyncQuery
+singleInsertSQLiteIndexer c toParam insertQuery
     = SQLiteIndexer
         {_handle = c
         , _prepareInsert = pure . toParam
         , _buildInsert = pure . IndexQuery insertQuery
-        , _dbLastSync = lastSyncQuery
+        , _dbLastSync = genesis
         }
 
 instance (MonadIO m, Monoid (InsertRecord event)) =>
     IsIndex m event SQLiteIndexer where
 
-    index evt indexer = liftIO $ do
-        let indexQueries = indexer ^. buildInsert $ indexer ^. prepareInsert $ evt
+    index timedEvent indexer = liftIO $ do
+        let indexQueries = indexer ^. buildInsert
+                $ indexer ^. prepareInsert
+                $ timedEvent
         runIndexQueries (indexer ^. handle) indexQueries
-        pure indexer
+        pure $ indexer & dbLastSync .~ (timedEvent ^. point)
 
     indexAll evts indexer = liftIO $ do
+
         let indexQueries = indexer ^. buildInsert $ foldMap (indexer ^. prepareInsert) evts
+            updateLastSync = maybe id (dbLastSync .~) (maximumOf (folded . point) evts)
+
         runIndexQueries (indexer ^. handle) indexQueries
-        pure indexer
+        pure $ updateLastSync indexer
 
 instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m) =>
     IsSync m event SQLiteIndexer where
 
     lastSyncPoint indexer
-        = liftIO
-            $ fromMaybe genesis
-            . listToMaybe
-            <$> SQL.query_ (indexer ^. handle) (indexer ^. dbLastSync)
+        = pure $ indexer ^. dbLastSync
 
 -- | A helper for the definition of the 'Rewind' typeclass for 'SQLiteIndexer'
 rewindSQLiteIndexerWith
@@ -552,18 +554,22 @@ rewindSQLiteIndexerWith q p indexer = do
     let c = indexer ^. handle
     liftIO $ SQL.withTransaction c
         (SQL.execute c q p)
-    pure $ Just indexer
+    pure $ Just $ indexer & dbLastSync .~ p
 
 -- | A helper for the definition of the 'Query' typeclass for 'SQLiteIndexer'
 --
 -- The helper just remove a bit of the boilerplate needed to transform data
 -- to query the database.
--- It doesn't contain any logic.
--- In particular, it doesn't filter the result based on the given data point.
 --
--- No error handling, it can be added by catching the SQLite exception.
+-- It doesn't contain any logic, except a check for 'AheadOfLastSync' error,
+-- in which case it throws the 'AheadOfLastSync' exception with a partial result.
+-- If you don't want to query the database on a partial result,
+-- use 'querySyncedOnlySQLiteIndexerWith'
+--
+-- It doesn't filter the result based on the given data point.
 querySQLiteIndexerWith
     :: MonadIO m
+    => MonadError (QueryError query) m
     => Ord (Point event)
     => SQL.FromRow r
     => (Point event -> query -> [SQL.NamedParam])
@@ -576,6 +582,37 @@ querySQLiteIndexerWith
 querySQLiteIndexerWith toNamedParam sqlQuery fromRows p q indexer
     = do
         let c = indexer ^. handle
+        res <- liftIO $ SQL.queryNamed c sqlQuery (toNamedParam p q)
+        when (p < indexer ^. dbLastSync)
+            $ throwError (AheadOfLastSync $ Just $ fromRows q res)
+        pure $ fromRows q res
+
+-- | A helper for the definition of the 'Query' typeclass for 'SQLiteIndexer'
+--
+-- The helper just remove a bit of the boilerplate needed to transform data
+-- to query the database.
+--
+-- It doesn't contain any logic, except a check for 'AheadOfLastSync' error,
+-- in which case it throws the 'AheadOfLastSync' without any result attached.
+--
+-- It doesn't filter the result based on the given data point.
+querySyncedOnlySQLiteIndexerWith
+    :: MonadIO m
+    => MonadError (QueryError query) m
+    => Ord (Point event)
+    => SQL.FromRow r
+    => (Point event -> query -> [SQL.NamedParam])
+    -> SQL.Query
+    -- ^ The sqlite query statement
+    -- ^ A preprocessing of the query, to obtain SQL parameters
+    -> (query -> [r] -> Result query)
+    -- ^ Post processing of the result, to obtain the final result
+    -> Point event -> query -> SQLiteIndexer event -> m (Result query)
+querySyncedOnlySQLiteIndexerWith toNamedParam sqlQuery fromRows p q indexer
+    = do
+        let c = indexer ^. handle
+        when (p < indexer ^. dbLastSync)
+            $ throwError (AheadOfLastSync Nothing)
         res <- liftIO $ SQL.queryNamed c sqlQuery (toNamedParam p q)
         pure $ fromRows q res
 
@@ -835,11 +872,22 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
 instance MonadError (QueryError (EventsMatchingQuery event)) m =>
     ResumableResult m event (EventsMatchingQuery event) ListIndexer where
 
-    resumeResult p q indexer result = result `catchError` \case
-         -- If we find an incomplete result in the first indexer, complete it
-        AheadOfLastSync (Just r) -> (<> r) <$> query p q indexer
-        inDatabaseError          -> throwError inDatabaseError -- For any other error, forward it
+    resumeResult p q indexer result = let
+        extractDbResult = result `catchError` \case
+             -- If we find an incomplete result in the first indexer, complete it
+            AheadOfLastSync (Just r) -> pure r
+             -- For any other error, forward it
+            inDatabaseError          -> throwError inDatabaseError
 
+        extractMemoryResult = query p q indexer `catchError` \case
+             -- If we find an incomplete result in the first indexer, complete it
+            NotStoredAnymore -> pure $ EventsMatching []
+             -- For any other error, forward it
+            inMemoryError    -> throwError inMemoryError
+        in do
+            dbResult <- extractDbResult
+            memoryResult <- extractMemoryResult
+            pure $ dbResult <> memoryResult
 
 
 -- | Wrap an indexer with some extra information to modify its behaviour
@@ -1304,7 +1352,7 @@ flush ::
     , IsIndex m event store
     , Flushable m mem
     , Traversable (Container mem)
-    , Eq (Point event)
+    , Ord (Point event)
     ) => MixedIndexer store mem event ->
     m (MixedIndexer store mem event)
 flush indexer = do
@@ -1314,6 +1362,7 @@ flush indexer = do
 
 instance
     ( Monad m
+    , Ord (Point event)
     , Flushable m mem
     , Traversable (Container mem)
     , IsIndex m event mem
@@ -1322,11 +1371,13 @@ instance
 
     index timedEvent indexer = let
 
-        isFull = (>= indexer ^. capacity) <$> indexer ^. inMemory . to currentLength
+        isFull = (indexer ^. capacity <) <$> indexer ^. inMemory . to currentLength
+
+        flushIfFull full = if full then flush else pure
 
         in do
         full <- isFull
-        indexer' <- (if full then flush else pure) indexer
+        indexer' <- flushIfFull full indexer
         indexVia inMemory timedEvent indexer'
 
 instance IsSync event m mem => IsSync event m (MixedIndexer store mem) where
