@@ -315,6 +315,9 @@ class Monad m => IsIndex m event indexer where
     {-# MINIMAL index #-}
 
 -- | Like @index@, but internalise @IndexError@ in the result.
+--
+-- It's useful when you don't want to internalise the error in the monad stack to handle it explicitly,
+-- it's often use when we target IO as we don't want to mess with @IOException@.
 index'
     ::
     ( IsIndex (ExceptT IndexError m) event indexer
