@@ -144,6 +144,15 @@ genItem f = do
         Rollback n   -> slotNo .= n
     pure item
 
+genChain
+    :: Arbitrary event
+    => Word -- ^ Rollback percentage
+    -> Int -- ^ Size
+    -> Gen [Item event]
+genChain percent size
+    = evalStateT (replicateM size (genItem percent)) (GenState Core.genesis)
+
+
 -- | Chain events with 10% of rollback
 newtype DefaultChain event = DefaultChain {_defaultChain :: [Item event]}
 
@@ -151,8 +160,7 @@ makeLenses 'DefaultChain
 
 instance Arbitrary event => Arbitrary (DefaultChain event) where
 
-    arbitrary = Test.sized $ \n -> do
-        DefaultChain <$> evalStateT (replicateM n (genItem 10)) (GenState Core.genesis)
+    arbitrary = Test.sized $ fmap DefaultChain . genChain 10
 
 -- | Chain events without any rollback
 newtype ForwardChain event = ForwardChain {_forwardChain :: [Item event]}
@@ -161,8 +169,7 @@ makeLenses 'ForwardChain
 
 instance Arbitrary event => Arbitrary (ForwardChain event) where
 
-    arbitrary = Test.sized $ \n -> do
-        ForwardChain <$> evalStateT (replicateM n (genItem 0)) (GenState Core.genesis)
+    arbitrary = Test.sized $ fmap ForwardChain . genChain 0
 
 -- ** Event instances
 
