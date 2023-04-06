@@ -63,7 +63,7 @@ module Marconi.Core.Experiment
     -- * Core types and typeclasses
     -- ** Core types
       Point
-    , Result (..)
+    , Result
     , Container
     , TimedEvent (TimedEvent)
         , point
@@ -209,7 +209,7 @@ type family Point event
 --       one to ge all the utxo for a given address,
 --       another one for to get all the utxos emitted at a given slot).
 --     * we want to assign a query type to different indexers.
-data family Result query
+type family Result query
 
 
 -- | Attach an event to a point in time
@@ -845,8 +845,7 @@ data EventAtQuery event = EventAtQuery
 -- | The result of EventAtQuery is always an event.
 -- The error cases are handled by the query interface.
 -- in time
-newtype instance Result (EventAtQuery event) =
-    EventAtResult {getEvent :: event}
+type instance Result (EventAtQuery event) = event
 
 instance MonadError (QueryError (EventAtQuery event)) m =>
     Queryable m event (EventAtQuery event) ListIndexer where
@@ -858,7 +857,7 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
         then maybe
              -- If we can't find the point and if it's in the past, we probably pruned it
             (throwError NotStoredAnymore)
-            (pure . EventAtResult)
+            pure
             $ ix ^? events . folded . filtered (`isAtPoint` p) . event
         else throwError $ AheadOfLastSync Nothing
 
@@ -879,18 +878,14 @@ allEvents :: EventsMatchingQuery event
 allEvents = EventsMatchingQuery (const True)
 
 -- | The result of an @EventMatchingQuery@
-newtype instance Result (EventsMatchingQuery event) = EventsMatching {filteredEvents :: [TimedEvent event]}
-
-deriving newtype instance Semigroup (Result (EventsMatchingQuery event))
-deriving newtype instance Show (TimedEvent event) => Show (Result (EventsMatchingQuery event))
-
+type instance Result (EventsMatchingQuery event) = [TimedEvent event]
 
 instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
     Queryable m event (EventsMatchingQuery event) ListIndexer where
 
     query p q ix = do
         let isBefore p' e = p' >= e ^. point
-        let result = EventsMatching $ ix ^.. events
+        let result = ix ^.. events
                          . folded . filtered (isBefore p)
                          . filtered (predicate q . view event)
         check <- not <$> isAheadOfSync p ix
@@ -910,7 +905,7 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
 
         extractMemoryResult = query p q indexer `catchError` \case
              -- If we find an incomplete result in the first indexer, complete it
-            NotStoredAnymore -> pure $ EventsMatching []
+            NotStoredAnymore -> pure []
              -- For any other error, forward it
             inMemoryError    -> throwError inMemoryError
         in do

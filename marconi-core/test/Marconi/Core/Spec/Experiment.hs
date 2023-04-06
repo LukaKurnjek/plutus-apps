@@ -81,6 +81,7 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 
+import Data.Either (fromRight)
 import Data.Maybe (listToMaybe)
 
 import Database.SQLite.Simple qualified as SQL
@@ -294,7 +295,7 @@ storageBasedModelProperty gen runner
         indexerEvents indexer = do
             p <- Core.lastSyncPoint indexer
             fmap (view Core.event)
-                . either (const []) Core.filteredEvents
+                . fromRight []
                 <$> Core.query' p Core.allEvents indexer
 
     in behaveLikeModel
@@ -368,8 +369,7 @@ instance
     query = let
 
         rowToResult (Core.EventsMatchingQuery predicate)
-            = Core.EventsMatching
-            . fmap (uncurry Core.TimedEvent)
+            = fmap (uncurry Core.TimedEvent)
             . filter (predicate . snd)
 
         in Core.querySQLiteIndexerWith
