@@ -171,11 +171,11 @@ module Marconi.Core.Experiment
     , singleInsertSQLiteIndexer
 
     -- * Running indexers
-    -- ** Runners
-    , RunnerM (..)
-    , Runner
-    , createRunner
-    , startRunner
+    -- ** Workers
+    , WorkerM (..)
+    , Worker
+    , createWorker
+    , startWorker
     , ProcessedInput (..)
     -- ** Coordinator
     , Coordinator
@@ -183,7 +183,7 @@ module Marconi.Core.Experiment
         , runners
         , tokens
         , channel
-        , nbRunners
+        , nbWorkers
     , start
     , step
 
@@ -758,12 +758,12 @@ mapIndex
 mapIndex _ (Rollback p)       = pure $ Rollback p
 mapIndex f (Index timedEvent) = Index . TimedEvent (timedEvent ^. point) <$> f (timedEvent ^. event)
 
--- * Runners
+-- * Workers
 
 -- | A runner encapsulate an indexer in an opaque type.
 -- It allows us to manipulate seamlessly a list of indexers that has different types
 -- as long as they implement the required interfaces.
-data RunnerM m input point =
+data WorkerM m input point =
     forall indexer event n.
     ( IsIndex n event indexer
     , IsSync n event indexer
@@ -771,7 +771,7 @@ data RunnerM m input point =
     , Rewindable n event indexer
     , Point event ~ point
     ) =>
-    Runner
+    Worker
         { runnerState    :: MVar (indexer event)
 
         , transformInput :: input -> m event
@@ -779,10 +779,10 @@ data RunnerM m input point =
         , hoistError     :: forall a. n a -> ExceptT IndexError m a
         }
 
-type Runner = RunnerM IO
+type Worker = WorkerM IO
 
 -- | create a runner for an indexer, retuning the runner and the @MVar@ it's using internally
-createRunner ::
+createWorker ::
     ( MonadIO m
     , IsIndex n event indexer
     , IsSync n event indexer
@@ -792,20 +792,20 @@ createRunner ::
     (input -> m event) ->
     (forall a. n a -> ExceptT IndexError m a) ->
     indexer event ->
-    m (MVar (indexer event), RunnerM m input point)
-createRunner getEvent hoist ix = do
+    m (MVar (indexer event), WorkerM m input point)
+createWorker getEvent hoist ix = do
     mvar <- liftIO $ Con.newMVar ix
-    pure (mvar, Runner mvar getEvent hoist)
+    pure (mvar, Worker mvar getEvent hoist)
 
 -- | The runner notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
-startRunner
+startWorker
     :: Ord (Point input)
     => TChan (ProcessedInput input)
     -> QSemN
-    -> Runner input (Point input) ->
+    -> Worker input (Point input) ->
     IO ()
-startRunner chan tokens (Runner ix transformInput hoistError) = let
+startWorker chan tokens (Worker ix transformInput hoistError) = let
 
     unlockCoordinator :: IO ()
     unlockCoordinator = Con.signalQSemN tokens 1
@@ -841,10 +841,10 @@ startRunner chan tokens (Runner ix transformInput hoistError) = let
 -- and with concrete indexers at the leaves.
 data Coordinator input = Coordinator
   { _lastSync  :: Point input -- ^ the last common sync point for the runners
-  , _runners   :: [Runner input (Point input)] -- ^ the list of runners managed by this coordinator
+  , _runners   :: [Worker input (Point input)] -- ^ the list of runners managed by this coordinator
   , _tokens    :: QSemN -- ^ use to synchronise the runner
   , _channel   :: TChan (ProcessedInput input) -- ^ to dispatch input to runners
-  , _nbRunners :: Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
+  , _nbWorkers :: Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
   }
 
 
@@ -855,12 +855,12 @@ makeLenses 'Coordinator
 --
 -- Important note : the syncpoints are sensible to rewind. It means that the result of this function may be invalid if
 -- the indexer is rewinded.
-runnerSyncPoints :: (HasGenesis point, Ord point) => [Runner input point] -> IO [point]
+runnerSyncPoints :: (HasGenesis point, Ord point) => [Worker input point] -> IO [point]
 runnerSyncPoints [] = pure []
 runnerSyncPoints (r:rs) = let
 
-    getSyncPoints :: Ord point => Runner input point -> IO [point]
-    getSyncPoints (Runner ix _ hoistError) =
+    getSyncPoints :: Ord point => Worker input point -> IO [point]
+    getSyncPoints (Worker ix _ hoistError) =
         fmap (fromRight []) $ runExceptT $ do
             indexer <- lift $ Con.readMVar ix
             hoistError $ syncPoints indexer
@@ -873,16 +873,16 @@ runnerSyncPoints (r:rs) = let
 start
     :: HasGenesis (Point input)
     => Ord (Point input)
-    => [Runner input (Point input)] -> IO (Coordinator input)
+    => [Worker input (Point input)] -> IO (Coordinator input)
 start runners' = let
 
-    startRunners channel' tokens' = traverse_ (startRunner channel' tokens') runners'
+    startWorkers channel' tokens' = traverse_ (startWorker channel' tokens') runners'
 
     in do
         let nb = length runners'
         tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the runners will start
         channel' <- STM.newBroadcastTChanIO
-        startRunners channel' tokens'
+        startWorkers channel' tokens'
         pure $ Coordinator genesis runners' tokens' channel' nb
 
 -- | A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
@@ -893,8 +893,8 @@ step coordinator input = case input of
     Index e    -> index e coordinator
     Rollback p -> fromMaybe coordinator <$> rewind p coordinator -- TODO: handle failure
 
-waitRunners :: Coordinator input -> IO ()
-waitRunners coordinator = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
+waitWorkers :: Coordinator input -> IO ()
+waitWorkers coordinator = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbWorkers)
 
 dispatchNewInput :: Coordinator input -> ProcessedInput input -> IO ()
 dispatchNewInput coordinator = STM.atomically . STM.writeTChan (coordinator ^. channel)
@@ -908,7 +908,7 @@ instance MonadIO m => IsIndex m event Coordinator where
 
         in liftIO $ do
             dispatchNewInput coordinator $ Index timedEvent
-            waitRunners coordinator $> setLastSync coordinator timedEvent
+            waitWorkers coordinator $> setLastSync coordinator timedEvent
 
 instance MonadIO m => IsSync m event Coordinator where
     lastSyncPoint indexer = pure $ indexer ^. lastSync
@@ -920,18 +920,18 @@ instance (HasGenesis (Point event), MonadIO m) => Rewindable m event Coordinator
 
         setLastSync c = c & lastSync .~ p
 
-        rewindRunners ::
+        rewindWorkers ::
             Coordinator event ->
             MaybeT IO (Coordinator event)
-        rewindRunners c = do
+        rewindWorkers c = do
             availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
             -- we start by checking if the given point is a valid sync point
             guard $ p `elem` availableSyncs
             liftIO $ do
                 dispatchNewInput c $ Rollback p
-                waitRunners c $> setLastSync c
+                waitWorkers c $> setLastSync c
 
-        in  liftIO . runMaybeT . rewindRunners
+        in  liftIO . runMaybeT . rewindWorkers
 
 -- There is no point in providing a 'Queryable' interface for 'CoordinatorIndex' though,
 -- as it's sole interest would be to get the latest synchronisation points,

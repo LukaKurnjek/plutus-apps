@@ -513,5 +513,5 @@ coordinatorIndexerRunner wRunner
         (wRunner ^. indexerRunner)
         $ do
             wrapped <- wRunner ^. indexerGenerator
-            (t, run) <- Core.createRunner pure id wrapped
+            (t, run) <- Core.createWorker pure id wrapped
             UnderCoordinator . Core.IndexWrapper (IndexerMVar t) <$> Core.start [run]
