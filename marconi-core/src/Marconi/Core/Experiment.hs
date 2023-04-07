@@ -131,6 +131,8 @@ module Marconi.Core.Experiment
     , IsIndex (..)
     , index'
     , indexAll'
+    , indexIO
+    , indexAllIO
     , HasGenesis (..)
     , IsSync (..)
     , isAheadOfSync
@@ -214,7 +216,7 @@ module Marconi.Core.Experiment
         , currentDepth
     -- ** Index wrapper
     -- *** Derive via machinery
-    , IndexWrapper
+    , IndexWrapper (IndexWrapper)
         , wrappedIndexer
         , wrapperConfig
     , pruneVia
@@ -233,15 +235,16 @@ import Control.Concurrent.STM qualified as STM (atomically, dupTChan, newBroadca
 import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
-import Control.Concurrent (QSemN)
+import Control.Concurrent (QSemN, forkIO)
 import Control.Lens (Getter, Lens', filtered, folded, makeLenses, maximumOf, set, to, view, (%~), (&), (+~), (-~), (.~),
                      (<<.~), (^.), (^..), (^?))
-import Control.Monad (forever, guard, when)
+import Control.Monad (forever, guard, void, when, (<=<))
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
 
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM (TChan, TMVar)
+import Control.Exception (Exception, throwIO)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Trans (MonadTrans)
 import Control.Monad.Trans.Class (lift)
@@ -289,6 +292,8 @@ data IndexError
      -- ^ An indexer with limited capacity is full and is unable to index an event
    | OtherIndexError !Text
      -- ^ Any other cause of failure
+
+instance Exception IndexError where
 
 deriving stock instance Show IndexError
 
@@ -341,6 +346,29 @@ indexAll'
     -> indexer event
     -> m (Either IndexError (indexer event))
 indexAll' evt = runExceptT . indexAll evt
+
+-- Highly partial version of 'index' that throws exception using @Control.Exception@.
+indexIO
+    ::
+    ( IsIndex (ExceptT IndexError IO) event indexer
+    , Eq (Point event)
+    )
+    => TimedEvent event
+    -> indexer event
+    -> IO (indexer event)
+indexIO evt = either throwIO pure <=< index' evt
+
+-- Highly partial version of 'indexAll' that throws exception using @Control.Exception@.
+indexAllIO
+    ::
+    ( IsIndex (ExceptT IndexError IO) event indexer
+    , Traversable f
+    , Ord (Point event)
+    )
+    => f (TimedEvent event)
+    -> indexer event
+    -> IO (indexer event)
+indexAllIO evt = either throwIO pure <=< indexAll' evt
 
 class HasGenesis t where
 
@@ -479,7 +507,7 @@ instance Applicative m => Flushable m ListIndexer where
     flushMemory _ ix = pure $ ix & events <<.~ []
 
 instance
-    (MonadError IndexError m, Monad m) =>
+    Monad m =>
     IsIndex m event ListIndexer where
 
     index timedEvent ix = let
@@ -521,7 +549,7 @@ instance Applicative m => Rewindable m event ListIndexer where
                 & cleanEventsAfterRollback
                 & adjustLatestPoint
 
-instance Applicative m => Resumable m event ListIndexer where
+instance (HasGenesis (Point event), Applicative m) => Resumable m event ListIndexer where
 
     syncPoints ix = let
 
@@ -530,7 +558,7 @@ instance Applicative m => Resumable m event ListIndexer where
       addLatestIfNeeded p []        = [p]
       addLatestIfNeeded p ps@(p':_) = if p == p' then ps else p:ps
 
-      in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
+      in pure $ genesis : addLatestIfNeeded (ix ^. latest) indexPoints
 
 
 -- | When we want to store an event in a database, it may happen that you want to store it in many tables,
@@ -755,10 +783,10 @@ createRunner ::
     , Resumable IO event indexer
     , Rewindable IO event indexer
     , point ~ Point event) =>
-    indexer event ->
     (input -> IO event) ->
+    indexer event ->
     IO (TMVar (indexer event), Runner input point)
-createRunner ix f = do
+createRunner f ix = do
   mvar <- STM.atomically $ STM.newTMVar ix
   pure (mvar, Runner mvar f)
 
@@ -771,7 +799,7 @@ startRunner chan tokens (Runner ix transformInput) = let
     unlockCoordinator = Con.signalQSemN tokens 1
 
     fresherThan :: Ord (Point event) => TimedEvent event -> Point event -> Bool
-    fresherThan evt p = (< evt ^. point) p
+    fresherThan evt p = evt ^. point > p
 
     indexEvent timedEvent = do
         indexer <- STM.atomically $ STM.takeTMVar ix
@@ -786,19 +814,21 @@ startRunner chan tokens (Runner ix transformInput) = let
         indexer <- STM.atomically $ STM.takeTMVar ix
         mindexer <- rewind p indexer
         maybe
-            (STM.atomically $ STM.putTMVar ix indexer)
+            (STM.atomically $ STM.putTMVar ix indexer) -- TODO add error handling
             (STM.atomically . STM.putTMVar ix)
             mindexer
 
     in do
         chan' <- STM.atomically $ STM.dupTChan chan
-        input <- STM.atomically $ STM.readTChan chan'
-        forever $ do
-            unlockCoordinator
+        void $ forkIO $ forever $ do
+            input <- STM.atomically $ STM.readTChan chan'
             processedEvent <- mapIndex transformInput input
             case processedEvent of
-                Rollback p -> handleRollback p
-                Index e    -> indexEvent e
+                Rollback p -> do
+                    handleRollback p
+                Index e    -> do
+                    indexEvent e
+            unlockCoordinator
 
 -- | A coordinator synchronises the event processing of a list of indexers.
 -- A coordinator is itself is an indexer.
@@ -853,31 +883,34 @@ start runners' = let
 step :: (Ord (Point input)) => Coordinator input -> ProcessedInput input -> IO (Coordinator input)
 step coordinator input = case input of
     Index e    -> index e coordinator
-    Rollback p -> fromMaybe coordinator <$> rewind p coordinator
+    Rollback p -> fromMaybe coordinator <$> rewind p coordinator -- TODO: handle failure
+
+waitRunners :: Coordinator input -> IO ()
+waitRunners coordinator = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
+
+dispatchNewInput :: Coordinator input -> ProcessedInput input -> IO ()
+dispatchNewInput coordinator = STM.atomically . STM.writeTChan (coordinator ^. channel)
 
 -- A coordinator can be consider as an indexer that forwards the input to its runner
-instance IsIndex IO event Coordinator where
+instance MonadIO m => IsIndex m event Coordinator where
 
     index timedEvent coordinator = let
 
-        dispatchNewInput = STM.atomically . STM.writeTChan (coordinator ^. channel)
-
-        waitRunners :: IO ()
-        waitRunners = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbRunners)
-
         setLastSync c e = c & lastSync .~ (e ^. point)
 
-        in do
-            dispatchNewInput $ Index timedEvent
-            waitRunners $> setLastSync coordinator timedEvent
+        in liftIO $ do
+            dispatchNewInput coordinator $ Index timedEvent
+            waitRunners coordinator $> setLastSync coordinator timedEvent
 
-instance IsSync IO event Coordinator where
+instance MonadIO m => IsSync m event Coordinator where
     lastSyncPoint indexer = pure $ indexer ^. lastSync
 
 -- | To rewind a coordinator, we try and rewind all the runners.
-instance Rewindable IO event Coordinator where
+instance MonadIO m => Rewindable m event Coordinator where
 
     rewind p = let
+
+        setLastSync c = c & lastSync .~ p
 
         rewindRunners ::
             Coordinator event ->
@@ -886,22 +919,11 @@ instance Rewindable IO event Coordinator where
             availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
             -- we start by checking if the given point is a valid sync point
             guard $ p `elem` availableSyncs
-            runners (traverse $ MaybeT . rewindRunner) $ c & lastSync .~ p
+            liftIO $ do
+                dispatchNewInput c $ Rollback p
+                waitRunners c $> setLastSync c
 
-        rewindRunner ::
-            Runner event (Point event) ->
-            IO (Maybe (Runner event (Point event)))
-        rewindRunner r@Runner{runnerState} = do
-            indexer <- STM.atomically $ STM.takeTMVar runnerState
-            res <- rewind p indexer
-            maybe
-                -- the Nothing case should not happen
-                -- as we check that the sync point is a valid one
-                (STM.atomically (STM.putTMVar runnerState indexer) $> Nothing)
-                ((Just r <$) . STM.atomically . STM.putTMVar runnerState)
-                res
-
-        in  runMaybeT . rewindRunners
+        in  liftIO . runMaybeT . rewindRunners
 
 -- There is no point in providing a 'Queryable' interface for 'CoordinatorIndex' though,
 -- as it's sole interest would be to get the latest synchronisation points,
@@ -992,7 +1014,7 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
 -- The wrapeer comes with some instances that relay the function to the wrapped indexer,
 -- without any extra behaviour.
 --
--- A real wrapper can be a new type of 'IndexWrapper', reuse some of its instances with @deriving via@,
+-- A wrapper can be a newtype of 'IndexWrapper', reuse some of its instances with @deriving via@,
 -- and specify its own instances when it wants to add logic in it.
 data IndexWrapper config indexer event
     = IndexWrapper

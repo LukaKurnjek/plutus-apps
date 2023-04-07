@@ -1,7 +1,9 @@
+{-# LANGUAGE DerivingVia     #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE QuasiQuotes     #-}
 {-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {- | A model base test for indexers.
  -
  - The idea is that we have a naive modelof indexer ('Model') that stores information in a list
@@ -55,13 +57,15 @@ module Marconi.Core.Spec.Experiment
     , mixedLowMemoryIndexerRunner
     , mixedHighMemoryIndexerRunner
     , withTracerRunner
+    , coordinatorIndexerRunner
     -- ** Instances internal
     , initSQLite
     , sqliteModelIndexer
     ) where
 
-import Control.Lens (makeLenses, use, view, views, (%~), (.=), (^.))
+import Control.Lens (makeLenses, to, use, view, views, (%~), (.=), (^.))
 
+import Control.Concurrent.STM (TMVar)
 import Control.Monad (foldM, replicateM)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Trans.Class (lift)
@@ -81,7 +85,7 @@ import Test.QuickCheck.Monadic qualified as GenM
 import Test.Tasty qualified as Tasty
 import Test.Tasty.QuickCheck qualified as Tasty
 
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 
@@ -92,6 +96,8 @@ import Database.SQLite.Simple qualified as SQL
 import Database.SQLite.Simple.FromField (FromField)
 import Database.SQLite.Simple.ToField (ToField)
 
+import Control.Concurrent.STM qualified as STM
+import Marconi.Core.Experiment (wrappedIndexer)
 import Marconi.Core.Experiment qualified as Core
 
 newtype TestPoint = TestPoint { unwrapTestPoint :: Int }
@@ -218,7 +224,7 @@ compareToModelWith
     :: Monad m
     => Show event
     => Core.Point event ~ TestPoint
-    => Core.IsIndex (ExceptT Core.IndexError m) event indexer
+    => Core.IsIndex m event indexer
     => Core.Rewindable m event indexer
     => Gen [Item event]
     -> IndexerTestRunner m event indexer
@@ -228,9 +234,8 @@ compareToModelWith
     -> Property
 compareToModelWith genChain' runner modelComputation indexerComputation prop
     = let
-        rightToMaybe = either (const Nothing) Just
         process = \case
-            Insert ix evt -> MaybeT . fmap rightToMaybe . Core.index' (Core.TimedEvent ix evt)
+            Insert ix evt -> lift . Core.index (Core.TimedEvent ix evt)
             Rollback n    -> MaybeT . Core.rewind n
         r = runner ^. indexerRunner
         genIndexer = runner ^. indexerGenerator
@@ -250,9 +255,8 @@ behaveLikeModel
     :: Eq a
     => Show a
     => Show event
-    => Monad m
     => Core.Point event ~ TestPoint
-    => Core.IsIndex (ExceptT Core.IndexError m) event indexer
+    => Core.IsIndex m event indexer
     => Core.Rewindable m event indexer
     => Gen [Item event]
     -> IndexerTestRunner m event indexer
@@ -265,13 +269,12 @@ behaveLikeModel genChain' runner modelComputation indexerComputation
 -- | A test tree for the core functionalities of an indexer
 indexingTestGroup
     :: ( Core.Rewindable m TestEvent indexer
-    , Core.IsIndex (ExceptT Core.IndexError m) TestEvent indexer
+    , Core.IsIndex m TestEvent indexer
     , Core.IsSync m TestEvent indexer
     , Core.Queryable
         (ExceptT (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m)
         TestEvent
         (Core.EventsMatchingQuery TestEvent) indexer
-    , Monad m
     ) => String -> IndexerTestRunner m TestEvent indexer -> Tasty.TestTree
 indexingTestGroup indexerName runner
     = Tasty.testGroup (indexerName <> " core properties")
@@ -283,7 +286,7 @@ indexingTestGroup indexerName runner
                 $ Test.withMaxSuccess 10000
                 $ storageBasedModelProperty (view defaultChain <$> Test.arbitrary) runner
             ]
-        , Tasty.testGroup "lastSync points to the las point"
+        , Tasty.testGroup "lastSync"
             [ Tasty.testProperty "in a chain without rollback"
                 $ Test.withMaxSuccess 5000
                 $ lastSyncBasedModelProperty (view forwardChain <$> Test.arbitrary) runner
@@ -296,13 +299,12 @@ indexingTestGroup indexerName runner
 -- | A test tree for the core functionalities of an indexer
 indexingPerformanceTest
     :: ( Core.Rewindable m TestEvent indexer
-    , Core.IsIndex (ExceptT Core.IndexError m) TestEvent indexer
+    , Core.IsIndex m TestEvent indexer
     , Core.IsSync m TestEvent indexer
     , Core.Queryable
         (ExceptT (Core.QueryError (Core.EventsMatchingQuery TestEvent)) m)
         TestEvent
         (Core.EventsMatchingQuery TestEvent) indexer
-    , Monad m
     ) => String -> IndexerTestRunner m TestEvent indexer -> Tasty.TestTree
 indexingPerformanceTest indexerName runner
     = Tasty.testProperty (indexerName <> " performance check")
@@ -312,10 +314,9 @@ indexingPerformanceTest indexerName runner
 storageBasedModelProperty
     ::
     ( Core.Rewindable m event indexer
-    , Core.IsIndex (ExceptT Core.IndexError m) event indexer
+    , Core.IsIndex m event indexer
     , Core.IsSync m event indexer
     , Core.Point event ~ TestPoint
-    , Monad m
     , Show event
     , Eq event
     , Core.Queryable (ExceptT (Core.QueryError (Core.EventsMatchingQuery event)) m) event (Core.EventsMatchingQuery event) indexer
@@ -341,10 +342,9 @@ storageBasedModelProperty gen runner
 lastSyncBasedModelProperty
     ::
     ( Core.Rewindable m event indexer
-    , Core.IsIndex (ExceptT Core.IndexError m) event indexer
+    , Core.IsIndex m event indexer
     , Core.IsSync m event indexer
     , Core.Point event ~ TestPoint
-    , Monad m
     , Show event
     )
     => Gen [Item event]
@@ -464,6 +464,54 @@ withTracerRunner
     => IndexerTestRunner m event wrapped
     -> IndexerTestRunner m event (Core.WithTracer m wrapped)
 withTracerRunner wRunner
-    = IndexerTestRunner (wRunner ^. indexerRunner) (Core.withTracer Tracer.nullTracer <$> wRunner ^. indexerGenerator)
+    = IndexerTestRunner
+        (wRunner ^. indexerRunner)
+        (Core.withTracer Tracer.nullTracer <$> wRunner ^. indexerGenerator)
 
---
+newtype IndexerTMVar indexer event = IndexerTMVar {getTMVar :: TMVar (indexer event)}
+
+-- | Provide a coordinator and a way to inspect the coordinated
+newtype UnderCoordinator indexer event
+    = UnderCoordinator
+        { _underCoordinator :: Core.IndexWrapper (IndexerTMVar indexer) Core.Coordinator event }
+
+makeLenses ''UnderCoordinator
+
+deriving via (Core.IndexWrapper (IndexerTMVar indexer) Core.Coordinator)
+    instance Core.IsIndex IO event (UnderCoordinator indexer)
+
+deriving via (Core.IndexWrapper (IndexerTMVar indexer) Core.Coordinator)
+    instance Core.IsSync IO event (UnderCoordinator indexer)
+
+instance Core.Rewindable IO event (UnderCoordinator indexer) where
+    rewind = Core.rewindVia $ underCoordinator . wrappedIndexer
+
+instance (MonadIO m, Core.Queryable m event (Core.EventsMatchingQuery event) indexer) =>
+    Core.Queryable m event (Core.EventsMatchingQuery event) (UnderCoordinator indexer) where
+
+    query p q ix = do
+        let tmvar = ix ^. underCoordinator . Core.wrapperConfig . to getTMVar
+        indexer <- liftIO $ STM.atomically $ STM.takeTMVar tmvar
+        res <- Core.query p q indexer
+        liftIO $ STM.atomically $ STM.putTMVar tmvar indexer
+        pure res
+
+
+
+coordinatorIndexerRunner
+    ::
+    ( Core.IsIndex IO event wrapped
+    , Core.IsSync IO event wrapped
+    , Core.Resumable IO event wrapped
+    , Core.Rewindable IO event wrapped
+    , Core.HasGenesis (Core.Point event)
+    , Ord (Core.Point event)
+    ) => IndexerTestRunner IO event wrapped
+    -> IndexerTestRunner IO event (UnderCoordinator wrapped)
+coordinatorIndexerRunner wRunner
+    = IndexerTestRunner
+        (wRunner ^. indexerRunner)
+        $ do
+            wrapped <- wRunner ^. indexerGenerator
+            (t, run) <- Core.createRunner pure wrapped
+            UnderCoordinator . Core.IndexWrapper (IndexerTMVar t) <$> Core.start [run]

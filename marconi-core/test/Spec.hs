@@ -27,6 +27,7 @@ experimentTests = testGroup "Experiment"
         , E.indexingTestGroup "MixedIndexer - low memory" E.mixedLowMemoryIndexerRunner
         , E.indexingTestGroup "MixedIndexer - high memory" E.mixedHighMemoryIndexerRunner
         , E.indexingTestGroup "WithTracer" $ E.withTracerRunner E.listIndexerRunner
+        , E.indexingTestGroup "Coordinator" $ E.coordinatorIndexerRunner E.listIndexerRunner
         ]
     , testGroup "Performance"
         [ E.indexingPerformanceTest "ListIndexer" E.listIndexerRunner
