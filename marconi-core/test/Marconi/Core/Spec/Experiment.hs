@@ -500,10 +500,10 @@ instance (MonadIO m, Core.Queryable m event (Core.EventsMatchingQuery event) ind
 
 coordinatorIndexerRunner
     ::
-    ( Core.IsIndex IO event wrapped
-    , Core.IsSync IO event wrapped
-    , Core.Resumable IO event wrapped
-    , Core.Rewindable IO event wrapped
+    ( Core.IsIndex (ExceptT Core.IndexError IO) event wrapped
+    , Core.IsSync (ExceptT Core.IndexError IO) event wrapped
+    , Core.Resumable (ExceptT Core.IndexError IO) event wrapped
+    , Core.Rewindable (ExceptT Core.IndexError IO) event wrapped
     , Core.HasGenesis (Core.Point event)
     , Ord (Core.Point event)
     ) => IndexerTestRunner IO event wrapped
@@ -513,5 +513,5 @@ coordinatorIndexerRunner wRunner
         (wRunner ^. indexerRunner)
         $ do
             wrapped <- wRunner ^. indexerGenerator
-            (t, run) <- Core.createRunner pure wrapped
+            (t, run) <- Core.createRunner pure id wrapped
             UnderCoordinator . Core.IndexWrapper (IndexerMVar t) <$> Core.start [run]

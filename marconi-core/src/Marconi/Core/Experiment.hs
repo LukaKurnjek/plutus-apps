@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingVia          #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE RankNTypes           #-}
+{-# LANGUAGE StrictData           #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-} -- for DerivingVia
 {- |
@@ -249,6 +250,7 @@ import Control.Monad.Trans (MonadTrans)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Bifunctor (first)
+import Data.Either (fromRight)
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
@@ -277,8 +279,8 @@ type family Result query
 -- | Attach an event to a point in time
 data TimedEvent event =
      TimedEvent
-         { _point :: !(Point event)
-         , _event :: !event
+         { _point :: Point event
+         , _event :: event
          }
 
 deriving stock instance (Show event, Show (Point event)) => Show (TimedEvent event)
@@ -289,7 +291,7 @@ makeLenses 'TimedEvent
 data IndexError
    = NoSpaceLeft
      -- ^ An indexer with limited capacity is full and is unable to index an event
-   | OtherIndexError !Text
+   | OtherIndexError Text
      -- ^ Any other cause of failure
 
 instance Exception IndexError where
@@ -390,7 +392,7 @@ isAheadOfSync p indexer = (p >) <$> lastSyncPoint indexer
 
 -- | Error that can occurs when you query an indexer
 data QueryError query
-   = AheadOfLastSync !(Maybe (Result query))
+   = AheadOfLastSync (Maybe (Result query))
      -- ^ The required point is ahead of the current index.
      -- The error may still provide its latest result if it make sense for the given query.
      --
@@ -398,7 +400,7 @@ data QueryError query
      -- this knowledge to another indexer to complete the query.
    | NotStoredAnymore
      -- ^ The requested point is too far in the past and has been pruned
-   | IndexerQueryError !Text
+   | IndexerQueryError Text
      -- ^ The indexer query failed
 
 deriving stock instance (Show (Result query)) => Show (QueryError query)
@@ -488,8 +490,8 @@ class Flushable m indexer where
 -- The constructor is not exposed, use 'listIndexer' instead.
 data ListIndexer event =
     ListIndexer
-    { _events :: ![TimedEvent event] -- ^ Stored @event@s, associated with their history 'Point'
-    , _latest :: !(Point event) -- ^ Ease access to the latest sync point
+    { _events :: [TimedEvent event] -- ^ Stored @event@s, associated with their history 'Point'
+    , _latest :: Point event -- ^ Ease access to the latest sync point
     }
 
 deriving stock instance (Show event, Show (Point event)) => Show (ListIndexer event)
@@ -578,8 +580,8 @@ data IndexQuery
     = forall param.
     SQL.ToRow param =>
     IndexQuery
-        { insertQuery :: !SQL.Query
-        , params      :: ![param]
+        { insertQuery :: SQL.Query
+        , params      :: [param]
          -- ^ It's a list because me want to be able to deal with bulk insert,
          -- which is often required for performance reasons in Marconi.
         }
@@ -603,21 +605,21 @@ type family InsertRecord event
 -- | Provide the minimal elements required to use a SQLite database to back an indexer.
 data SQLiteIndexer event
     = SQLiteIndexer
-        { _handle        :: !SQL.Connection
+        { _handle        :: SQL.Connection
           -- ^ The connection used to interact with the database
-        , _prepareInsert :: !(TimedEvent event -> InsertRecord event)
+        , _prepareInsert :: TimedEvent event -> InsertRecord event
           -- ^ 'InsertRecord' is the typed representation of what has to be inserted in the database
           -- It should be a monoid, to allow insertion of 0 to n rows in a single transaction.
           --
           -- A list of something is fine if you plan to perform an single insert to store your evnt.
           -- If you need several inserts, a record where each field correspond to a list is probably
           -- a good choice.
-        , _buildInsert   :: !(InsertRecord event -> [IndexQuery])
+        , _buildInsert   :: InsertRecord event -> [IndexQuery]
           -- ^ Map the 'InsertRecord' representation to 'IndexQuery',
           -- to actually performed the insertion in the database.
           -- One can think at the insert record as a typed representation of the parameters of the queries,
           -- ^ The query to extract the latest sync point from the database.
-        , _dbLastSync    :: !(Point event)
+        , _dbLastSync    :: Point event
           -- ^ We keep the sync point in memory to avoid a request as Much as possible
         }
 
@@ -746,8 +748,8 @@ querySyncedOnlySQLiteIndexerWith toNamedParam sqlQuery fromRows p q indexer
 
 -- | The different types of input of a runner
 data ProcessedInput event
-   = Rollback !(Point event)
-   | Index !(TimedEvent event)
+   = Rollback (Point event)
+   | Index (TimedEvent event)
 
 mapIndex
     :: Applicative f
@@ -762,18 +764,19 @@ mapIndex f (Index timedEvent) = Index . TimedEvent (timedEvent ^. point) <$> f (
 -- It allows us to manipulate seamlessly a list of indexers that has different types
 -- as long as they implement the required interfaces.
 data RunnerM m input point =
-    forall indexer event.
-    ( IsIndex m event indexer
-    , IsSync m event indexer
-    , Resumable m event indexer
-    , Rewindable m event indexer
+    forall indexer event n.
+    ( IsIndex n event indexer
+    , IsSync n event indexer
+    , Resumable n event indexer
+    , Rewindable n event indexer
     , Point event ~ point
     ) =>
     Runner
-        { runnerState    :: !(MVar (indexer event))
+        { runnerState    :: MVar (indexer event)
 
-        , transformInput :: !(input -> m event)
+        , transformInput :: input -> m event
           -- ^ used by the runner to check whether an input is a rollback or an event
+        , hoistError     :: forall a. n a -> ExceptT IndexError m a
         }
 
 type Runner = RunnerM IO
@@ -781,27 +784,28 @@ type Runner = RunnerM IO
 -- | create a runner for an indexer, retuning the runner and the @MVar@ it's using internally
 createRunner ::
     ( MonadIO m
-    , IsIndex m event indexer
-    , IsSync m event indexer
-    , Resumable m event indexer
-    , Rewindable m event indexer
+    , IsIndex n event indexer
+    , IsSync n event indexer
+    , Resumable n event indexer
+    , Rewindable n event indexer
     , point ~ Point event) =>
     (input -> m event) ->
+    (forall a. n a -> ExceptT IndexError m a) ->
     indexer event ->
     m (MVar (indexer event), RunnerM m input point)
-createRunner f ix = do
+createRunner getEvent hoist ix = do
     mvar <- liftIO $ Con.newMVar ix
-    pure (mvar, Runner mvar f)
+    pure (mvar, Runner mvar getEvent hoist)
 
 -- | The runner notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
 startRunner
     :: Ord (Point input)
     => TChan (ProcessedInput input)
-    -> QSemN ->
-    Runner input (Point input) ->
+    -> QSemN
+    -> Runner input (Point input) ->
     IO ()
-startRunner chan tokens (Runner ix transformInput) = let
+startRunner chan tokens (Runner ix transformInput hoistError) = let
 
     unlockCoordinator :: IO ()
     unlockCoordinator = Con.signalQSemN tokens 1
@@ -809,15 +813,17 @@ startRunner chan tokens (Runner ix transformInput) = let
     fresherThan :: Ord (Point event) => TimedEvent event -> Point event -> Bool
     fresherThan evt p = evt ^. point > p
 
-    indexEvent timedEvent = Con.modifyMVar_ ix $ \indexer -> do
-        indexerLastPoint <- lastSyncPoint indexer
-        if timedEvent `fresherThan` indexerLastPoint
-           then index timedEvent indexer
-           else pure indexer
+    indexEvent timedEvent = Con.modifyMVar_ ix $ \indexer ->
+        fmap (fromRight indexer) $ runExceptT $ do
+            indexerLastPoint <- hoistError $ lastSyncPoint indexer
+            if timedEvent `fresherThan` indexerLastPoint
+               then hoistError $ index timedEvent indexer
+               else pure indexer
 
-    handleRollback p = Con.modifyMVar_ ix $ \indexer -> do
-        mindexer <- rewind p indexer
-        pure $ fromMaybe indexer mindexer -- TODO add error handling
+    handleRollback p = Con.modifyMVar_ ix $ \indexer ->
+        fmap (fromRight indexer) $ runExceptT $ do
+            mindexer <- hoistError $ rewind p indexer
+            pure $ fromMaybe indexer mindexer -- TODO add error handling
 
     in do
         chan' <- STM.atomically $ STM.dupTChan chan
@@ -834,11 +840,11 @@ startRunner chan tokens (Runner ix transformInput) = let
 -- It means that we can create a tree of indexer, with coordinators that partially process the data at each node,
 -- and with concrete indexers at the leaves.
 data Coordinator input = Coordinator
-  { _lastSync  :: !(Point input) -- ^ the last common sync point for the runners
-  , _runners   :: ![Runner input (Point input)] -- ^ the list of runners managed by this coordinator
-  , _tokens    :: !QSemN -- ^ use to synchronise the runner
-  , _channel   :: !(TChan (ProcessedInput input)) -- ^ to dispatch input to runners
-  , _nbRunners :: !Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
+  { _lastSync  :: Point input -- ^ the last common sync point for the runners
+  , _runners   :: [Runner input (Point input)] -- ^ the list of runners managed by this coordinator
+  , _tokens    :: QSemN -- ^ use to synchronise the runner
+  , _channel   :: TChan (ProcessedInput input) -- ^ to dispatch input to runners
+  , _nbRunners :: Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
   }
 
 
@@ -854,9 +860,10 @@ runnerSyncPoints [] = pure []
 runnerSyncPoints (r:rs) = let
 
     getSyncPoints :: Ord point => Runner input point -> IO [point]
-    getSyncPoints (Runner ix _) = do
-        indexer <- Con.readMVar ix
-        syncPoints indexer
+    getSyncPoints (Runner ix _ hoistError) =
+        fmap (fromRight []) $ runExceptT $ do
+            indexer <- lift $ Con.readMVar ix
+            hoistError $ syncPoints indexer
 
     in do
         ps <- getSyncPoints r
@@ -1019,8 +1026,8 @@ instance MonadError (QueryError (EventsMatchingQuery event)) m =>
 -- and specify its own instances when it wants to add logic in it.
 data IndexWrapper config indexer event
     = IndexWrapper
-        { _wrapperConfig  :: !(config event)
-        , _wrappedIndexer :: !(indexer event)
+        { _wrapperConfig  :: config event
+        , _wrappedIndexer :: indexer event
         }
 
 makeLenses 'IndexWrapper
@@ -1182,9 +1189,9 @@ instance (MonadTrans t, Monad m, Monad (t m),  Queryable (t m) event query index
 
 data DelayConfig event
     = DelayConfig
-        { _configDelayCapacity :: !Word
-        , _configDelayLength   :: !Word
-        , _configDelayBuffer   :: !(Seq (TimedEvent event))
+        { _configDelayCapacity :: Word
+        , _configDelayLength   :: Word
+        , _configDelayBuffer   :: Seq (TimedEvent event)
         }
 
 makeLenses 'DelayConfig
@@ -1276,15 +1283,15 @@ instance
 
 data PruningConfig event
     = PruningConfig
-        { _configSecurityParam   :: !Word
+        { _configSecurityParam   :: Word
           -- ^ how far can a rollback go
-        , _configPruneEvery      :: !Word
+        , _configPruneEvery      :: Word
           -- ^ once we have enough events, how often do we prune
-        , _configNextPruning     :: !(Seq (Point event))
+        , _configNextPruning     :: Seq (Point event)
           -- ^ list of pruning point
-        , _configStepsBeforeNext :: !Word
+        , _configStepsBeforeNext :: Word
           -- ^ events required before next aggregation milestones
-        , _configCurrentDepth    :: !Word
+        , _configCurrentDepth    :: Word
           -- ^ how many events aren't pruned yet
         }
 
