@@ -229,13 +229,12 @@ module Marconi.Core.Experiment
     , syncPointsVia
     ) where
 
-import Control.Concurrent qualified as Con (newQSemN, signalQSemN, waitQSemN)
-import Control.Concurrent.STM qualified as STM (atomically, dupTChan, newBroadcastTChanIO, newTMVar, putTMVar,
-                                                readTChan, readTMVar, takeTMVar, writeTChan)
+import Control.Concurrent qualified as Con (modifyMVar_, newMVar, newQSemN, readMVar, signalQSemN, waitQSemN)
+import Control.Concurrent.STM qualified as STM (atomically, dupTChan, newBroadcastTChanIO, readTChan, writeTChan)
 import Control.Tracer qualified as Tracer (traceWith)
 import Data.Sequence qualified as Seq
 
-import Control.Concurrent (QSemN, forkIO)
+import Control.Concurrent (MVar, QSemN, forkIO)
 import Control.Lens (Getter, Lens', filtered, folded, makeLenses, maximumOf, set, to, view, (%~), (&), (+~), (-~), (.~),
                      (<<.~), (^.), (^..), (^?))
 import Control.Monad (forever, guard, void, when, (<=<))
@@ -243,7 +242,7 @@ import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runEx
 import Control.Tracer (Tracer)
 
 import Control.Concurrent.Async (mapConcurrently_)
-import Control.Concurrent.STM (TChan, TMVar)
+import Control.Concurrent.STM (TChan)
 import Control.Exception (Exception, throwIO)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Trans (MonadTrans)
@@ -350,25 +349,27 @@ indexAll' evt = runExceptT . indexAll evt
 -- Highly partial version of 'index' that throws exception using @Control.Exception@.
 indexIO
     ::
-    ( IsIndex (ExceptT IndexError IO) event indexer
+    ( MonadIO m
+    , IsIndex (ExceptT IndexError m) event indexer
     , Eq (Point event)
     )
     => TimedEvent event
     -> indexer event
-    -> IO (indexer event)
-indexIO evt = either throwIO pure <=< index' evt
+    -> m (indexer event)
+indexIO evt = either (liftIO . throwIO) pure <=< index' evt
 
 -- Highly partial version of 'indexAll' that throws exception using @Control.Exception@.
 indexAllIO
     ::
-    ( IsIndex (ExceptT IndexError IO) event indexer
+    ( MonadIO m
+    , IsIndex (ExceptT IndexError m) event indexer
     , Traversable f
     , Ord (Point event)
     )
     => f (TimedEvent event)
     -> indexer event
-    -> IO (indexer event)
-indexAllIO evt = either throwIO pure <=< indexAll' evt
+    -> m (indexer event)
+indexAllIO evt = either (liftIO . throwIO) pure <=< indexAll' evt
 
 class HasGenesis t where
 
@@ -549,7 +550,7 @@ instance Applicative m => Rewindable m event ListIndexer where
                 & cleanEventsAfterRollback
                 & adjustLatestPoint
 
-instance (HasGenesis (Point event), Applicative m) => Resumable m event ListIndexer where
+instance Applicative m => Resumable m event ListIndexer where
 
     syncPoints ix = let
 
@@ -558,7 +559,7 @@ instance (HasGenesis (Point event), Applicative m) => Resumable m event ListInde
       addLatestIfNeeded p []        = [p]
       addLatestIfNeeded p ps@(p':_) = if p == p' then ps else p:ps
 
-      in pure $ genesis : addLatestIfNeeded (ix ^. latest) indexPoints
+      in pure $ addLatestIfNeeded (ix ^. latest) indexPoints
 
 
 -- | When we want to store an event in a database, it may happen that you want to store it in many tables,
@@ -584,13 +585,14 @@ data IndexQuery
         }
 
 -- | Run a list of insert queries in one single transaction.
-runIndexQueries :: SQL.Connection -> [IndexQuery] -> IO ()
+runIndexQueries :: MonadIO m => SQL.Connection -> [IndexQuery] -> m ()
 runIndexQueries _ [] = pure ()
 runIndexQueries c xs = let
-    runIndexQuery (IndexQuery insertQuery params) = SQL.executeMany c insertQuery params
-    in do
-        SQL.withTransaction c
-            $ mapConcurrently_ runIndexQuery xs
+
+    runIndexQuery (IndexQuery insertQuery params)
+        = SQL.executeMany c insertQuery params
+
+    in liftIO $ SQL.withTransaction c $ mapConcurrently_ runIndexQuery xs
 
 -- | How we map an event to its sql representation
 --
@@ -645,14 +647,14 @@ singleInsertSQLiteIndexer c toParam insertQuery
 instance (MonadIO m, Monoid (InsertRecord event)) =>
     IsIndex m event SQLiteIndexer where
 
-    index timedEvent indexer = liftIO $ do
+    index timedEvent indexer = do
         let indexQueries = indexer ^. buildInsert
                 $ indexer ^. prepareInsert
                 $ timedEvent
         runIndexQueries (indexer ^. handle) indexQueries
         pure $ indexer & dbLastSync .~ (timedEvent ^. point)
 
-    indexAll evts indexer = liftIO $ do
+    indexAll evts indexer = do
 
         let indexQueries = indexer ^. buildInsert $ foldMap (indexer ^. prepareInsert) evts
             updateLastSync = maybe id (dbLastSync .~) (maximumOf (folded . point) evts)
@@ -768,7 +770,7 @@ data RunnerM m input point =
     , Point event ~ point
     ) =>
     Runner
-        { runnerState    :: !(TMVar (indexer event))
+        { runnerState    :: !(MVar (indexer event))
 
         , transformInput :: !(input -> m event)
           -- ^ used by the runner to check whether an input is a rollback or an event
@@ -778,21 +780,27 @@ type Runner = RunnerM IO
 
 -- | create a runner for an indexer, retuning the runner and the @MVar@ it's using internally
 createRunner ::
-    ( IsIndex IO event indexer
-    , IsSync IO event indexer
-    , Resumable IO event indexer
-    , Rewindable IO event indexer
+    ( MonadIO m
+    , IsIndex m event indexer
+    , IsSync m event indexer
+    , Resumable m event indexer
+    , Rewindable m event indexer
     , point ~ Point event) =>
-    (input -> IO event) ->
+    (input -> m event) ->
     indexer event ->
-    IO (TMVar (indexer event), Runner input point)
+    m (MVar (indexer event), RunnerM m input point)
 createRunner f ix = do
-  mvar <- STM.atomically $ STM.newTMVar ix
-  pure (mvar, Runner mvar f)
+    mvar <- liftIO $ Con.newMVar ix
+    pure (mvar, Runner mvar f)
 
 -- | The runner notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
-startRunner :: Ord (Point input) => TChan (ProcessedInput input) -> QSemN -> Runner input (Point input) -> IO ()
+startRunner
+    :: Ord (Point input)
+    => TChan (ProcessedInput input)
+    -> QSemN ->
+    Runner input (Point input) ->
+    IO ()
 startRunner chan tokens (Runner ix transformInput) = let
 
     unlockCoordinator :: IO ()
@@ -801,33 +809,24 @@ startRunner chan tokens (Runner ix transformInput) = let
     fresherThan :: Ord (Point event) => TimedEvent event -> Point event -> Bool
     fresherThan evt p = evt ^. point > p
 
-    indexEvent timedEvent = do
-        indexer <- STM.atomically $ STM.takeTMVar ix
+    indexEvent timedEvent = Con.modifyMVar_ ix $ \indexer -> do
         indexerLastPoint <- lastSyncPoint indexer
         if timedEvent `fresherThan` indexerLastPoint
-           then do
-               indexer' <- index timedEvent indexer
-               STM.atomically $ STM.putTMVar ix indexer'
-           else STM.atomically $ STM.putTMVar ix indexer
+           then index timedEvent indexer
+           else pure indexer
 
-    handleRollback p = do
-        indexer <- STM.atomically $ STM.takeTMVar ix
+    handleRollback p = Con.modifyMVar_ ix $ \indexer -> do
         mindexer <- rewind p indexer
-        maybe
-            (STM.atomically $ STM.putTMVar ix indexer) -- TODO add error handling
-            (STM.atomically . STM.putTMVar ix)
-            mindexer
+        pure $ fromMaybe indexer mindexer -- TODO add error handling
 
     in do
         chan' <- STM.atomically $ STM.dupTChan chan
-        void $ forkIO $ forever $ do
+        void . forkIO . forever $ do
             input <- STM.atomically $ STM.readTChan chan'
             processedEvent <- mapIndex transformInput input
             case processedEvent of
-                Rollback p -> do
-                    handleRollback p
-                Index e    -> do
-                    indexEvent e
+                Rollback p -> handleRollback p
+                Index e    -> indexEvent e
             unlockCoordinator
 
 -- | A coordinator synchronises the event processing of a list of indexers.
@@ -850,18 +849,18 @@ makeLenses 'Coordinator
 --
 -- Important note : the syncpoints are sensible to rewind. It means that the result of this function may be invalid if
 -- the indexer is rewinded.
-runnerSyncPoints :: Ord point => [Runner input point] -> IO [point]
+runnerSyncPoints :: (HasGenesis point, Ord point) => [Runner input point] -> IO [point]
 runnerSyncPoints [] = pure []
 runnerSyncPoints (r:rs) = let
 
     getSyncPoints :: Ord point => Runner input point -> IO [point]
     getSyncPoints (Runner ix _) = do
-        indexer <- STM.atomically $ STM.readTMVar ix
+        indexer <- Con.readMVar ix
         syncPoints indexer
 
     in do
         ps <- getSyncPoints r
-        foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
+        (genesis:) <$> foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
 
 -- | create a coordinator with started runners
 start
@@ -880,7 +879,9 @@ start runners' = let
         pure $ Coordinator genesis runners' tokens' channel' nb
 
 -- | A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
-step :: (Ord (Point input)) => Coordinator input -> ProcessedInput input -> IO (Coordinator input)
+step
+    :: (HasGenesis (Point input), Ord (Point input))
+    => Coordinator input -> ProcessedInput input -> IO (Coordinator input)
 step coordinator input = case input of
     Index e    -> index e coordinator
     Rollback p -> fromMaybe coordinator <$> rewind p coordinator -- TODO: handle failure
@@ -906,7 +907,7 @@ instance MonadIO m => IsSync m event Coordinator where
     lastSyncPoint indexer = pure $ indexer ^. lastSync
 
 -- | To rewind a coordinator, we try and rewind all the runners.
-instance MonadIO m => Rewindable m event Coordinator where
+instance (HasGenesis (Point event), MonadIO m) => Rewindable m event Coordinator where
 
     rewind p = let
 
@@ -1092,7 +1093,7 @@ pruningPointVia l = pruningPoint . view l
 -- | Helper to implement the @rewind@ functon of 'Rewindable' when we use a wrapper.
 -- Unfortunately, as @m@ must have a functor instance, we can't use @deriving via@ directly.
 rewindVia
-    :: (Functor m, Rewindable m event indexer, Ord (Point event))
+    :: (Functor m, Rewindable m event indexer, Ord (Point event), HasGenesis (Point event))
     => Lens' s (indexer event)
     -> Point event -> s -> m (Maybe s)
 rewindVia l p = runMaybeT . l (MaybeT . rewind p)
@@ -1138,6 +1139,7 @@ instance
 instance
     ( Monad m
     , Rewindable m event index
+    , HasGenesis (Point event)
     ) => Rewindable m event (WithTracer m index) where
 
     rewind p indexer = let
@@ -1252,6 +1254,7 @@ instance
 instance
     ( Monad m
     , Rewindable m event indexer
+    , HasGenesis (Point event)
     , Ord (Point event)
     ) => Rewindable m event (WithDelay indexer) where
 
@@ -1394,6 +1397,7 @@ instance
     ( Monad m
     , Prunable m event indexer
     , Rewindable m event indexer
+    , HasGenesis (Point event)
     , Ord (Point event)
     ) => Rewindable m event (WithPruning indexer) where
 

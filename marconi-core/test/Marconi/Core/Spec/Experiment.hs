@@ -1,9 +1,10 @@
-{-# LANGUAGE DerivingVia     #-}
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE QuasiQuotes     #-}
-{-# LANGUAGE RankNTypes      #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DerivingVia          #-}
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE QuasiQuotes          #-}
+{-# LANGUAGE RankNTypes           #-}
+{-# LANGUAGE TemplateHaskell      #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE UndecidableInstances #-}
 {- | A model base test for indexers.
  -
  - The idea is that we have a naive modelof indexer ('Model') that stores information in a list
@@ -63,9 +64,10 @@ module Marconi.Core.Spec.Experiment
     , sqliteModelIndexer
     ) where
 
+import Control.Concurrent (MVar)
+import Control.Concurrent qualified as Con
 import Control.Lens (makeLenses, to, use, view, views, (%~), (.=), (^.))
 
-import Control.Concurrent.STM (TMVar)
 import Control.Monad (foldM, replicateM)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Trans.Class (lift)
@@ -96,7 +98,6 @@ import Database.SQLite.Simple qualified as SQL
 import Database.SQLite.Simple.FromField (FromField)
 import Database.SQLite.Simple.ToField (ToField)
 
-import Control.Concurrent.STM qualified as STM
 import Marconi.Core.Experiment (wrappedIndexer)
 import Marconi.Core.Experiment qualified as Core
 
@@ -468,35 +469,34 @@ withTracerRunner wRunner
         (wRunner ^. indexerRunner)
         (Core.withTracer Tracer.nullTracer <$> wRunner ^. indexerGenerator)
 
-newtype IndexerTMVar indexer event = IndexerTMVar {getTMVar :: TMVar (indexer event)}
+newtype IndexerMVar indexer event = IndexerMVar {getMVar :: MVar (indexer event)}
 
 -- | Provide a coordinator and a way to inspect the coordinated
 newtype UnderCoordinator indexer event
     = UnderCoordinator
-        { _underCoordinator :: Core.IndexWrapper (IndexerTMVar indexer) Core.Coordinator event }
+        { _underCoordinator :: Core.IndexWrapper (IndexerMVar indexer) Core.Coordinator event }
 
 makeLenses ''UnderCoordinator
 
-deriving via (Core.IndexWrapper (IndexerTMVar indexer) Core.Coordinator)
+deriving via (Core.IndexWrapper (IndexerMVar indexer) Core.Coordinator)
     instance Core.IsIndex IO event (UnderCoordinator indexer)
 
-deriving via (Core.IndexWrapper (IndexerTMVar indexer) Core.Coordinator)
+deriving via (Core.IndexWrapper (IndexerMVar indexer) Core.Coordinator)
     instance Core.IsSync IO event (UnderCoordinator indexer)
 
-instance Core.Rewindable IO event (UnderCoordinator indexer) where
+instance Core.HasGenesis (Core.Point event)
+    => Core.Rewindable IO event (UnderCoordinator indexer) where
     rewind = Core.rewindVia $ underCoordinator . wrappedIndexer
 
 instance (MonadIO m, Core.Queryable m event (Core.EventsMatchingQuery event) indexer) =>
     Core.Queryable m event (Core.EventsMatchingQuery event) (UnderCoordinator indexer) where
 
     query p q ix = do
-        let tmvar = ix ^. underCoordinator . Core.wrapperConfig . to getTMVar
-        indexer <- liftIO $ STM.atomically $ STM.takeTMVar tmvar
+        let tmvar = ix ^. underCoordinator . Core.wrapperConfig . to getMVar
+        indexer <- liftIO $ Con.takeMVar tmvar
         res <- Core.query p q indexer
-        liftIO $ STM.atomically $ STM.putTMVar tmvar indexer
+        liftIO $ Con.putMVar tmvar indexer
         pure res
-
-
 
 coordinatorIndexerRunner
     ::
@@ -514,4 +514,4 @@ coordinatorIndexerRunner wRunner
         $ do
             wrapped <- wRunner ^. indexerGenerator
             (t, run) <- Core.createRunner pure wrapped
-            UnderCoordinator . Core.IndexWrapper (IndexerTMVar t) <$> Core.start [run]
+            UnderCoordinator . Core.IndexWrapper (IndexerMVar t) <$> Core.start [run]
