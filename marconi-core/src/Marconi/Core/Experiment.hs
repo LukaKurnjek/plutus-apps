@@ -180,7 +180,7 @@ module Marconi.Core.Experiment
     -- ** Coordinator
     , Coordinator
         , lastSync
-        , runners
+        , workers
         , tokens
         , channel
         , nbWorkers
@@ -238,7 +238,7 @@ import Data.Sequence qualified as Seq
 import Control.Concurrent (MVar, QSemN, forkIO)
 import Control.Lens (Getter, Lens', filtered, folded, makeLenses, maximumOf, set, to, view, (%~), (&), (+~), (-~), (.~),
                      (<<.~), (^.), (^..), (^?))
-import Control.Monad (forever, guard, void, when, (<=<))
+import Control.Monad (forever, guard, unless, void, when, (<=<))
 import Control.Monad.Except (ExceptT, MonadError (catchError, throwError), runExceptT)
 import Control.Tracer (Tracer)
 
@@ -248,14 +248,12 @@ import Control.Exception (Exception, throwIO)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Trans (MonadTrans)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Bifunctor (first)
 import Data.Either (fromRight)
 import Data.Foldable (foldlM, foldrM, traverse_)
 import Data.Functor (($>))
 import Data.Functor.Compose (Compose (Compose, getCompose))
 import Data.List (intersect)
-import Data.Maybe (fromMaybe)
 import Data.Sequence (Seq (Empty, (:|>)), (<|))
 import Data.Text (Text)
 import Database.SQLite.Simple qualified as SQL
@@ -291,6 +289,8 @@ makeLenses 'TimedEvent
 data IndexError
    = NoSpaceLeft
      -- ^ An indexer with limited capacity is full and is unable to index an event
+   | RollbackBehindHistory
+     -- ^ An indexer don't have access to the history at the point that is asked
    | OtherIndexError Text
      -- ^ Any other cause of failure
 
@@ -403,7 +403,7 @@ data QueryError query
    | IndexerQueryError Text
      -- ^ The indexer query failed
 
-deriving stock instance (Show (Result query)) => Show (QueryError query)
+deriving stock instance Show (Result query) => Show (QueryError query)
 
 -- | The indexer can answer a Query to produce the corresponding result of that query.
 --
@@ -438,7 +438,7 @@ class ResumableResult m event query indexer where
 --     * @m@ the monad in which our indexer operates
 class Rewindable m event indexer where
 
-    rewind :: Ord (Point event) => Point event -> indexer event -> m (Maybe (indexer event))
+    rewind :: Ord (Point event) => Point event -> indexer event -> m (indexer event)
 
 -- | The indexer can prune old data.
 -- The main purpose is to speed up query processing.
@@ -543,7 +543,7 @@ instance Applicative m => Rewindable m event ListIndexer where
         isEventAfterRollback :: TimedEvent event -> Bool
         isEventAfterRollback = (p <) . view point
 
-        in pure . pure
+        in pure
         $ if isIndexBeforeRollback ix
              then ix -- if we're already before the rollback, we don't have to do anything
              else ix
@@ -676,12 +676,12 @@ rewindSQLiteIndexerWith
     -- ^ Point will be passed as a parameter to the query
     -> SQLiteIndexer event
     -- ^ We're just using the connection
-    -> m (Maybe (SQLiteIndexer event))
+    -> m (SQLiteIndexer event)
 rewindSQLiteIndexerWith q p indexer = do
     let c = indexer ^. handle
     liftIO $ SQL.withTransaction c
         (SQL.execute c q p)
-    pure $ Just $ indexer & dbLastSync .~ p
+    pure $ indexer & dbLastSync .~ p
 
 -- | A helper for the definition of the 'Queryable' typeclass for 'SQLiteIndexer'
 --
@@ -743,7 +743,7 @@ querySyncedOnlySQLiteIndexerWith toNamedParam sqlQuery fromRows p q indexer
         res <- liftIO $ SQL.queryNamed c sqlQuery (toNamedParam p q)
         pure $ fromRows q res
 
--- | The different types of input of a runner
+-- | The different types of input of a worker
 data ProcessedInput event
    = Rollback (Point event)
    | Index (TimedEvent event)
@@ -757,7 +757,7 @@ mapIndex f (Index timedEvent) = Index . TimedEvent (timedEvent ^. point) <$> f (
 
 -- * Workers
 
--- | A runner encapsulate an indexer in an opaque type.
+-- | A worker encapsulate an indexer in an opaque type.
 -- It allows us to manipulate seamlessly a list of indexers that has different types
 -- as long as they implement the required interfaces.
 data WorkerM m input point =
@@ -769,16 +769,16 @@ data WorkerM m input point =
     , Point event ~ point
     ) =>
     Worker
-        { runnerState    :: MVar (indexer event)
+        { workerState    :: MVar (indexer event)
 
         , transformInput :: input -> m event
-          -- ^ used by the runner to check whether an input is a rollback or an event
+          -- ^ used by the worker to check whether an input is a rollback or an event
         , hoistError     :: forall a. n a -> ExceptT IndexError m a
         }
 
 type Worker = WorkerM IO
 
--- | create a runner for an indexer, retuning the runner and the @MVar@ it's using internally
+-- | create a worker for an indexer, retuning the worker and the @MVar@ it's using internally
 createWorker ::
     ( MonadIO m
     , IsIndex n event indexer
@@ -794,7 +794,7 @@ createWorker getEvent hoist ix = do
     mvar <- liftIO $ Con.newMVar ix
     pure (mvar, Worker mvar getEvent hoist)
 
--- | The runner notify its coordinator that it's ready
+-- | The worker notify its coordinator that it's ready
 -- and starts waiting for new events and process them as they come
 startWorker
     :: Ord (Point input)
@@ -811,16 +811,15 @@ startWorker chan tokens (Worker ix transformInput hoistError) = let
     fresherThan evt p = evt ^. point > p
 
     indexEvent timedEvent = Con.modifyMVar_ ix $ \indexer ->
-        fmap (fromRight indexer) $ runExceptT $ do
+        fmap (fromRight indexer) $ runExceptT $ do -- TODO add error handling
             indexerLastPoint <- hoistError $ lastSyncPoint indexer
             if timedEvent `fresherThan` indexerLastPoint
                then hoistError $ index timedEvent indexer
                else pure indexer
 
     handleRollback p = Con.modifyMVar_ ix $ \indexer ->
-        fmap (fromRight indexer) $ runExceptT $ do
-            mindexer <- hoistError $ rewind p indexer
-            pure $ fromMaybe indexer mindexer -- TODO add error handling
+        fmap (fromRight indexer) $ runExceptT $ do  -- TODO add error handling
+            hoistError $ rewind p indexer
 
     in do
         chan' <- STM.atomically $ STM.dupTChan chan
@@ -837,24 +836,24 @@ startWorker chan tokens (Worker ix transformInput hoistError) = let
 -- It means that we can create a tree of indexer, with coordinators that partially process the data at each node,
 -- and with concrete indexers at the leaves.
 data Coordinator input = Coordinator
-  { _lastSync  :: Point input -- ^ the last common sync point for the runners
-  , _runners   :: [Worker input (Point input)] -- ^ the list of runners managed by this coordinator
-  , _tokens    :: QSemN -- ^ use to synchronise the runner
-  , _channel   :: TChan (ProcessedInput input) -- ^ to dispatch input to runners
-  , _nbWorkers :: Int -- ^ how many runners are we waiting for, should always be equal to @length runners@
+  { _lastSync  :: Point input -- ^ the last common sync point for the workers
+  , _workers   :: [Worker input (Point input)] -- ^ the list of workers managed by this coordinator
+  , _tokens    :: QSemN -- ^ use to synchronise the worker
+  , _channel   :: TChan (ProcessedInput input) -- ^ to dispatch input to workers
+  , _nbWorkers :: Int -- ^ how many workers are we waiting for, should always be equal to @length workers@
   }
 
 
 -- TODO handwrite lenses to avoid invalid states
 makeLenses 'Coordinator
 
--- | Get the common syncPoints of a group or runners
+-- | Get the common syncPoints of a group or workers
 --
 -- Important note : the syncpoints are sensible to rewind. It means that the result of this function may be invalid if
 -- the indexer is rewinded.
-runnerSyncPoints :: (HasGenesis point, Ord point) => [Worker input point] -> IO [point]
-runnerSyncPoints [] = pure []
-runnerSyncPoints (r:rs) = let
+workerSyncPoints :: (HasGenesis point, Ord point) => [Worker input point] -> IO [point]
+workerSyncPoints [] = pure []
+workerSyncPoints (r:rs) = let
 
     getSyncPoints :: Ord point => Worker input point -> IO [point]
     getSyncPoints (Worker ix _ hoistError) =
@@ -866,29 +865,29 @@ runnerSyncPoints (r:rs) = let
         ps <- getSyncPoints r
         (genesis:) <$> foldlM (\acc r' -> intersect acc <$> getSyncPoints r') ps rs
 
--- | create a coordinator with started runners
+-- | create a coordinator with started workers
 start
     :: HasGenesis (Point input)
     => Ord (Point input)
     => [Worker input (Point input)] -> IO (Coordinator input)
-start runners' = let
+start workers' = let
 
-    startWorkers channel' tokens' = traverse_ (startWorker channel' tokens') runners'
+    startWorkers channel' tokens' = traverse_ (startWorker channel' tokens') workers'
 
     in do
-        let nb = length runners'
-        tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the runners will start
+        let nb = length workers'
+        tokens' <- Con.newQSemN 0 -- starts empty, will be filled when the workers will start
         channel' <- STM.newBroadcastTChanIO
         startWorkers channel' tokens'
-        pure $ Coordinator genesis runners' tokens' channel' nb
+        pure $ Coordinator genesis workers' tokens' channel' nb
 
--- | A coordinator step (send an input to its runners, wait for an ack of every runner before listening again)
+-- | A coordinator step (send an input to its workers, wait for an ack of every worker before listening again)
 step
     :: (HasGenesis (Point input), Ord (Point input))
     => Coordinator input -> ProcessedInput input -> IO (Coordinator input)
 step coordinator input = case input of
     Index e    -> index e coordinator
-    Rollback p -> fromMaybe coordinator <$> rewind p coordinator -- TODO: handle failure
+    Rollback p -> rewind p coordinator -- TODO: handle failure
 
 waitWorkers :: Coordinator input -> IO ()
 waitWorkers coordinator = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. nbWorkers)
@@ -896,7 +895,7 @@ waitWorkers coordinator = Con.waitQSemN (coordinator ^. tokens) (coordinator ^. 
 dispatchNewInput :: Coordinator input -> ProcessedInput input -> IO ()
 dispatchNewInput coordinator = STM.atomically . STM.writeTChan (coordinator ^. channel)
 
--- A coordinator can be consider as an indexer that forwards the input to its runner
+-- A coordinator can be consider as an indexer that forwards the input to its worker
 instance MonadIO m => IsIndex m event Coordinator where
 
     index timedEvent coordinator = let
@@ -910,7 +909,7 @@ instance MonadIO m => IsIndex m event Coordinator where
 instance MonadIO m => IsSync m event Coordinator where
     lastSyncPoint indexer = pure $ indexer ^. lastSync
 
--- | To rewind a coordinator, we try and rewind all the runners.
+-- | To rewind a coordinator, we try and rewind all the workers.
 instance (HasGenesis (Point event), MonadIO m) => Rewindable m event Coordinator where
 
     rewind p = let
@@ -919,16 +918,16 @@ instance (HasGenesis (Point event), MonadIO m) => Rewindable m event Coordinator
 
         rewindWorkers ::
             Coordinator event ->
-            MaybeT IO (Coordinator event)
+            IO (Coordinator event)
         rewindWorkers c = do
-            availableSyncs <- lift $ runnerSyncPoints $ c ^. runners
+            availableSyncs <- workerSyncPoints $ c ^. workers
             -- we start by checking if the given point is a valid sync point
             guard $ p `elem` availableSyncs
             liftIO $ do
                 dispatchNewInput c $ Rollback p
                 waitWorkers c $> setLastSync c
 
-        in  liftIO . runMaybeT . rewindWorkers
+        in  liftIO . rewindWorkers
 
 -- There is no point in providing a 'Queryable' interface for 'CoordinatorIndex' though,
 -- as it's sole interest would be to get the latest synchronisation points,
@@ -1099,8 +1098,8 @@ pruningPointVia l = pruningPoint . view l
 rewindVia
     :: (Functor m, Rewindable m event indexer, Ord (Point event), HasGenesis (Point event))
     => Lens' s (indexer event)
-    -> Point event -> s -> m (Maybe s)
-rewindVia l p = runMaybeT . l (MaybeT . rewind p)
+    -> Point event -> s -> m s
+rewindVia l p = l (rewind p)
 
 
 newtype ProcessedInputTracer m event = ProcessedInputTracer { _unwrapTracer :: Tracer m (ProcessedInput event)}
@@ -1148,7 +1147,7 @@ instance
 
     rewind p indexer = let
 
-         rewindWrappedIndexer p' = MaybeT $ rewindVia tracedIndexer p' indexer
+         rewindWrappedIndexer p' = rewindVia tracedIndexer p' indexer
 
          traceRewind =
               Tracer.traceWith (indexer ^. tracer) (Rollback p)
@@ -1156,7 +1155,7 @@ instance
         in do
         -- Warn about the rewind first
         traceRewind
-        runMaybeT $ rewindWrappedIndexer p
+        rewindWrappedIndexer p
 
 instance (Functor m, Prunable m event indexer)
     => Prunable m event (WithTracer m indexer) where
@@ -1264,15 +1263,15 @@ instance
 
     rewind p indexer = let
 
-        rewindWrappedIndexer p' = MaybeT $ rewindVia delayedIndexer p' indexer
+        rewindWrappedIndexer p' = rewindVia delayedIndexer p' indexer
 
         resetBuffer = (delayLength .~ 0) . (delayBuffer .~ Seq.empty)
 
         (after, before) =  Seq.spanl ((> p) . view point) $ indexer ^. delayBuffer
 
         in if Seq.null before
-           then runMaybeT $ resetBuffer <$> rewindWrappedIndexer p
-           else pure . pure $ indexer
+           then resetBuffer <$> rewindWrappedIndexer p
+           else pure $ indexer
                    & delayBuffer .~ after
                    & delayLength .~ fromIntegral (Seq.length after)
 
@@ -1399,6 +1398,7 @@ instance
 -- mess up with the rollbackable events.
 instance
     ( Monad m
+    , MonadError IndexError m
     , Prunable m event indexer
     , Rewindable m event indexer
     , HasGenesis (Point event)
@@ -1410,8 +1410,8 @@ instance
         rewindWrappedIndexer
             :: Point event
             -> WithPruning indexer event
-            -> MaybeT m (WithPruning indexer event)
-        rewindWrappedIndexer p' = MaybeT . rewindVia prunedIndexer p'
+            -> m (WithPruning indexer event)
+        rewindWrappedIndexer p' = rewindVia prunedIndexer p'
 
         resetStep :: WithPruning indexer event -> WithPruning indexer event
         resetStep = do
@@ -1431,13 +1431,15 @@ instance
             -- we have 'stepLength' events available in the indexer
             set currentDepth (fromIntegral $ length points * fromIntegral stepLength)
 
-        isRollbackAfterPruning :: MaybeT m Bool
-        isRollbackAfterPruning = MaybeT $ do
+        isRollbackAfterPruning :: m Bool
+        isRollbackAfterPruning = do
             p' <- pruningPoint $ indexer ^. prunedIndexer
-            pure $ pure $ maybe True (p >=) p'
+            pure $ maybe True (p >=) p'
 
-        in runMaybeT $ do
-            guard =<< isRollbackAfterPruning
+        in do
+            valid <- isRollbackAfterPruning
+            unless valid
+                $ throwError RollbackBehindHistory
             countFromPruningPoints
                 . removePruningPointsAfterRollback p
                 . resetStep
@@ -1535,10 +1537,10 @@ instance
 
     rewind p indexer = let
 
-        rewindInStore :: Rewindable m event index => index event -> MaybeT m (index event)
-        rewindInStore = MaybeT . rewind p
+        rewindInStore :: Rewindable m event index => index event -> m (index event)
+        rewindInStore = rewind p
 
-        in runMaybeT $ do
+        in do
             ix <- inMemory rewindInStore indexer
             if not $ null $ ix ^. inMemory . events
                 then pure ix

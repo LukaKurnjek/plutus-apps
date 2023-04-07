@@ -89,7 +89,6 @@ import Test.Tasty.QuickCheck qualified as Tasty
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Trans.Except (ExceptT)
-import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 
 import Data.Either (fromRight)
 import Data.Maybe (listToMaybe)
@@ -236,20 +235,17 @@ compareToModelWith
 compareToModelWith genChain' runner modelComputation indexerComputation prop
     = let
         process = \case
-            Insert ix evt -> lift . Core.index (Core.TimedEvent ix evt)
-            Rollback n    -> MaybeT . Core.rewind n
+            Insert ix evt -> Core.index (Core.TimedEvent ix evt)
+            Rollback n    -> Core.rewind n
         r = runner ^. indexerRunner
         genIndexer = runner ^. indexerGenerator
     in Test.forAll genChain' $ \chain -> r $ do
         initialIndexer <- GenM.run genIndexer
-        indexer <- GenM.run $ runMaybeT $ foldM (flip process) initialIndexer chain
-        iResult <- GenM.run $ traverse indexerComputation indexer
+        indexer <- GenM.run $ foldM (flip process) initialIndexer chain
+        iResult <- GenM.run $ indexerComputation indexer
         let model' = runModel chain
             mResult = modelComputation model'
-        GenM.stop . maybe
-            (failWith "invalid rewind")
-            (`prop` mResult)
-            $ iResult
+        GenM.stop $ iResult `prop` mResult
 
 -- | Compare an execution on the base model and one on the indexer
 behaveLikeModel
@@ -366,10 +362,6 @@ listIndexerRunner
     = IndexerTestRunner
         GenM.monadicIO
         (pure Core.listIndexer)
-
-failWith :: String -> Property
-failWith message = Test.counterexample message False
-
 
 initSQLite :: IO SQL.Connection
 initSQLite = do
