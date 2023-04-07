@@ -385,8 +385,8 @@ class IsSync m event indexer where
 
 -- | Check if the given point is ahead of the last syncPoint of an indexer,
 isAheadOfSync ::
-    (Ord (Point event), IsSync m event indexer, Functor m) =>
-    Point event -> indexer event -> m Bool
+    (Ord (Point event), IsSync m event indexer, Functor m)
+    => Point event -> indexer event -> m Bool
 isAheadOfSync p indexer = (p >) <$> lastSyncPoint indexer
 
 
@@ -428,9 +428,9 @@ query' p q = runExceptT . query p q
 -- | The indexer can take a result and complete it with its events
 class ResumableResult m event query indexer where
 
-    resumeResult ::
-       Ord (Point event) =>
-       Point event -> query -> indexer event -> m (Result query) -> m (Result query)
+    resumeResult
+       :: Ord (Point event)
+       => Point event -> query -> indexer event -> m (Result query) -> m (Result query)
 
 -- | We can reset an indexer to a previous `Point`
 --     * @indexer@ is the indexer implementation type
@@ -509,9 +509,7 @@ instance Applicative m => Flushable m ListIndexer where
 
     flushMemory _ ix = pure $ ix & events <<.~ []
 
-instance
-    Monad m =>
-    IsIndex m event ListIndexer where
+instance Monad m => IsIndex m event ListIndexer where
 
     index timedEvent ix = let
 
@@ -577,9 +575,8 @@ instance Applicative m => Resumable m event ListIndexer where
 -- which hides the query parameters.
 -- Internally, we only have to deal with a @[IndexQuery]@ to be able to insert an event.
 data IndexQuery
-    = forall param.
-    SQL.ToRow param =>
-    IndexQuery
+    = forall param. SQL.ToRow param
+    => IndexQuery
         { insertQuery :: SQL.Query
         , params      :: [param]
          -- ^ It's a list because me want to be able to deal with bulk insert,
@@ -646,8 +643,8 @@ singleInsertSQLiteIndexer c toParam insertQuery
         , _dbLastSync = genesis
         }
 
-instance (MonadIO m, Monoid (InsertRecord event)) =>
-    IsIndex m event SQLiteIndexer where
+instance (MonadIO m, Monoid (InsertRecord event))
+    => IsIndex m event SQLiteIndexer where
 
     index timedEvent indexer = do
         let indexQueries = indexer ^. buildInsert
@@ -664,8 +661,8 @@ instance (MonadIO m, Monoid (InsertRecord event)) =>
         runIndexQueries (indexer ^. handle) indexQueries
         pure $ updateLastSync indexer
 
-instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m) =>
-    IsSync m event SQLiteIndexer where
+instance (HasGenesis (Point event), SQL.FromRow (Point event), MonadIO m)
+    => IsSync m event SQLiteIndexer where
 
     lastSyncPoint indexer
         = pure $ indexer ^. dbLastSync
@@ -788,11 +785,11 @@ createWorker ::
     , IsSync n event indexer
     , Resumable n event indexer
     , Rewindable n event indexer
-    , point ~ Point event) =>
-    (input -> m event) ->
-    (forall a. n a -> ExceptT IndexError m a) ->
-    indexer event ->
-    m (MVar (indexer event), WorkerM m input point)
+    , point ~ Point event)
+    => (input -> m event)
+    -> (forall a. n a -> ExceptT IndexError m a)
+    -> indexer event
+    -> m (MVar (indexer event), WorkerM m input point)
 createWorker getEvent hoist ix = do
     mvar <- liftIO $ Con.newMVar ix
     pure (mvar, Worker mvar getEvent hoist)
@@ -946,8 +943,8 @@ data EventAtQuery event = EventAtQuery
 -- in time
 type instance Result (EventAtQuery event) = event
 
-instance MonadError (QueryError (EventAtQuery event)) m =>
-    Queryable m event (EventAtQuery event) ListIndexer where
+instance MonadError (QueryError (EventAtQuery event)) m
+    => Queryable m event (EventAtQuery event) ListIndexer where
 
     query p EventAtQuery ix = do
         let isAtPoint e p' = e ^. point == p'
@@ -960,8 +957,8 @@ instance MonadError (QueryError (EventAtQuery event)) m =>
             $ ix ^? events . folded . filtered (`isAtPoint` p) . event
         else throwError $ AheadOfLastSync Nothing
 
-instance MonadError (QueryError (EventAtQuery event)) m =>
-    ResumableResult m event (EventAtQuery event) ListIndexer where
+instance MonadError (QueryError (EventAtQuery event)) m
+    => ResumableResult m event (EventAtQuery event) ListIndexer where
 
     resumeResult p q indexer result = result `catchError` \case
          -- If we didn't find a result in the 1st indexer, try in memory
@@ -982,8 +979,8 @@ allEvents = EventsMatchingQuery (const True)
 -- | The result of an @EventMatchingQuery@
 type instance Result (EventsMatchingQuery event) = [TimedEvent event]
 
-instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) =>
-    Queryable m event (EventsMatchingQuery event) ListIndexer where
+instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m)
+    => Queryable m event (EventsMatchingQuery event) ListIndexer where
 
     query p q ix = do
         let isBefore p' e = p' >= e ^. point
@@ -995,8 +992,8 @@ instance (MonadError (QueryError (EventsMatchingQuery event)) m, Applicative m) 
             then pure result
             else throwError . AheadOfLastSync . Just $ result
 
-instance MonadError (QueryError (EventsMatchingQuery event)) m =>
-    ResumableResult m event (EventsMatchingQuery event) ListIndexer where
+instance MonadError (QueryError (EventsMatchingQuery event)) m
+    => ResumableResult m event (EventsMatchingQuery event) ListIndexer where
 
     resumeResult p q indexer result = let
         extractDbResult = result `catchError` \case
@@ -1040,8 +1037,8 @@ indexVia
 indexVia l = l . index
 
 instance
-    (Monad m, IsIndex m event indexer) =>
-    IsIndex m event (IndexWrapper config indexer) where
+    (Monad m, IsIndex m event indexer)
+    => IsIndex m event (IndexWrapper config indexer) where
 
     index = indexVia wrappedIndexer
 
@@ -1052,8 +1049,8 @@ lastSyncPointVia
     => Getter s (indexer event) -> s -> m (Point event)
 lastSyncPointVia l = lastSyncPoint . view l
 
-instance IsSync event m index =>
-    IsSync event m (IndexWrapper config index) where
+instance IsSync event m index
+    => IsSync event m (IndexWrapper config index) where
 
     lastSyncPoint = lastSyncPointVia wrappedIndexer
 
@@ -1065,8 +1062,8 @@ queryVia
     -> Point event -> query -> s -> m (Result query)
 queryVia l p q = query p q . view l
 
-instance Queryable m event query indexer =>
-    Queryable m event query (IndexWrapper config indexer) where
+instance Queryable m event query indexer
+    => Queryable m event query (IndexWrapper config indexer) where
 
     query =  queryVia wrappedIndexer
 
@@ -1078,8 +1075,8 @@ syncPointsVia
 syncPointsVia l = syncPoints . view l
 
 
-instance Resumable m event indexer =>
-    Resumable m event (IndexWrapper config indexer) where
+instance Resumable m event indexer
+    => Resumable m event (IndexWrapper config indexer) where
 
     syncPoints = syncPointsVia wrappedIndexer
 
@@ -1135,8 +1132,8 @@ tracedIndexer :: Lens' (WithTracer m indexer event) (indexer event)
 tracedIndexer = tracerWrapper . wrappedIndexer
 
 instance
-    (Applicative m, IsIndex m event index) =>
-    IsIndex m event (WithTracer m index) where
+    (Applicative m, IsIndex m event index)
+    => IsIndex m event (WithTracer m index) where
 
     index timedEvent indexer = do
         res <- indexVia tracedIndexer timedEvent indexer
@@ -1161,8 +1158,8 @@ instance
         traceRewind
         runMaybeT $ rewindWrappedIndexer p
 
-instance (Functor m, Prunable m event indexer) =>
-    Prunable m event (WithTracer m indexer) where
+instance (Functor m, Prunable m event indexer)
+    => Prunable m event (WithTracer m indexer) where
 
     prune = pruneVia tracedIndexer
 
@@ -1236,8 +1233,8 @@ delayBuffer :: Lens' (WithDelay indexer event) (Seq (TimedEvent event))
 delayBuffer = delayWrapper . wrapperConfig . configDelayBuffer
 
 instance
-    (Monad m, IsIndex m event indexer) =>
-    IsIndex m event (WithDelay indexer) where
+    (Monad m, IsIndex m event indexer)
+    => IsIndex m event (WithDelay indexer) where
 
     index timedEvent indexer = let
 
@@ -1386,8 +1383,8 @@ tick p indexer = let
 
 
 instance
-    (Monad m, Ord (Point event), Prunable m event indexer, IsIndex m event indexer) =>
-    IsIndex m event (WithPruning indexer) where
+    (Monad m, Ord (Point event), Prunable m event indexer, IsIndex m event indexer)
+    => IsIndex m event (WithPruning indexer) where
 
     index timedEvent indexer = do
         indexer' <- indexVia prunedIndexer timedEvent indexer
@@ -1549,9 +1546,8 @@ instance
 
 instance
     ( ResumableResult m event query ListIndexer
-    , Queryable m event query store
-    ) =>
-    Queryable m event query (MixedIndexer store ListIndexer) where
+    , Queryable m event query store )
+    => Queryable m event query (MixedIndexer store ListIndexer) where
 
     query valid q indexer
         = resumeResult valid q
