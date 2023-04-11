@@ -1,0 +1,247 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- This module bootstraps the marconi-sidechain JSON RPC server, it acts as a glue conntecting the</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- JSON-RPC, HttpServer, marconiIndexer, and marconi cache</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Marconi.Sidechain.Bootstrap</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">C</span></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Concurrent.STM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">atomically</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-identifier">Control.Lens</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-operator">(^.)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">epochStateWorker</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">runIndexers</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">utxoWorker</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.EpochState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">EpochStateHandle</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.Utxo</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">UtxoHandle</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">TargetAddresses</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">epochStateDbName</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">utxoDbName</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">Marconi.Core.Storable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">State</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">StorableEvent</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html"><span class="hs-identifier">Marconi.Sidechain.Api.Query.Indexers.EpochState</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">EpochState</span></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html"><span class="hs-identifier">Marconi.Sidechain.Api.Query.Indexers.Utxo</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">AddressUtxo</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html"><span class="hs-identifier">Marconi.Sidechain.Api.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#CliArgs"><span class="hs-identifier">CliArgs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#CliArgs"><span class="hs-identifier">CliArgs</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier">SidechainEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier">SidechainEnv</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>                                    </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainIndexers"><span class="hs-identifier">SidechainIndexers</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainIndexers"><span class="hs-identifier">SidechainIndexers</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#epochStateIndexerEnvIndexer"><span class="hs-identifier">epochStateIndexerEnvIndexer</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-19"></span><span>                                    </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#sidechainAddressUtxoIndexer"><span class="hs-identifier">sidechainAddressUtxoIndexer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#sidechainEnvIndexers"><span class="hs-identifier">sidechainEnvIndexers</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#sidechainEpochStateIndexer"><span class="hs-identifier">sidechainEpochStateIndexer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier">Network.Wai.Handler.Warp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier">Port</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier">defaultSettings</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier">setPort</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-identifier">System.FilePath</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../filepath/html/src"><span class="hs-operator">(&lt;/&gt;)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- | Bootstraps the JSON-RPC  http server with appropriate settings and marconi cache</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- this is just a wrapper for the bootstrapHttp in json-rpc package</span><span>
+</span><span id="line-25"></span><span class="annot"><a href="Marconi.Sidechain.Bootstrap.html#initializeSidechainEnv"><span class="hs-identifier hs-type">initializeSidechainEnv</span></a></span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier hs-type">Port</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">TargetAddresses</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-type">SidechainEnv</span></a></span><span>
+</span><span id="line-29"></span><span id="initializeSidechainEnv"><span class="annot"><span class="annottext">initializeSidechainEnv :: Maybe Port -&gt; Maybe TargetAddresses -&gt; IO SidechainEnv
+</span><a href="Marconi.Sidechain.Bootstrap.html#initializeSidechainEnv"><span class="hs-identifier hs-var hs-var">initializeSidechainEnv</span></a></span></span><span> </span><span id="local-6989586621679327622"><span class="annot"><span class="annottext">Maybe Port
+</span><a href="#local-6989586621679327622"><span class="hs-identifier hs-var">maybePort</span></a></span></span><span> </span><span id="local-6989586621679327621"><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><a href="#local-6989586621679327621"><span class="hs-identifier hs-var">targetAddresses</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679327620"><span class="annot"><span class="annottext">httpsettings :: Settings
+</span><a href="#local-6989586621679327620"><span class="hs-identifier hs-var hs-var">httpsettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Settings -&gt; (Port -&gt; Settings) -&gt; Maybe Port -&gt; Settings
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="annot"><span class="annottext">Settings
+</span><a href="../../../../warp/html/src"><span class="hs-identifier hs-var">defaultSettings</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Port -&gt; Settings -&gt; Settings) -&gt; Settings -&gt; Port -&gt; Settings
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">flip</span></a></span><span> </span><span class="annot"><span class="annottext">Port -&gt; Settings -&gt; Settings
+</span><a href="../../../../warp/html/src"><span class="hs-identifier hs-var">setPort</span></a></span><span> </span><span class="annot"><span class="annottext">Settings
+</span><a href="../../../../warp/html/src"><span class="hs-identifier hs-var">defaultSettings</span></a></span><span> </span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe Port
+</span><a href="#local-6989586621679327622"><span class="hs-identifier hs-var">maybePort</span></a></span><span>
+</span><span id="line-31"></span><span>    </span><span id="local-6989586621679327617"><span class="annot"><span class="annottext">SidechainIndexers
+</span><a href="#local-6989586621679327617"><span class="hs-identifier hs-var">sidechainIndexers</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-32"></span><span>        </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv -&gt; EpochStateIndexerEnv -&gt; SidechainIndexers
+</span><a href="Marconi.Sidechain.Api.Types.html#SidechainIndexers"><span class="hs-identifier hs-var">SidechainIndexers</span></a></span><span>
+</span><span id="line-33"></span><span>            </span><span class="annot"><span class="annottext">(AddressUtxoIndexerEnv
+ -&gt; EpochStateIndexerEnv -&gt; SidechainIndexers)
+-&gt; IO AddressUtxoIndexerEnv
+-&gt; IO (EpochStateIndexerEnv -&gt; SidechainIndexers)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TargetAddresses -&gt; IO AddressUtxoIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#initializeEnv"><span class="hs-identifier hs-var">AddressUtxo.initializeEnv</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><a href="#local-6989586621679327621"><span class="hs-identifier hs-var">targetAddresses</span></a></span><span>
+</span><span id="line-34"></span><span>            </span><span class="annot"><span class="annottext">IO (EpochStateIndexerEnv -&gt; SidechainIndexers)
+-&gt; IO EpochStateIndexerEnv -&gt; IO SidechainIndexers
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;*&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#initializeEnv"><span class="hs-identifier hs-var">EpochState.initializeEnv</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><span class="annottext">SidechainEnv -&gt; IO SidechainEnv
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(SidechainEnv -&gt; IO SidechainEnv)
+-&gt; SidechainEnv -&gt; IO SidechainEnv
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Settings -&gt; SidechainIndexers -&gt; SidechainEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-var">SidechainEnv</span></a></span><span> </span><span class="annot"><span class="annottext">Settings
+</span><a href="#local-6989586621679327620"><span class="hs-identifier hs-var">httpsettings</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainIndexers
+</span><a href="#local-6989586621679327617"><span class="hs-identifier hs-var">sidechainIndexers</span></a></span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- |  Marconi cardano blockchain indexer</span><span>
+</span><span id="line-38"></span><span class="annot"><a href="Marconi.Sidechain.Bootstrap.html#bootstrapIndexers"><span class="hs-identifier hs-type">bootstrapIndexers</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#CliArgs"><span class="hs-identifier hs-type">CliArgs</span></a></span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-type">SidechainEnv</span></a></span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span id="bootstrapIndexers"><span class="annot"><span class="annottext">bootstrapIndexers :: CliArgs -&gt; SidechainEnv -&gt; IO ()
+</span><a href="Marconi.Sidechain.Bootstrap.html#bootstrapIndexers"><span class="hs-identifier hs-var hs-var">bootstrapIndexers</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#CliArgs"><span class="hs-identifier hs-type">CliArgs</span></a></span><span> </span><span id="local-6989586621679327612"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327612"><span class="hs-identifier hs-var">socketPath</span></a></span></span><span> </span><span id="local-6989586621679327611"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327611"><span class="hs-identifier hs-var">nodeConfigPath</span></a></span></span><span> </span><span id="local-6989586621679327610"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327610"><span class="hs-identifier hs-var">dbPath</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe Port
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679327609"><span class="annot"><span class="annottext">NetworkId
+</span><a href="#local-6989586621679327609"><span class="hs-identifier hs-var">networkId</span></a></span></span><span> </span><span id="local-6989586621679327608"><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><a href="#local-6989586621679327608"><span class="hs-identifier hs-var">targetAddresses</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679327607"><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327607"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-43"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679327606"><span class="hs-identifier hs-type">addressUtxoCallback</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">UtxoHandle</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span>      </span><span id="local-6989586621679327606"><span class="annot"><span class="annottext">addressUtxoCallback :: State UtxoHandle -&gt; IO ()
+</span><a href="#local-6989586621679327606"><span class="hs-identifier hs-var hs-var">addressUtxoCallback</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-45"></span><span>          </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span>
+</span><span id="line-46"></span><span>        </span><span class="annot"><span class="annottext">(STM () -&gt; IO ())
+-&gt; (State UtxoHandle -&gt; STM ()) -&gt; State UtxoHandle -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv -&gt; State UtxoHandle -&gt; STM ()
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#updateEnvState"><span class="hs-identifier hs-var">AddressUtxo.updateEnvState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327607"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainEnv
+-&gt; Getting AddressUtxoIndexerEnv SidechainEnv AddressUtxoIndexerEnv
+-&gt; AddressUtxoIndexerEnv
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">(SidechainIndexers
+ -&gt; Const AddressUtxoIndexerEnv SidechainIndexers)
+-&gt; SidechainEnv -&gt; Const AddressUtxoIndexerEnv SidechainEnv
+Lens' SidechainEnv SidechainIndexers
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEnvIndexers"><span class="hs-identifier hs-var">sidechainEnvIndexers</span></a></span><span> </span><span class="annot"><span class="annottext">((SidechainIndexers
+  -&gt; Const AddressUtxoIndexerEnv SidechainIndexers)
+ -&gt; SidechainEnv -&gt; Const AddressUtxoIndexerEnv SidechainEnv)
+-&gt; ((AddressUtxoIndexerEnv
+     -&gt; Const AddressUtxoIndexerEnv AddressUtxoIndexerEnv)
+    -&gt; SidechainIndexers
+    -&gt; Const AddressUtxoIndexerEnv SidechainIndexers)
+-&gt; Getting AddressUtxoIndexerEnv SidechainEnv AddressUtxoIndexerEnv
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(AddressUtxoIndexerEnv
+ -&gt; Const AddressUtxoIndexerEnv AddressUtxoIndexerEnv)
+-&gt; SidechainIndexers
+-&gt; Const AddressUtxoIndexerEnv SidechainIndexers
+Lens' SidechainIndexers AddressUtxoIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainAddressUtxoIndexer"><span class="hs-identifier hs-var">sidechainAddressUtxoIndexer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621679327603"><span class="hs-identifier hs-type">epochStateCallback</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">EpochStateHandle</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">StorableEvent</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">EpochStateHandle</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span>      </span><span id="local-6989586621679327603"><span class="annot"><span class="annottext">epochStateCallback :: (State EpochStateHandle, StorableEvent EpochStateHandle) -&gt; IO ()
+</span><a href="#local-6989586621679327603"><span class="hs-identifier hs-var hs-var">epochStateCallback</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-49"></span><span>          </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span>
+</span><span id="line-50"></span><span>        </span><span class="annot"><span class="annottext">(STM () -&gt; IO ())
+-&gt; ((State EpochStateHandle, StorableEvent EpochStateHandle)
+    -&gt; STM ())
+-&gt; (State EpochStateHandle, StorableEvent EpochStateHandle)
+-&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar (State EpochStateHandle) -&gt; State EpochStateHandle -&gt; STM ()
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#updateEnvState"><span class="hs-identifier hs-var">EpochState.updateEnvState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327607"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainEnv
+-&gt; Getting
+     (TMVar (State EpochStateHandle))
+     SidechainEnv
+     (TMVar (State EpochStateHandle))
+-&gt; TMVar (State EpochStateHandle)
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">(SidechainIndexers
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; SidechainEnv
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainEnv
+Lens' SidechainEnv SidechainIndexers
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEnvIndexers"><span class="hs-identifier hs-var">sidechainEnvIndexers</span></a></span><span> </span><span class="annot"><span class="annottext">((SidechainIndexers
+  -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+ -&gt; SidechainEnv
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainEnv)
+-&gt; ((TMVar (State EpochStateHandle)
+     -&gt; Const
+          (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+    -&gt; SidechainIndexers
+    -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; Getting
+     (TMVar (State EpochStateHandle))
+     SidechainEnv
+     (TMVar (State EpochStateHandle))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochStateIndexerEnv
+ -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+-&gt; SidechainIndexers
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers
+Lens' SidechainIndexers EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEpochStateIndexer"><span class="hs-identifier hs-var">sidechainEpochStateIndexer</span></a></span><span> </span><span class="annot"><span class="annottext">((EpochStateIndexerEnv
+  -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+ -&gt; SidechainIndexers
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; ((TMVar (State EpochStateHandle)
+     -&gt; Const
+          (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+    -&gt; EpochStateIndexerEnv
+    -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+-&gt; (TMVar (State EpochStateHandle)
+    -&gt; Const
+         (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+-&gt; SidechainIndexers
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(TMVar (State EpochStateHandle)
+ -&gt; Const
+      (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+-&gt; EpochStateIndexerEnv
+-&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv
+Iso' EpochStateIndexerEnv (TMVar (State EpochStateHandle))
+</span><a href="Marconi.Sidechain.Api.Types.html#epochStateIndexerEnvIndexer"><span class="hs-identifier hs-var">epochStateIndexerEnvIndexer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>        </span><span class="annot"><span class="annottext">(State EpochStateHandle -&gt; STM ())
+-&gt; ((State EpochStateHandle, StorableEvent EpochStateHandle)
+    -&gt; State EpochStateHandle)
+-&gt; (State EpochStateHandle, StorableEvent EpochStateHandle)
+-&gt; STM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(State EpochStateHandle, StorableEvent EpochStateHandle)
+-&gt; State EpochStateHandle
+forall a b. (a, b) -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fst</span></a></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679327601"><span class="annot"><span class="annottext">indexers :: [(SecurityParam -&gt; Coordinator -&gt; FilePath -&gt; IO [ChainPoint],
+  Maybe FilePath)]
+</span><a href="#local-6989586621679327601"><span class="hs-identifier hs-var hs-var">indexers</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-53"></span><span>          </span><span class="hs-special">[</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">(State UtxoHandle -&gt; IO ()) -&gt; Maybe TargetAddresses -&gt; Worker
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">utxoWorker</span></a></span><span> </span><span class="annot"><span class="annottext">State UtxoHandle -&gt; IO ()
+</span><a href="#local-6989586621679327606"><span class="hs-identifier hs-var">addressUtxoCallback</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><a href="#local-6989586621679327608"><span class="hs-identifier hs-var">targetAddresses</span></a></span><span>
+</span><span id="line-54"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; FilePath -&gt; Maybe FilePath
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327610"><span class="hs-identifier hs-var">dbPath</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">utxoDbName</span></a></span><span>
+</span><span id="line-55"></span><span>            </span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span>          </span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">FilePath
+-&gt; ((State EpochStateHandle, StorableEvent EpochStateHandle)
+    -&gt; IO ())
+-&gt; Worker
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">epochStateWorker</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327611"><span class="hs-identifier hs-var">nodeConfigPath</span></a></span><span> </span><span class="annot"><span class="annottext">(State EpochStateHandle, StorableEvent EpochStateHandle) -&gt; IO ()
+</span><a href="#local-6989586621679327603"><span class="hs-identifier hs-var">epochStateCallback</span></a></span><span>
+</span><span id="line-57"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Just</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; FilePath -&gt; Maybe FilePath
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327610"><span class="hs-identifier hs-var">dbPath</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><a href="../../../../filepath/html/src"><span class="hs-operator hs-var">&lt;/&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">epochStateDbName</span></a></span><span>
+</span><span id="line-58"></span><span>            </span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span>          </span><span class="hs-special">]</span><span>
+</span><span id="line-60"></span><span>  </span><span class="annot"><span class="annottext">FilePath
+-&gt; NetworkId
+-&gt; ChainPoint
+-&gt; Text
+-&gt; [(Worker, Maybe FilePath)]
+-&gt; IO ()
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">runIndexers</span></a></span><span>
+</span><span id="line-61"></span><span>    </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679327612"><span class="hs-identifier hs-var">socketPath</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span class="annot"><span class="annottext">NetworkId
+</span><a href="#local-6989586621679327609"><span class="hs-identifier hs-var">networkId</span></a></span><span>
+</span><span id="line-63"></span><span>    </span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.ChainPointAtGenesis</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;marconi-sidechain&quot;</span></span><span>
+</span><span id="line-65"></span><span>    </span><span class="annot"><span class="annottext">[(SecurityParam -&gt; Coordinator -&gt; FilePath -&gt; IO [ChainPoint],
+  Maybe FilePath)]
+[(Worker, Maybe FilePath)]
+</span><a href="#local-6989586621679327601"><span class="hs-identifier hs-var">indexers</span></a></span><span>
+</span><span id="line-66"></span></pre></body></html>

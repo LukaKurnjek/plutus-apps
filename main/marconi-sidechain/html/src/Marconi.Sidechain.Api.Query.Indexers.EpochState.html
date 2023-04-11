@@ -1,0 +1,356 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Marconi.Sidechain.Api.Query.Indexers.EpochState</span><span>
+</span><span id="line-2"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#initializeEnv"><span class="hs-identifier">initializeEnv</span></a></span><span>
+</span><span id="line-3"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#updateEnvState"><span class="hs-identifier">updateEnvState</span></a></span><span>
+</span><span id="line-4"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#querySDDByEpochNo"><span class="hs-identifier">querySDDByEpochNo</span></a></span><span>
+</span><span id="line-5"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#queryNonceByEpochNo"><span class="hs-identifier">queryNonceByEpochNo</span></a></span><span>
+</span><span id="line-6"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">C</span></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Concurrent.STM.TMVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">TMVar</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">newEmptyTMVarIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">tryReadTMVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-identifier">Control.Lens</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-operator">(^.)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Monad.STM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">STM</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">atomically</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Word</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Word64</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.EpochState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">EpochStateHandle</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">StorableQuery</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">NonceByEpochNoQuery</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">SDDByEpochNoQuery</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-14"></span><span>                                               </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">StorableResult</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">NonceByEpochNoResult</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">SDDByEpochNoResult</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">Marconi.Core.Storable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">State</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">Marconi.Core.Storable</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Storable</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html"><span class="hs-identifier">Marconi.Sidechain.Api.Routes</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#EpochNonceResult"><span class="hs-identifier">EpochNonceResult</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#EpochNonceResult"><span class="hs-identifier">EpochNonceResult</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>                                     </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#EpochStakePoolDelegationResult"><span class="hs-identifier">EpochStakePoolDelegationResult</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#EpochStakePoolDelegationResult"><span class="hs-identifier">EpochStakePoolDelegationResult</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html"><span class="hs-identifier">Marconi.Sidechain.Api.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier">EpochStateIndexerEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier">EpochStateIndexerEnv</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier">QueryExceptions</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryError"><span class="hs-identifier">QueryError</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>                                    </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier">SidechainEnv</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#epochStateIndexerEnvIndexer"><span class="hs-identifier">epochStateIndexerEnvIndexer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#sidechainEnvIndexers"><span class="hs-identifier">sidechainEnvIndexers</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-21"></span><span>                                    </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#sidechainEpochStateIndexer"><span class="hs-identifier">sidechainEpochStateIndexer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Utils.html"><span class="hs-identifier">Marconi.Sidechain.Utils</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Utils.html#writeTMVar"><span class="hs-identifier">writeTMVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- | Bootstraps the EpochState query environment.</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- The module is responsible for accessing SQLite for queries.</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- The main issue we try to avoid here is mixing inserts and quries in SQLite to avoid locking the database</span><span>
+</span><span id="line-27"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#initializeEnv"><span class="hs-identifier hs-type">initializeEnv</span></a></span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier hs-type">EpochStateIndexerEnv</span></a></span><span> </span><span class="hs-comment">-- ^ returns Query runtime environment</span><span>
+</span><span id="line-29"></span><span id="initializeEnv"><span class="annot"><span class="annottext">initializeEnv :: IO EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#initializeEnv"><span class="hs-identifier hs-var hs-var">initializeEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TMVar (State EpochStateHandle) -&gt; EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier hs-var">EpochStateIndexerEnv</span></a></span><span> </span><span class="annot"><span class="annottext">(TMVar (State EpochStateHandle) -&gt; EpochStateIndexerEnv)
+-&gt; IO (TMVar (State EpochStateHandle)) -&gt; IO EpochStateIndexerEnv
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">IO (TMVar (State EpochStateHandle))
+forall a. IO (TMVar a)
+</span><a href="../../../../stm/html/src"><span class="hs-identifier hs-var">newEmptyTMVarIO</span></a></span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#updateEnvState"><span class="hs-identifier hs-type">updateEnvState</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier hs-type">TMVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">EpochStateHandle</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">EpochStateHandle</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">STM</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span id="updateEnvState"><span class="annot"><span class="annottext">updateEnvState :: TMVar (State EpochStateHandle) -&gt; State EpochStateHandle -&gt; STM ()
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#updateEnvState"><span class="hs-identifier hs-var hs-var">updateEnvState</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TMVar (State EpochStateHandle) -&gt; State EpochStateHandle -&gt; STM ()
+forall a. TMVar a -&gt; a -&gt; STM ()
+</span><a href="Marconi.Sidechain.Utils.html#writeTMVar"><span class="hs-identifier hs-var">writeTMVar</span></a></span><span>
+</span><span id="line-33"></span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- | Retrieve SDD (stakepool delegation distribution) associated at the given 'EpochNo'.</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- We return an empty list if the 'EpochNo' is not found.</span><span>
+</span><span id="line-36"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#querySDDByEpochNo"><span class="hs-identifier hs-type">querySDDByEpochNo</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-type">SidechainEnv</span></a></span><span> </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-38"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word64</span></a></span><span> </span><span class="hs-comment">-- ^ Bech32 Address</span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#EpochStakePoolDelegationResult"><span class="hs-identifier hs-type">EpochStakePoolDelegationResult</span></a></span><span class="hs-special">)</span><span>  </span><span class="hs-comment">-- ^ Plutus address conversion error may occur</span><span>
+</span><span id="line-40"></span><span id="querySDDByEpochNo"><span class="annot"><span class="annottext">querySDDByEpochNo :: SidechainEnv
+-&gt; Word64
+-&gt; IO (Either QueryExceptions EpochStakePoolDelegationResult)
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#querySDDByEpochNo"><span class="hs-identifier hs-var hs-var">querySDDByEpochNo</span></a></span></span><span> </span><span id="local-6989586621679327528"><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327528"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679327527"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679327527"><span class="hs-identifier hs-var">epochNo</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-41"></span><span>    </span><span class="hs-comment">-- We must stop the indexer inserts before doing the query.</span><span>
+</span><span id="line-42"></span><span>    </span><span id="local-6989586621679327526"><span class="annot"><span class="annottext">Maybe (State EpochStateHandle)
+</span><a href="#local-6989586621679327526"><span class="hs-identifier hs-var">epochStateIndexer</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-43"></span><span>        </span><span class="annot"><span class="annottext">STM (Maybe (State EpochStateHandle))
+-&gt; IO (Maybe (State EpochStateHandle))
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span>
+</span><span id="line-44"></span><span>        </span><span class="annot"><span class="annottext">(STM (Maybe (State EpochStateHandle))
+ -&gt; IO (Maybe (State EpochStateHandle)))
+-&gt; STM (Maybe (State EpochStateHandle))
+-&gt; IO (Maybe (State EpochStateHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar (State EpochStateHandle)
+-&gt; STM (Maybe (State EpochStateHandle))
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><a href="../../../../stm/html/src"><span class="hs-identifier hs-var">tryReadTMVar</span></a></span><span>
+</span><span id="line-45"></span><span>        </span><span class="annot"><span class="annottext">(TMVar (State EpochStateHandle)
+ -&gt; STM (Maybe (State EpochStateHandle)))
+-&gt; TMVar (State EpochStateHandle)
+-&gt; STM (Maybe (State EpochStateHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327528"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainEnv
+-&gt; Getting
+     (TMVar (State EpochStateHandle))
+     SidechainEnv
+     (TMVar (State EpochStateHandle))
+-&gt; TMVar (State EpochStateHandle)
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">(SidechainIndexers
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; SidechainEnv
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainEnv
+Lens' SidechainEnv SidechainIndexers
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEnvIndexers"><span class="hs-identifier hs-var">sidechainEnvIndexers</span></a></span><span> </span><span class="annot"><span class="annottext">((SidechainIndexers
+  -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+ -&gt; SidechainEnv
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainEnv)
+-&gt; ((TMVar (State EpochStateHandle)
+     -&gt; Const
+          (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+    -&gt; SidechainIndexers
+    -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; Getting
+     (TMVar (State EpochStateHandle))
+     SidechainEnv
+     (TMVar (State EpochStateHandle))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochStateIndexerEnv
+ -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+-&gt; SidechainIndexers
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers
+Lens' SidechainIndexers EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEpochStateIndexer"><span class="hs-identifier hs-var">sidechainEpochStateIndexer</span></a></span><span> </span><span class="annot"><span class="annottext">((EpochStateIndexerEnv
+  -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+ -&gt; SidechainIndexers
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; ((TMVar (State EpochStateHandle)
+     -&gt; Const
+          (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+    -&gt; EpochStateIndexerEnv
+    -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+-&gt; (TMVar (State EpochStateHandle)
+    -&gt; Const
+         (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+-&gt; SidechainIndexers
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(TMVar (State EpochStateHandle)
+ -&gt; Const
+      (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+-&gt; EpochStateIndexerEnv
+-&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv
+Iso' EpochStateIndexerEnv (TMVar (State EpochStateHandle))
+</span><a href="Marconi.Sidechain.Api.Types.html#epochStateIndexerEnvIndexer"><span class="hs-identifier hs-var">epochStateIndexerEnvIndexer</span></a></span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe (State EpochStateHandle)
+</span><a href="#local-6989586621679327526"><span class="hs-identifier hs-var">epochStateIndexer</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-47"></span><span>      </span><span class="annot"><span class="annottext">Maybe (State EpochStateHandle)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either QueryExceptions EpochStakePoolDelegationResult
+-&gt; IO (Either QueryExceptions EpochStakePoolDelegationResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions EpochStakePoolDelegationResult
+ -&gt; IO (Either QueryExceptions EpochStakePoolDelegationResult))
+-&gt; Either QueryExceptions EpochStakePoolDelegationResult
+-&gt; IO (Either QueryExceptions EpochStakePoolDelegationResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">QueryExceptions
+-&gt; Either QueryExceptions EpochStakePoolDelegationResult
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(QueryExceptions
+ -&gt; Either QueryExceptions EpochStakePoolDelegationResult)
+-&gt; QueryExceptions
+-&gt; Either QueryExceptions EpochStakePoolDelegationResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; QueryExceptions
+</span><a href="Marconi.Sidechain.Api.Types.html#QueryError"><span class="hs-identifier hs-var">QueryError</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Failed to read EpochState indexer&quot;</span></span><span>
+</span><span id="line-48"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679327524"><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327524"><span class="hs-identifier hs-var">indexer</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">State EpochStateHandle
+-&gt; IO (Either QueryExceptions EpochStakePoolDelegationResult)
+forall a.
+State EpochStateHandle
+-&gt; IO (Either a EpochStakePoolDelegationResult)
+</span><a href="#local-6989586621679327523"><span class="hs-identifier hs-var">query</span></a></span><span> </span><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327524"><span class="hs-identifier hs-var">indexer</span></a></span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>        </span><span id="local-6989586621679327523"><span class="annot"><span class="annottext">query :: State EpochStateHandle
+-&gt; IO (Either a EpochStakePoolDelegationResult)
+</span><a href="#local-6989586621679327523"><span class="hs-identifier hs-var hs-var">query</span></a></span></span><span> </span><span id="local-6989586621679327522"><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327522"><span class="hs-identifier hs-var">indexer</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-52"></span><span>            </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">SDDByEpochNoResult</span></a></span><span> </span><span id="local-6989586621679327521"><span class="annot"><a href="#local-6989586621679327521"><span class="hs-identifier hs-var">epochSddRows</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-53"></span><span>                </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint EpochStateHandle)
+-&gt; State EpochStateHandle
+-&gt; StorableQuery EpochStateHandle
+-&gt; StorableMonad EpochStateHandle (StorableResult EpochStateHandle)
+forall h.
+(HasPoint (StorableEvent h) (StorablePoint h),
+ Ord (StorablePoint h), Queryable h, PrimMonad (StorableMonad h)) =&gt;
+QueryInterval (StorablePoint h)
+-&gt; State h -&gt; StorableQuery h -&gt; StorableMonad h (StorableResult h)
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.query</span></a></span><span> </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint EpochStateHandle)
+forall p. QueryInterval p
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.QEverything</span></a></span><span> </span><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327522"><span class="hs-identifier hs-var">indexer</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EpochNo -&gt; StorableQuery EpochStateHandle
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">SDDByEpochNoQuery</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochNo -&gt; StorableQuery EpochStateHandle)
+-&gt; EpochNo -&gt; StorableQuery EpochStateHandle
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; EpochNo
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">C.EpochNo</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679327527"><span class="hs-identifier hs-var">epochNo</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>            </span><span class="annot"><span class="annottext">Either a EpochStakePoolDelegationResult
+-&gt; IO (Either a EpochStakePoolDelegationResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either a EpochStakePoolDelegationResult
+ -&gt; IO (Either a EpochStakePoolDelegationResult))
+-&gt; Either a EpochStakePoolDelegationResult
+-&gt; IO (Either a EpochStakePoolDelegationResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">EpochStakePoolDelegationResult
+-&gt; Either a EpochStakePoolDelegationResult
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochStakePoolDelegationResult
+ -&gt; Either a EpochStakePoolDelegationResult)
+-&gt; EpochStakePoolDelegationResult
+-&gt; Either a EpochStakePoolDelegationResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[EpochSDDRow] -&gt; EpochStakePoolDelegationResult
+</span><a href="Marconi.Sidechain.Api.Routes.html#EpochStakePoolDelegationResult"><span class="hs-identifier hs-var">EpochStakePoolDelegationResult</span></a></span><span> </span><span class="annot"><span class="annottext">[EpochSDDRow]
+</span><a href="#local-6989586621679327521"><span class="hs-identifier hs-var">epochSddRows</span></a></span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- | Retrieve the nonce associated at the given 'EpochNo'</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- We return an empty list if the 'EpochNo' is not found.</span><span>
+</span><span id="line-58"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#queryNonceByEpochNo"><span class="hs-identifier hs-type">queryNonceByEpochNo</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-type">SidechainEnv</span></a></span><span> </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word64</span></a></span><span> </span><span class="hs-comment">-- ^ Bech32 Address</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#EpochNonceResult"><span class="hs-identifier hs-type">EpochNonceResult</span></a></span><span class="hs-special">)</span><span>  </span><span class="hs-comment">-- ^ Plutus address conversion error may occur</span><span>
+</span><span id="line-62"></span><span id="queryNonceByEpochNo"><span class="annot"><span class="annottext">queryNonceByEpochNo :: SidechainEnv
+-&gt; Word64 -&gt; IO (Either QueryExceptions EpochNonceResult)
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.EpochState.html#queryNonceByEpochNo"><span class="hs-identifier hs-var hs-var">queryNonceByEpochNo</span></a></span></span><span> </span><span id="local-6989586621679327517"><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327517"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679327516"><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679327516"><span class="hs-identifier hs-var">epochNo</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-comment">-- We must stop the indexer inserts before doing the query.</span><span>
+</span><span id="line-64"></span><span>    </span><span id="local-6989586621679327515"><span class="annot"><span class="annottext">Maybe (State EpochStateHandle)
+</span><a href="#local-6989586621679327515"><span class="hs-identifier hs-var">epochStateIndexer</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-65"></span><span>        </span><span class="annot"><span class="annottext">STM (Maybe (State EpochStateHandle))
+-&gt; IO (Maybe (State EpochStateHandle))
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span>
+</span><span id="line-66"></span><span>        </span><span class="annot"><span class="annottext">(STM (Maybe (State EpochStateHandle))
+ -&gt; IO (Maybe (State EpochStateHandle)))
+-&gt; STM (Maybe (State EpochStateHandle))
+-&gt; IO (Maybe (State EpochStateHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar (State EpochStateHandle)
+-&gt; STM (Maybe (State EpochStateHandle))
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><a href="../../../../stm/html/src"><span class="hs-identifier hs-var">tryReadTMVar</span></a></span><span>
+</span><span id="line-67"></span><span>        </span><span class="annot"><span class="annottext">(TMVar (State EpochStateHandle)
+ -&gt; STM (Maybe (State EpochStateHandle)))
+-&gt; TMVar (State EpochStateHandle)
+-&gt; STM (Maybe (State EpochStateHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainEnv
+</span><a href="#local-6989586621679327517"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">SidechainEnv
+-&gt; Getting
+     (TMVar (State EpochStateHandle))
+     SidechainEnv
+     (TMVar (State EpochStateHandle))
+-&gt; TMVar (State EpochStateHandle)
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">(SidechainIndexers
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; SidechainEnv
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainEnv
+Lens' SidechainEnv SidechainIndexers
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEnvIndexers"><span class="hs-identifier hs-var">sidechainEnvIndexers</span></a></span><span> </span><span class="annot"><span class="annottext">((SidechainIndexers
+  -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+ -&gt; SidechainEnv
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainEnv)
+-&gt; ((TMVar (State EpochStateHandle)
+     -&gt; Const
+          (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+    -&gt; SidechainIndexers
+    -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; Getting
+     (TMVar (State EpochStateHandle))
+     SidechainEnv
+     (TMVar (State EpochStateHandle))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochStateIndexerEnv
+ -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+-&gt; SidechainIndexers
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers
+Lens' SidechainIndexers EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#sidechainEpochStateIndexer"><span class="hs-identifier hs-var">sidechainEpochStateIndexer</span></a></span><span> </span><span class="annot"><span class="annottext">((EpochStateIndexerEnv
+  -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+ -&gt; SidechainIndexers
+ -&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers)
+-&gt; ((TMVar (State EpochStateHandle)
+     -&gt; Const
+          (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+    -&gt; EpochStateIndexerEnv
+    -&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv)
+-&gt; (TMVar (State EpochStateHandle)
+    -&gt; Const
+         (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+-&gt; SidechainIndexers
+-&gt; Const (TMVar (State EpochStateHandle)) SidechainIndexers
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">(TMVar (State EpochStateHandle)
+ -&gt; Const
+      (TMVar (State EpochStateHandle)) (TMVar (State EpochStateHandle)))
+-&gt; EpochStateIndexerEnv
+-&gt; Const (TMVar (State EpochStateHandle)) EpochStateIndexerEnv
+Iso' EpochStateIndexerEnv (TMVar (State EpochStateHandle))
+</span><a href="Marconi.Sidechain.Api.Types.html#epochStateIndexerEnvIndexer"><span class="hs-identifier hs-var">epochStateIndexerEnvIndexer</span></a></span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe (State EpochStateHandle)
+</span><a href="#local-6989586621679327515"><span class="hs-identifier hs-var">epochStateIndexer</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-69"></span><span>      </span><span class="annot"><span class="annottext">Maybe (State EpochStateHandle)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either QueryExceptions EpochNonceResult
+-&gt; IO (Either QueryExceptions EpochNonceResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions EpochNonceResult
+ -&gt; IO (Either QueryExceptions EpochNonceResult))
+-&gt; Either QueryExceptions EpochNonceResult
+-&gt; IO (Either QueryExceptions EpochNonceResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">QueryExceptions -&gt; Either QueryExceptions EpochNonceResult
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(QueryExceptions -&gt; Either QueryExceptions EpochNonceResult)
+-&gt; QueryExceptions -&gt; Either QueryExceptions EpochNonceResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; QueryExceptions
+</span><a href="Marconi.Sidechain.Api.Types.html#QueryError"><span class="hs-identifier hs-var">QueryError</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Failed to read EpochState indexer&quot;</span></span><span>
+</span><span id="line-70"></span><span>      </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679327514"><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327514"><span class="hs-identifier hs-var">indexer</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">State EpochStateHandle
+-&gt; IO (Either QueryExceptions EpochNonceResult)
+forall a. State EpochStateHandle -&gt; IO (Either a EpochNonceResult)
+</span><a href="#local-6989586621679327513"><span class="hs-identifier hs-var">query</span></a></span><span> </span><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327514"><span class="hs-identifier hs-var">indexer</span></a></span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-73"></span><span>        </span><span id="local-6989586621679327513"><span class="annot"><span class="annottext">query :: State EpochStateHandle -&gt; IO (Either a EpochNonceResult)
+</span><a href="#local-6989586621679327513"><span class="hs-identifier hs-var hs-var">query</span></a></span></span><span> </span><span id="local-6989586621679327512"><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327512"><span class="hs-identifier hs-var">indexer</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-74"></span><span>            </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">NonceByEpochNoResult</span></a></span><span> </span><span id="local-6989586621679327511"><span class="annot"><a href="#local-6989586621679327511"><span class="hs-identifier hs-var">epochNonceRows</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-75"></span><span>                </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint EpochStateHandle)
+-&gt; State EpochStateHandle
+-&gt; StorableQuery EpochStateHandle
+-&gt; StorableMonad EpochStateHandle (StorableResult EpochStateHandle)
+forall h.
+(HasPoint (StorableEvent h) (StorablePoint h),
+ Ord (StorablePoint h), Queryable h, PrimMonad (StorableMonad h)) =&gt;
+QueryInterval (StorablePoint h)
+-&gt; State h -&gt; StorableQuery h -&gt; StorableMonad h (StorableResult h)
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.query</span></a></span><span> </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint EpochStateHandle)
+forall p. QueryInterval p
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.QEverything</span></a></span><span> </span><span class="annot"><span class="annottext">State EpochStateHandle
+</span><a href="#local-6989586621679327512"><span class="hs-identifier hs-var">indexer</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EpochNo -&gt; StorableQuery EpochStateHandle
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">NonceByEpochNoQuery</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochNo -&gt; StorableQuery EpochStateHandle)
+-&gt; EpochNo -&gt; StorableQuery EpochStateHandle
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Word64 -&gt; EpochNo
+</span><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-var">C.EpochNo</span></a></span><span> </span><span class="annot"><span class="annottext">Word64
+</span><a href="#local-6989586621679327516"><span class="hs-identifier hs-var">epochNo</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span>            </span><span class="annot"><span class="annottext">Either a EpochNonceResult -&gt; IO (Either a EpochNonceResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either a EpochNonceResult -&gt; IO (Either a EpochNonceResult))
+-&gt; Either a EpochNonceResult -&gt; IO (Either a EpochNonceResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">EpochNonceResult -&gt; Either a EpochNonceResult
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(EpochNonceResult -&gt; Either a EpochNonceResult)
+-&gt; EpochNonceResult -&gt; Either a EpochNonceResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe EpochNonceRow -&gt; EpochNonceResult
+</span><a href="Marconi.Sidechain.Api.Routes.html#EpochNonceResult"><span class="hs-identifier hs-var">EpochNonceResult</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe EpochNonceRow
+</span><a href="#local-6989586621679327511"><span class="hs-identifier hs-var">epochNonceRows</span></a></span><span>
+</span><span id="line-77"></span></pre></body></html>

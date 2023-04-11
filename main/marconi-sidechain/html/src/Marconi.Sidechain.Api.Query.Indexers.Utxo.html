@@ -1,0 +1,499 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Marconi.Sidechain.Api.Query.Indexers.Utxo</span><span>
+</span><span id="line-2"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#initializeEnv"><span class="hs-identifier">initializeEnv</span></a></span><span>
+</span><span id="line-3"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#currentSyncedPoint"><span class="hs-identifier">currentSyncedPoint</span></a></span><span>
+</span><span id="line-4"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByAddress"><span class="hs-identifier">findByAddress</span></a></span><span>
+</span><span id="line-5"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32Address"><span class="hs-identifier">findByBech32Address</span></a></span><span>
+</span><span id="line-6"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32AddressAtSlot"><span class="hs-identifier">findByBech32AddressAtSlot</span></a></span><span>
+</span><span id="line-7"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#reportQueryAddresses"><span class="hs-identifier">reportQueryAddresses</span></a></span><span>
+</span><span id="line-8"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Utxo.UtxoRow</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-9"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Utxo.UtxoIndexer</span></a></span><span>
+</span><span id="line-10"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#reportBech32Addresses"><span class="hs-identifier">reportBech32Addresses</span></a></span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#withQueryAction"><span class="hs-identifier">withQueryAction</span></a></span><span>
+</span><span id="line-12"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#updateEnvState"><span class="hs-identifier">updateEnvState</span></a></span><span>
+</span><span id="line-13"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-14"></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">C</span></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Concurrent.STM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">atomically</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Concurrent.STM.TMVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">newEmptyTMVarIO</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">tryReadTMVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-identifier">Control.Lens</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-operator">(^.)</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Monad.STM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">STM</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.Bifunctor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Bifunctor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">bimap</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Data.List.NonEmpty</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">NonEmpty</span></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Data.Text</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">Text</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier">unpack</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">GHC.Word</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Word64</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.AddressDatum</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">StorableQuery</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.Utxo</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Utxo</span></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">TargetAddresses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">Marconi.Core.Storable</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Storable</span></span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html"><span class="hs-identifier">Marconi.Sidechain.Api.Routes</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#AddressUtxoResult"><span class="hs-identifier">AddressUtxoResult</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#AddressUtxoResult"><span class="hs-identifier">AddressUtxoResult</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-29"></span><span>                                     </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#CurrentSyncedPointResult"><span class="hs-identifier">CurrentSyncedPointResult</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#CurrentSyncedPointResult"><span class="hs-identifier">CurrentSyncedPointResult</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html"><span class="hs-identifier">Marconi.Sidechain.Api.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier">AddressUtxoIndexerEnv</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-31"></span><span>                                    </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier">QueryExceptions</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryError"><span class="hs-identifier">QueryError</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#UnexpectedQueryResult"><span class="hs-identifier">UnexpectedQueryResult</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#addressUtxoIndexerEnvIndexer"><span class="hs-identifier">addressUtxoIndexerEnvIndexer</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-32"></span><span>                                    </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#addressUtxoIndexerEnvTargetAddresses"><span class="hs-identifier">addressUtxoIndexerEnvTargetAddresses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Utils.html"><span class="hs-identifier">Marconi.Sidechain.Utils</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Utils.html#writeTMVar"><span class="hs-identifier">writeTMVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- | Bootstraps the utxo query environment.</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- The module is responsible for accessing SQLite for quries.</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- The main issue we try to avoid here is mixing inserts and quries in SQLite to avoid locking the database</span><span>
+</span><span id="line-38"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#initializeEnv"><span class="hs-identifier hs-type">initializeEnv</span></a></span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">TargetAddresses</span></a></span><span> </span><span class="hs-comment">-- ^ user provided target addresses</span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-comment">-- ^ returns Query runtime environment</span><span>
+</span><span id="line-41"></span><span id="initializeEnv"><span class="annot"><span class="annottext">initializeEnv :: Maybe TargetAddresses -&gt; IO AddressUtxoIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#initializeEnv"><span class="hs-identifier hs-var hs-var">initializeEnv</span></a></span></span><span> </span><span id="local-6989586621679327405"><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><a href="#local-6989586621679327405"><span class="hs-identifier hs-var">targetAddresses</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-42"></span><span>    </span><span id="local-6989586621679327404"><span class="annot"><span class="annottext">TMVar (State UtxoHandle)
+</span><a href="#local-6989586621679327404"><span class="hs-identifier hs-var">ix</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (TMVar (State UtxoHandle))
+forall a. IO (TMVar a)
+</span><a href="../../../../stm/html/src"><span class="hs-identifier hs-var">newEmptyTMVarIO</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv -&gt; IO AddressUtxoIndexerEnv
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(AddressUtxoIndexerEnv -&gt; IO AddressUtxoIndexerEnv)
+-&gt; AddressUtxoIndexerEnv -&gt; IO AddressUtxoIndexerEnv
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TargetAddresses
+-&gt; TMVar (State UtxoHandle) -&gt; AddressUtxoIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-var">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><a href="#local-6989586621679327405"><span class="hs-identifier hs-var">targetAddresses</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar (State UtxoHandle)
+</span><a href="#local-6989586621679327404"><span class="hs-identifier hs-var">ix</span></a></span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- | Query utxos by Address</span><span>
+</span><span id="line-46"></span><span class="hs-comment">--  Address conversion error from Bech32 may occur</span><span>
+</span><span id="line-47"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByAddress"><span class="hs-identifier hs-type">findByAddress</span></a></span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.AddressAny</span></a></span><span> </span><span class="hs-comment">-- ^ Cardano address to query</span><span>
+</span><span id="line-50"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-slotting/html/src"><span class="hs-identifier hs-type">C.SlotNo</span></a></span><span> </span><span class="hs-comment">-- ^ The upper slot number we want to query</span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">Utxo.UtxoRow</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span id="findByAddress"><span class="annot"><span class="annottext">findByAddress :: AddressUtxoIndexerEnv
+-&gt; AddressAny
+-&gt; Maybe SlotNo
+-&gt; IO (Either QueryExceptions [UtxoRow])
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByAddress"><span class="hs-identifier hs-var hs-var">findByAddress</span></a></span></span><span> </span><span id="local-6989586621679327403"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327403"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679327402"><span class="annot"><span class="annottext">AddressAny
+</span><a href="#local-6989586621679327402"><span class="hs-identifier hs-var">addr</span></a></span></span><span> </span><span id="local-6989586621679327401"><span class="annot"><span class="annottext">Maybe SlotNo
+</span><a href="#local-6989586621679327401"><span class="hs-identifier hs-var">slot</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; StorableQuery UtxoHandle
+-&gt; IO (Either QueryExceptions [UtxoRow])
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#withQueryAction"><span class="hs-identifier hs-var">withQueryAction</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327403"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">AddressAny -&gt; Maybe SlotNo -&gt; StorableQuery UtxoHandle
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">Utxo.UtxoByAddress</span></a></span><span> </span><span class="annot"><span class="annottext">AddressAny
+</span><a href="#local-6989586621679327402"><span class="hs-identifier hs-var">addr</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe SlotNo
+</span><a href="#local-6989586621679327401"><span class="hs-identifier hs-var">slot</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- | Retrieve the current synced point of the utxo indexer</span><span>
+</span><span id="line-55"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#currentSyncedPoint"><span class="hs-identifier hs-type">currentSyncedPoint</span></a></span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span>
+</span><span id="line-57"></span><span>       </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-58"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#CurrentSyncedPointResult"><span class="hs-identifier hs-type">CurrentSyncedPointResult</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span>       </span><span class="hs-comment">-- ^ Wrong result type are unlikely but must be handled</span><span>
+</span><span id="line-60"></span><span id="currentSyncedPoint"><span class="annot"><span class="annottext">currentSyncedPoint :: AddressUtxoIndexerEnv
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#currentSyncedPoint"><span class="hs-identifier hs-var hs-var">currentSyncedPoint</span></a></span></span><span> </span><span id="local-6989586621679327399"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327399"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-61"></span><span>    </span><span id="local-6989586621679327398"><span class="annot"><span class="annottext">Maybe (State UtxoHandle)
+</span><a href="#local-6989586621679327398"><span class="hs-identifier hs-var">indexer</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM (Maybe (State UtxoHandle)) -&gt; IO (Maybe (State UtxoHandle))
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span>
+</span><span id="line-62"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TMVar (State UtxoHandle) -&gt; STM (Maybe (State UtxoHandle))
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><a href="../../../../stm/html/src"><span class="hs-identifier hs-var">tryReadTMVar</span></a></span><span> </span><span class="annot"><span class="annottext">(TMVar (State UtxoHandle) -&gt; STM (Maybe (State UtxoHandle)))
+-&gt; TMVar (State UtxoHandle) -&gt; STM (Maybe (State UtxoHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327399"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; Getting
+     (TMVar (State UtxoHandle))
+     AddressUtxoIndexerEnv
+     (TMVar (State UtxoHandle))
+-&gt; TMVar (State UtxoHandle)
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">Getting
+  (TMVar (State UtxoHandle))
+  AddressUtxoIndexerEnv
+  (TMVar (State UtxoHandle))
+Lens' AddressUtxoIndexerEnv (TMVar (State UtxoHandle))
+</span><a href="Marconi.Sidechain.Api.Types.html#addressUtxoIndexerEnvIndexer"><span class="hs-identifier hs-var">addressUtxoIndexerEnvIndexer</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-63"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe (State UtxoHandle)
+</span><a href="#local-6989586621679327398"><span class="hs-identifier hs-var">indexer</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-64"></span><span>         </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679327397"><span class="annot"><span class="annottext">State UtxoHandle
+</span><a href="#local-6989586621679327397"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-65"></span><span>             </span><span id="local-6989586621679327396"><span class="annot"><span class="annottext">StorableResult UtxoHandle
+</span><a href="#local-6989586621679327396"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint UtxoHandle)
+-&gt; State UtxoHandle
+-&gt; StorableQuery UtxoHandle
+-&gt; StorableMonad UtxoHandle (StorableResult UtxoHandle)
+forall h.
+(HasPoint (StorableEvent h) (StorablePoint h),
+ Ord (StorablePoint h), Queryable h, PrimMonad (StorableMonad h)) =&gt;
+QueryInterval (StorablePoint h)
+-&gt; State h -&gt; StorableQuery h -&gt; StorableMonad h (StorableResult h)
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.query</span></a></span><span> </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint UtxoHandle)
+forall p. QueryInterval p
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.QEverything</span></a></span><span> </span><span class="annot"><span class="annottext">State UtxoHandle
+</span><a href="#local-6989586621679327397"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">StorableQuery UtxoHandle
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">Utxo.LastSyncPoint</span></a></span><span>
+</span><span id="line-66"></span><span>             </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">StorableResult UtxoHandle
+</span><a href="#local-6989586621679327396"><span class="hs-identifier hs-var">res</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-67"></span><span>                  </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">Utxo.LastSyncPointResult</span></a></span><span> </span><span id="local-6989586621679327391"><span class="annot"><a href="#local-6989586621679327391"><span class="hs-identifier hs-var">cp</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either QueryExceptions CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions CurrentSyncedPointResult
+ -&gt; IO (Either QueryExceptions CurrentSyncedPointResult))
+-&gt; Either QueryExceptions CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">CurrentSyncedPointResult
+-&gt; Either QueryExceptions CurrentSyncedPointResult
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(CurrentSyncedPointResult
+ -&gt; Either QueryExceptions CurrentSyncedPointResult)
+-&gt; CurrentSyncedPointResult
+-&gt; Either QueryExceptions CurrentSyncedPointResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint -&gt; CurrentSyncedPointResult
+</span><a href="Marconi.Sidechain.Api.Routes.html#CurrentSyncedPointResult"><span class="hs-identifier hs-var">CurrentSyncedPointResult</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="#local-6989586621679327391"><span class="hs-identifier hs-var">cp</span></a></span><span>
+</span><span id="line-68"></span><span>                  </span><span id="local-6989586621679327390"><span class="annot"><span class="annottext">StorableResult UtxoHandle
+</span><a href="#local-6989586621679327390"><span class="hs-identifier hs-var">_other</span></a></span></span><span>                      </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either QueryExceptions CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions CurrentSyncedPointResult
+ -&gt; IO (Either QueryExceptions CurrentSyncedPointResult))
+-&gt; Either QueryExceptions CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">QueryExceptions -&gt; Either QueryExceptions CurrentSyncedPointResult
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(QueryExceptions
+ -&gt; Either QueryExceptions CurrentSyncedPointResult)
+-&gt; QueryExceptions
+-&gt; Either QueryExceptions CurrentSyncedPointResult
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StorableQuery UtxoHandle -&gt; QueryExceptions
+</span><a href="Marconi.Sidechain.Api.Types.html#UnexpectedQueryResult"><span class="hs-identifier hs-var">UnexpectedQueryResult</span></a></span><span> </span><span class="annot"><span class="annottext">StorableQuery UtxoHandle
+</span><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-var">Utxo.LastSyncPoint</span></a></span><span>
+</span><span id="line-69"></span><span>         </span><span class="annot"><span class="annottext">Maybe (State UtxoHandle)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either QueryExceptions CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions CurrentSyncedPointResult
+ -&gt; IO (Either QueryExceptions CurrentSyncedPointResult))
+-&gt; (CurrentSyncedPointResult
+    -&gt; Either QueryExceptions CurrentSyncedPointResult)
+-&gt; CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">CurrentSyncedPointResult
+-&gt; Either QueryExceptions CurrentSyncedPointResult
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">(CurrentSyncedPointResult
+ -&gt; IO (Either QueryExceptions CurrentSyncedPointResult))
+-&gt; CurrentSyncedPointResult
+-&gt; IO (Either QueryExceptions CurrentSyncedPointResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint -&gt; CurrentSyncedPointResult
+</span><a href="Marconi.Sidechain.Api.Routes.html#CurrentSyncedPointResult"><span class="hs-identifier hs-var">CurrentSyncedPointResult</span></a></span><span> </span><span class="annot"><span class="annottext">ChainPoint
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.ChainPointAtGenesis</span></a></span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- | Retrieve Utxos associated with the given address</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- We return an empty list if no address is not found</span><span>
+</span><span id="line-74"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32Address"><span class="hs-identifier hs-type">findByBech32Address</span></a></span><span>
+</span><span id="line-75"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-76"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-comment">-- ^ Bech32 Address</span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#AddressUtxoResult"><span class="hs-identifier hs-type">AddressUtxoResult</span></a></span><span class="hs-special">)</span><span>  </span><span class="hs-comment">-- ^ Plutus address conversion error may occur</span><span>
+</span><span id="line-78"></span><span id="findByBech32Address"><span class="annot"><span class="annottext">findByBech32Address :: AddressUtxoIndexerEnv
+-&gt; Text -&gt; IO (Either QueryExceptions AddressUtxoResult)
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32Address"><span class="hs-identifier hs-var hs-var">findByBech32Address</span></a></span></span><span> </span><span id="local-6989586621679327387"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327387"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679327386"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679327386"><span class="hs-identifier hs-var">addressText</span></a></span></span><span>
+</span><span id="line-79"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; Text
+-&gt; Maybe Word64
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32AddressAtSlot"><span class="hs-identifier hs-var">findByBech32AddressAtSlot</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327387"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679327386"><span class="hs-identifier hs-var">addressText</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Word64
+forall a. Maybe a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- | Retrieve Utxos associated with the given address</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- We return an empty list if no address is not found</span><span>
+</span><span id="line-83"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32AddressAtSlot"><span class="hs-identifier hs-type">findByBech32AddressAtSlot</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span> </span><span class="hs-comment">-- ^ Bech32 Address</span><span>
+</span><span id="line-86"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Word64</span></a></span><span> </span><span class="hs-comment">-- ^ Slot number to look at</span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Routes.html#AddressUtxoResult"><span class="hs-identifier hs-type">AddressUtxoResult</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ Plutus address conversion error may occur</span><span>
+</span><span id="line-88"></span><span id="findByBech32AddressAtSlot"><span class="annot"><span class="annottext">findByBech32AddressAtSlot :: AddressUtxoIndexerEnv
+-&gt; Text
+-&gt; Maybe Word64
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByBech32AddressAtSlot"><span class="hs-identifier hs-var hs-var">findByBech32AddressAtSlot</span></a></span></span><span> </span><span id="local-6989586621679327385"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327385"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679327384"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679327384"><span class="hs-identifier hs-var">addressText</span></a></span></span><span> </span><span id="local-6989586621679327383"><span class="annot"><span class="annottext">Maybe Word64
+</span><a href="#local-6989586621679327383"><span class="hs-identifier hs-var">slotWord</span></a></span></span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">let</span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span>        </span><span id="local-6989586621679327382"><span class="annot"><span class="annottext">toQueryExceptions :: a -&gt; QueryExceptions
+</span><a href="#local-6989586621679327382"><span class="hs-identifier hs-var hs-var">toQueryExceptions</span></a></span></span><span> </span><span id="local-6989586621679327381"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679327381"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; QueryExceptions
+</span><a href="Marconi.Sidechain.Api.Types.html#QueryError"><span class="hs-identifier hs-var">QueryError</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; String
+</span><a href="../../../../text/html/src"><span class="hs-identifier hs-var">unpack</span></a></span><span>  </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679327384"><span class="hs-identifier hs-var">addressText</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; generated error: &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">show</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679327381"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span>        </span><span id="local-6989586621679327379"><span class="annot"><span class="annottext">queryAtAddress :: AddressAny -&gt; IO (Either QueryExceptions AddressUtxoResult)
+</span><a href="#local-6989586621679327379"><span class="hs-identifier hs-var hs-var">queryAtAddress</span></a></span></span><span> </span><span id="local-6989586621679327378"><span class="annot"><span class="annottext">AddressAny
+</span><a href="#local-6989586621679327378"><span class="hs-identifier hs-var">addr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([UtxoRow] -&gt; AddressUtxoResult)
+-&gt; Either QueryExceptions [UtxoRow]
+-&gt; Either QueryExceptions AddressUtxoResult
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">[UtxoRow] -&gt; AddressUtxoResult
+</span><a href="Marconi.Sidechain.Api.Routes.html#AddressUtxoResult"><span class="hs-identifier hs-var">AddressUtxoResult</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions [UtxoRow]
+ -&gt; Either QueryExceptions AddressUtxoResult)
+-&gt; IO (Either QueryExceptions [UtxoRow])
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; AddressAny
+-&gt; Maybe SlotNo
+-&gt; IO (Either QueryExceptions [UtxoRow])
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#findByAddress"><span class="hs-identifier hs-var">findByAddress</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327385"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">AddressAny
+</span><a href="#local-6989586621679327378"><span class="hs-identifier hs-var">addr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Word64 -&gt; SlotNo
+forall a b. (Integral a, Num b) =&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fromIntegral</span></a></span><span> </span><span class="annot"><span class="annottext">(Word64 -&gt; SlotNo) -&gt; Maybe Word64 -&gt; Maybe SlotNo
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&lt;$&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Word64
+</span><a href="#local-6989586621679327383"><span class="hs-identifier hs-var">slotWord</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-94"></span><span>
+</span><span id="line-95"></span><span>    </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(QueryExceptions -&gt; IO (Either QueryExceptions AddressUtxoResult))
+-&gt; (AddressAny -&gt; IO (Either QueryExceptions AddressUtxoResult))
+-&gt; Either QueryExceptions AddressAny
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">either</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Either QueryExceptions AddressUtxoResult
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions AddressUtxoResult
+ -&gt; IO (Either QueryExceptions AddressUtxoResult))
+-&gt; (QueryExceptions -&gt; Either QueryExceptions AddressUtxoResult)
+-&gt; QueryExceptions
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">QueryExceptions -&gt; Either QueryExceptions AddressUtxoResult
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">AddressAny -&gt; IO (Either QueryExceptions AddressUtxoResult)
+</span><a href="#local-6989586621679327379"><span class="hs-identifier hs-var">queryAtAddress</span></a></span><span>
+</span><span id="line-96"></span><span>        </span><span class="annot"><span class="annottext">(Either QueryExceptions AddressAny
+ -&gt; IO (Either QueryExceptions AddressUtxoResult))
+-&gt; Either QueryExceptions AddressAny
+-&gt; IO (Either QueryExceptions AddressUtxoResult)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">(Bech32DecodeError -&gt; QueryExceptions)
+-&gt; (Address ShelleyAddr -&gt; AddressAny)
+-&gt; Either Bech32DecodeError (Address ShelleyAddr)
+-&gt; Either QueryExceptions AddressAny
+forall (p :: * -&gt; * -&gt; *) a b c d.
+Bifunctor p =&gt;
+(a -&gt; b) -&gt; (c -&gt; d) -&gt; p a c -&gt; p b d
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">bimap</span></a></span><span> </span><span class="annot"><span class="annottext">Bech32DecodeError -&gt; QueryExceptions
+forall a. Show a =&gt; a -&gt; QueryExceptions
+</span><a href="#local-6989586621679327382"><span class="hs-identifier hs-var">toQueryExceptions</span></a></span><span> </span><span class="annot"><span class="annottext">Address ShelleyAddr -&gt; AddressAny
+forall addr. Address addr -&gt; AddressAny
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.toAddressAny</span></a></span><span>
+</span><span id="line-97"></span><span>        </span><span class="annot"><span class="annottext">(Either Bech32DecodeError (Address ShelleyAddr)
+ -&gt; Either QueryExceptions AddressAny)
+-&gt; Either Bech32DecodeError (Address ShelleyAddr)
+-&gt; Either QueryExceptions AddressAny
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">AsType (Address ShelleyAddr)
+-&gt; Text -&gt; Either Bech32DecodeError (Address ShelleyAddr)
+forall a.
+SerialiseAsBech32 a =&gt;
+AsType a -&gt; Text -&gt; Either Bech32DecodeError a
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.deserialiseFromBech32</span></a></span><span> </span><span class="annot"><span class="annottext">AsType (Address ShelleyAddr)
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.AsShelleyAddress</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679327384"><span class="hs-identifier hs-var">addressText</span></a></span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- | Execute the query function</span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- We must stop the utxo inserts before doing the query</span><span>
+</span><span id="line-101"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#withQueryAction"><span class="hs-identifier hs-type">withQueryAction</span></a></span><span>
+</span><span id="line-102"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-comment">-- ^ Query run time environment</span><span>
+</span><span id="line-103"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">StorableQuery</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">Utxo.UtxoHandle</span></a></span><span> </span><span class="hs-comment">-- ^ Address and slot to query</span><span>
+</span><span id="line-104"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Either</span></a></span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">Utxo.UtxoRow</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-105"></span><span id="withQueryAction"><span class="annot"><span class="annottext">withQueryAction :: AddressUtxoIndexerEnv
+-&gt; StorableQuery UtxoHandle
+-&gt; IO (Either QueryExceptions [UtxoRow])
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#withQueryAction"><span class="hs-identifier hs-var hs-var">withQueryAction</span></a></span></span><span> </span><span id="local-6989586621679327372"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327372"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span id="local-6989586621679327371"><span class="annot"><span class="annottext">StorableQuery UtxoHandle
+</span><a href="#local-6989586621679327371"><span class="hs-identifier hs-var">query</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-106"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">STM (Maybe (State UtxoHandle)) -&gt; IO (Maybe (State UtxoHandle))
+forall a. STM a -&gt; IO a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">atomically</span></a></span><span> </span><span class="annot"><span class="annottext">(STM (Maybe (State UtxoHandle)) -&gt; IO (Maybe (State UtxoHandle)))
+-&gt; STM (Maybe (State UtxoHandle)) -&gt; IO (Maybe (State UtxoHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar (State UtxoHandle) -&gt; STM (Maybe (State UtxoHandle))
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><a href="../../../../stm/html/src"><span class="hs-identifier hs-var">tryReadTMVar</span></a></span><span> </span><span class="annot"><span class="annottext">(TMVar (State UtxoHandle) -&gt; STM (Maybe (State UtxoHandle)))
+-&gt; TMVar (State UtxoHandle) -&gt; STM (Maybe (State UtxoHandle))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327372"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; Getting
+     (TMVar (State UtxoHandle))
+     AddressUtxoIndexerEnv
+     (TMVar (State UtxoHandle))
+-&gt; TMVar (State UtxoHandle)
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">Getting
+  (TMVar (State UtxoHandle))
+  AddressUtxoIndexerEnv
+  (TMVar (State UtxoHandle))
+Lens' AddressUtxoIndexerEnv (TMVar (State UtxoHandle))
+</span><a href="Marconi.Sidechain.Api.Types.html#addressUtxoIndexerEnvIndexer"><span class="hs-identifier hs-var">addressUtxoIndexerEnvIndexer</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO (Maybe (State UtxoHandle))
+-&gt; (Maybe (State UtxoHandle)
+    -&gt; IO (Either QueryExceptions [UtxoRow]))
+-&gt; IO (Either QueryExceptions [UtxoRow])
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">&gt;&gt;=</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (State UtxoHandle) -&gt; IO (Either QueryExceptions [UtxoRow])
+</span><a href="#local-6989586621679327370"><span class="hs-identifier hs-var">action</span></a></span><span>
+</span><span id="line-107"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-108"></span><span>    </span><span id="local-6989586621679327370"><span class="annot"><span class="annottext">action :: Maybe (State UtxoHandle) -&gt; IO (Either QueryExceptions [UtxoRow])
+</span><a href="#local-6989586621679327370"><span class="hs-identifier hs-var hs-var">action</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe (State UtxoHandle)
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Nothing</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Either QueryExceptions [UtxoRow]
+-&gt; IO (Either QueryExceptions [UtxoRow])
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions [UtxoRow]
+ -&gt; IO (Either QueryExceptions [UtxoRow]))
+-&gt; Either QueryExceptions [UtxoRow]
+-&gt; IO (Either QueryExceptions [UtxoRow])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[UtxoRow] -&gt; Either QueryExceptions [UtxoRow]
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-comment">-- may occures at startup before marconi-chain-index gets to update the indexer</span><span>
+</span><span id="line-109"></span><span>    </span><span class="annot"><a href="#local-6989586621679327370"><span class="hs-identifier hs-var">action</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Just</span></a></span><span> </span><span id="local-6989586621679327369"><span class="annot"><span class="annottext">State UtxoHandle
+</span><a href="#local-6989586621679327369"><span class="hs-identifier hs-var">indexer</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-110"></span><span>            </span><span id="local-6989586621679327368"><span class="annot"><span class="annottext">StorableResult UtxoHandle
+</span><a href="#local-6989586621679327368"><span class="hs-identifier hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint UtxoHandle)
+-&gt; State UtxoHandle
+-&gt; StorableQuery UtxoHandle
+-&gt; StorableMonad UtxoHandle (StorableResult UtxoHandle)
+forall h.
+(HasPoint (StorableEvent h) (StorablePoint h),
+ Ord (StorablePoint h), Queryable h, PrimMonad (StorableMonad h)) =&gt;
+QueryInterval (StorablePoint h)
+-&gt; State h -&gt; StorableQuery h -&gt; StorableMonad h (StorableResult h)
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.query</span></a></span><span> </span><span class="annot"><span class="annottext">QueryInterval (StorablePoint UtxoHandle)
+forall p. QueryInterval p
+</span><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-var">Storable.QEverything</span></a></span><span> </span><span class="annot"><span class="annottext">State UtxoHandle
+</span><a href="#local-6989586621679327369"><span class="hs-identifier hs-var">indexer</span></a></span><span> </span><span class="annot"><span class="annottext">StorableQuery UtxoHandle
+</span><a href="#local-6989586621679327371"><span class="hs-identifier hs-var">query</span></a></span><span>
+</span><span id="line-111"></span><span>            </span><span class="annot"><span class="annottext">Either QueryExceptions [UtxoRow]
+-&gt; IO (Either QueryExceptions [UtxoRow])
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">(Either QueryExceptions [UtxoRow]
+ -&gt; IO (Either QueryExceptions [UtxoRow]))
+-&gt; Either QueryExceptions [UtxoRow]
+-&gt; IO (Either QueryExceptions [UtxoRow])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">StorableResult UtxoHandle
+</span><a href="#local-6989586621679327368"><span class="hs-identifier hs-var">res</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-112"></span><span>                 </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">Utxo.UtxoResult</span></a></span><span> </span><span id="local-6989586621679327366"><span class="annot"><a href="#local-6989586621679327366"><span class="hs-identifier hs-var">rows</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[UtxoRow] -&gt; Either QueryExceptions [UtxoRow]
+forall a b. b -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Right</span></a></span><span> </span><span class="annot"><span class="annottext">[UtxoRow]
+</span><a href="#local-6989586621679327366"><span class="hs-identifier hs-var">rows</span></a></span><span>
+</span><span id="line-113"></span><span>                 </span><span id="local-6989586621679327365"><span class="annot"><span class="annottext">StorableResult UtxoHandle
+</span><a href="#local-6989586621679327365"><span class="hs-identifier hs-var">_other</span></a></span></span><span>               </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">QueryExceptions -&gt; Either QueryExceptions [UtxoRow]
+forall a b. a -&gt; Either a b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">Left</span></a></span><span> </span><span class="annot"><span class="annottext">(QueryExceptions -&gt; Either QueryExceptions [UtxoRow])
+-&gt; QueryExceptions -&gt; Either QueryExceptions [UtxoRow]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">StorableQuery UtxoHandle -&gt; QueryExceptions
+</span><a href="Marconi.Sidechain.Api.Types.html#UnexpectedQueryResult"><span class="hs-identifier hs-var">UnexpectedQueryResult</span></a></span><span> </span><span class="annot"><span class="annottext">StorableQuery UtxoHandle
+</span><a href="#local-6989586621679327371"><span class="hs-identifier hs-var">query</span></a></span><span>
+</span><span id="line-114"></span><span>
+</span><span id="line-115"></span><span class="hs-comment">-- | report target addresses</span><span>
+</span><span id="line-116"></span><span class="hs-comment">-- Used by JSON-RPC</span><span>
+</span><span id="line-117"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#reportQueryAddresses"><span class="hs-identifier hs-type">reportQueryAddresses</span></a></span><span>
+</span><span id="line-118"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span>
+</span><span id="line-119"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">IO</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.Address</span></a></span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.ShelleyAddr</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-120"></span><span id="reportQueryAddresses"><span class="annot"><span class="annottext">reportQueryAddresses :: AddressUtxoIndexerEnv -&gt; IO [Address ShelleyAddr]
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#reportQueryAddresses"><span class="hs-identifier hs-var hs-var">reportQueryAddresses</span></a></span></span><span> </span><span id="local-6989586621679327364"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327364"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Address ShelleyAddr] -&gt; IO [Address ShelleyAddr]
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">pure</span></a></span><span> </span><span class="annot"><span class="annottext">([Address ShelleyAddr] -&gt; IO [Address ShelleyAddr])
+-&gt; [Address ShelleyAddr] -&gt; IO [Address ShelleyAddr]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">[Address ShelleyAddr]
+-&gt; (TargetAddresses -&gt; [Address ShelleyAddr])
+-&gt; Maybe TargetAddresses
+-&gt; [Address ShelleyAddr]
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TargetAddresses -&gt; [Address ShelleyAddr]
+forall a. NonEmpty a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">NonEmpty.toList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327364"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; Getting
+     (Maybe TargetAddresses)
+     AddressUtxoIndexerEnv
+     (Maybe TargetAddresses)
+-&gt; Maybe TargetAddresses
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">Getting
+  (Maybe TargetAddresses)
+  AddressUtxoIndexerEnv
+  (Maybe TargetAddresses)
+Lens' AddressUtxoIndexerEnv (Maybe TargetAddresses)
+</span><a href="Marconi.Sidechain.Api.Types.html#addressUtxoIndexerEnvTargetAddresses"><span class="hs-identifier hs-var">addressUtxoIndexerEnvTargetAddresses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>
+</span><span id="line-122"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#reportBech32Addresses"><span class="hs-identifier hs-type">reportBech32Addresses</span></a></span><span>
+</span><span id="line-123"></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="../../../../text/html/src"><span class="hs-identifier hs-type">Text</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-125"></span><span id="reportBech32Addresses"><span class="annot"><span class="annottext">reportBech32Addresses :: AddressUtxoIndexerEnv -&gt; [Text]
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#reportBech32Addresses"><span class="hs-identifier hs-var hs-var">reportBech32Addresses</span></a></span></span><span> </span><span id="local-6989586621679327361"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327361"><span class="hs-identifier hs-var">env</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-126"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679327360"><span class="annot"><span class="annottext">addrs :: [Address ShelleyAddr]
+</span><a href="#local-6989586621679327360"><span class="hs-identifier hs-var hs-var">addrs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Address ShelleyAddr]
+-&gt; (TargetAddresses -&gt; [Address ShelleyAddr])
+-&gt; Maybe TargetAddresses
+-&gt; [Address ShelleyAddr]
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">maybe</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TargetAddresses -&gt; [Address ShelleyAddr]
+forall a. NonEmpty a -&gt; [a]
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">NonEmpty.toList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+</span><a href="#local-6989586621679327361"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">AddressUtxoIndexerEnv
+-&gt; Getting
+     (Maybe TargetAddresses)
+     AddressUtxoIndexerEnv
+     (Maybe TargetAddresses)
+-&gt; Maybe TargetAddresses
+forall s a. s -&gt; Getting a s a -&gt; a
+</span><a href="../../../../lens/html/src"><span class="hs-operator hs-var">^.</span></a></span><span> </span><span class="annot"><span class="annottext">Getting
+  (Maybe TargetAddresses)
+  AddressUtxoIndexerEnv
+  (Maybe TargetAddresses)
+Lens' AddressUtxoIndexerEnv (Maybe TargetAddresses)
+</span><a href="Marconi.Sidechain.Api.Types.html#addressUtxoIndexerEnvTargetAddresses"><span class="hs-identifier hs-var">addressUtxoIndexerEnvTargetAddresses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-127"></span><span>     </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(Address ShelleyAddr -&gt; Text) -&gt; [Address ShelleyAddr] -&gt; [Text]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var">fmap</span></a></span><span> </span><span class="annot"><span class="annottext">Address ShelleyAddr -&gt; Text
+forall addr. SerialiseAddress addr =&gt; addr -&gt; Text
+</span><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-var">C.serialiseAddress</span></a></span><span> </span><span class="annot"><span class="annottext">[Address ShelleyAddr]
+</span><a href="#local-6989586621679327360"><span class="hs-identifier hs-var">addrs</span></a></span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span class="annot"><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#updateEnvState"><span class="hs-identifier hs-type">updateEnvState</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">Utxo.UtxoIndexer</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">STM</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span id="updateEnvState"><span class="annot"><span class="annottext">updateEnvState :: AddressUtxoIndexerEnv -&gt; State UtxoHandle -&gt; STM ()
+</span><a href="Marconi.Sidechain.Api.Query.Indexers.Utxo.html#updateEnvState"><span class="hs-identifier hs-var hs-var">updateEnvState</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe TargetAddresses
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679327358"><span class="annot"><span class="annottext">TMVar (State UtxoHandle)
+</span><a href="#local-6989586621679327358"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>  </span><span class="annot"><span class="annottext">TMVar (State UtxoHandle) -&gt; State UtxoHandle -&gt; STM ()
+forall a. TMVar a -&gt; a -&gt; STM ()
+</span><a href="Marconi.Sidechain.Utils.html#writeTMVar"><span class="hs-identifier hs-var">writeTMVar</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar (State UtxoHandle)
+</span><a href="#local-6989586621679327358"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-131"></span></pre></body></html>

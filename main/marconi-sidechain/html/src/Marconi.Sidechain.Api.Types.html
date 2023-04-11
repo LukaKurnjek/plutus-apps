@@ -1,0 +1,141 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds             #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass        #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric         #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE DerivingStrategies    #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances     #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase            #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses #-}</span><span>
+</span><span id="line-8"></span><span class="hs-pragma">{-# LANGUAGE RankNTypes            #-}</span><span>
+</span><span id="line-9"></span><span class="hs-pragma">{-# LANGUAGE StandaloneDeriving    #-}</span><span>
+</span><span id="line-10"></span><span class="hs-pragma">{-# LANGUAGE TemplateHaskell       #-}</span><span>
+</span><span id="line-11"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications      #-}</span><span>
+</span><span id="line-12"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies          #-}</span><span>
+</span><span id="line-13"></span><span class="hs-pragma">{-# LANGUAGE TypeOperators         #-}</span><span>
+</span><span id="line-14"></span><span class="hs-pragma">{-# LANGUAGE UndecidableInstances  #-}</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- | This module provides support for writing handlers for JSON-RPC endpoints.</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Marconi.Sidechain.Api.Types</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier">Cardano.Api</span></a></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">C</span></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">Control.Concurrent.STM.TMVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier">TMVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Control.Exception</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier">Exception</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-identifier">Control.Lens</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../lens/html/src"><span class="hs-identifier">makeLenses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.EpochState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">EpochStateHandle</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Indexers.Utxo</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">UtxoHandle</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">Marconi.ChainIndex.Types</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Export</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier">TargetAddresses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">Marconi.Core.Storable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">State</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier">StorableQuery</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier">Network.Wai.Handler.Warp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier">Settings</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- | Type represents http port for JSON-RPC</span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">data</span><span> </span><span id="CliArgs"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#CliArgs"><span class="hs-identifier hs-var">CliArgs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="CliArgs"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#CliArgs"><span class="hs-identifier hs-var">CliArgs</span></a></span></span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="socket"><span class="annot"><span class="annottext">CliArgs -&gt; FilePath
+</span><a href="Marconi.Sidechain.Api.Types.html#socket"><span class="hs-identifier hs-var hs-var">socket</span></a></span></span><span>          </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-comment">-- ^ POSIX socket file to communicate with cardano node</span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="nodeConfigPath"><span class="annot"><span class="annottext">CliArgs -&gt; FilePath
+</span><a href="Marconi.Sidechain.Api.Types.html#nodeConfigPath"><span class="hs-identifier hs-var hs-var">nodeConfigPath</span></a></span></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-comment">-- ^ Path to the node config</span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="dbDir"><span class="annot"><span class="annottext">CliArgs -&gt; FilePath
+</span><a href="Marconi.Sidechain.Api.Types.html#dbDir"><span class="hs-identifier hs-var hs-var">dbDir</span></a></span></span><span>           </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">FilePath</span></a></span><span> </span><span class="hs-comment">-- ^ Directory path containing the SQLite database files</span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="httpPort"><span class="annot"><span class="annottext">CliArgs -&gt; Maybe Int
+</span><a href="Marconi.Sidechain.Api.Types.html#httpPort"><span class="hs-identifier hs-var hs-var">httpPort</span></a></span></span><span>        </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../ghc/html/libraries/ghc-prim-0.6.1/src"><span class="hs-identifier hs-type">Int</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ optional tcp/ip port number for JSON-RPC http server</span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="networkId"><span class="annot"><span class="annottext">CliArgs -&gt; NetworkId
+</span><a href="Marconi.Sidechain.Api.Types.html#networkId"><span class="hs-identifier hs-var hs-var">networkId</span></a></span></span><span>       </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../cardano-api/html/src"><span class="hs-identifier hs-type">C.NetworkId</span></a></span><span> </span><span class="hs-comment">-- ^ cardano network id</span><span>
+</span><span id="line-37"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="targetAddresses"><span class="annot"><span class="annottext">CliArgs -&gt; Maybe TargetAddresses
+</span><a href="Marconi.Sidechain.Api.Types.html#targetAddresses"><span class="hs-identifier hs-var hs-var">targetAddresses</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">TargetAddresses</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- ^ white-space sepparated list of Bech32 Cardano Shelley addresses</span><span>
+</span><span id="line-38"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679327243"><span id="local-6989586621679327245"><span id="local-6989586621679327247"><span class="annot"><span class="annottext">Int -&gt; CliArgs -&gt; ShowS
+[CliArgs] -&gt; ShowS
+CliArgs -&gt; FilePath
+(Int -&gt; CliArgs -&gt; ShowS)
+-&gt; (CliArgs -&gt; FilePath) -&gt; ([CliArgs] -&gt; ShowS) -&gt; Show CliArgs
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [CliArgs] -&gt; ShowS
+$cshowList :: [CliArgs] -&gt; ShowS
+show :: CliArgs -&gt; FilePath
+$cshow :: CliArgs -&gt; FilePath
+showsPrec :: Int -&gt; CliArgs -&gt; ShowS
+$cshowsPrec :: Int -&gt; CliArgs -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- | JSON-RPC as well as the Query Indexer Env</span><span>
+</span><span id="line-41"></span><span class="hs-keyword">data</span><span> </span><span id="SidechainEnv"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-var">SidechainEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="SidechainEnv"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainEnv"><span class="hs-identifier hs-var">SidechainEnv</span></a></span></span><span>
+</span><span id="line-42"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="_sidechainEnvHttpSettings"><span class="annot"><span class="annottext">SidechainEnv -&gt; Settings
+</span><a href="Marconi.Sidechain.Api.Types.html#_sidechainEnvHttpSettings"><span class="hs-identifier hs-var hs-var">_sidechainEnvHttpSettings</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../warp/html/src"><span class="hs-identifier hs-type">Settings</span></a></span><span> </span><span class="hs-comment">-- ^ HTTP server setting</span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="_sidechainEnvIndexers"><span class="annot"><span class="annottext">SidechainEnv -&gt; SidechainIndexers
+</span><a href="Marconi.Sidechain.Api.Types.html#_sidechainEnvIndexers"><span class="hs-identifier hs-var hs-var">_sidechainEnvIndexers</span></a></span></span><span>     </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainIndexers"><span class="hs-identifier hs-type">SidechainIndexers</span></a></span><span> </span><span class="hs-comment">-- ^ Used for query the indexers</span><span>
+</span><span id="line-44"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | Should contain all the indexers required by Sidechain.</span><span>
+</span><span id="line-47"></span><span class="hs-keyword">data</span><span> </span><span id="SidechainIndexers"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainIndexers"><span class="hs-identifier hs-var">SidechainIndexers</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="SidechainIndexers"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#SidechainIndexers"><span class="hs-identifier hs-var">SidechainIndexers</span></a></span></span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="_sidechainAddressUtxoIndexer"><span class="annot"><span class="annottext">SidechainIndexers -&gt; AddressUtxoIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#_sidechainAddressUtxoIndexer"><span class="hs-identifier hs-var hs-var">_sidechainAddressUtxoIndexer</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-type">AddressUtxoIndexerEnv</span></a></span><span>
+</span><span id="line-49"></span><span>    </span><span class="hs-comment">-- ^ For query thread to access in-memory utxos</span><span>
+</span><span id="line-50"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="_sidechainEpochStateIndexer"><span class="annot"><span class="annottext">SidechainIndexers -&gt; EpochStateIndexerEnv
+</span><a href="Marconi.Sidechain.Api.Types.html#_sidechainEpochStateIndexer"><span class="hs-identifier hs-var hs-var">_sidechainEpochStateIndexer</span></a></span></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier hs-type">EpochStateIndexerEnv</span></a></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-comment">-- ^ For query thread to access in-memory epoch state data</span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-keyword">data</span><span> </span><span id="AddressUtxoIndexerEnv"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-var">AddressUtxoIndexerEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="AddressUtxoIndexerEnv"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressUtxoIndexerEnv"><span class="hs-identifier hs-var">AddressUtxoIndexerEnv</span></a></span></span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="_addressUtxoIndexerEnvTargetAddresses"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv -&gt; Maybe TargetAddresses
+</span><a href="Marconi.Sidechain.Api.Types.html#_addressUtxoIndexerEnvTargetAddresses"><span class="hs-identifier hs-var hs-var">_addressUtxoIndexerEnvTargetAddresses</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">Maybe</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">TargetAddresses</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="_addressUtxoIndexerEnvIndexer"><span class="annot"><span class="annottext">AddressUtxoIndexerEnv -&gt; TMVar (State UtxoHandle)
+</span><a href="Marconi.Sidechain.Api.Types.html#_addressUtxoIndexerEnvIndexer"><span class="hs-identifier hs-var hs-var">_addressUtxoIndexerEnvIndexer</span></a></span></span><span>         </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier hs-type">TMVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">UtxoHandle</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-keyword">newtype</span><span> </span><span id="EpochStateIndexerEnv"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier hs-var">EpochStateIndexerEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="EpochStateIndexerEnv"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#EpochStateIndexerEnv"><span class="hs-identifier hs-var">EpochStateIndexerEnv</span></a></span></span><span>
+</span><span id="line-60"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="_epochStateIndexerEnvIndexer"><span class="annot"><span class="annottext">EpochStateIndexerEnv -&gt; TMVar (State EpochStateHandle)
+</span><a href="Marconi.Sidechain.Api.Types.html#_epochStateIndexerEnvIndexer"><span class="hs-identifier hs-var hs-var">_epochStateIndexerEnvIndexer</span></a></span></span><span>         </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="../../../../stm/html/src"><span class="hs-identifier hs-type">TMVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">State</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">EpochStateHandle</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-keyword">data</span><span> </span><span id="QueryExceptions"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-var">QueryExceptions</span></a></span></span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span id="AddressConversionError"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#AddressConversionError"><span class="hs-identifier hs-var">AddressConversionError</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryExceptions"><span class="hs-identifier hs-type">QueryExceptions</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="QueryError"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#QueryError"><span class="hs-identifier hs-var">QueryError</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-type">String</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="UnexpectedQueryResult"><span class="annot"><a href="Marconi.Sidechain.Api.Types.html#UnexpectedQueryResult"><span class="hs-identifier hs-var">UnexpectedQueryResult</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><a href="../../../../marconi-core/html/src"><span class="hs-identifier hs-type">StorableQuery</span></a></span><span> </span><span class="annot"><a href="../../../../marconi-chain-index/html/src"><span class="hs-identifier hs-type">UtxoHandle</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">stock</span></span><span> </span><span id="local-6989586621679327221"><span id="local-6989586621679327223"><span id="local-6989586621679327225"><span class="annot"><span class="annottext">Int -&gt; QueryExceptions -&gt; ShowS
+[QueryExceptions] -&gt; ShowS
+QueryExceptions -&gt; FilePath
+(Int -&gt; QueryExceptions -&gt; ShowS)
+-&gt; (QueryExceptions -&gt; FilePath)
+-&gt; ([QueryExceptions] -&gt; ShowS)
+-&gt; Show QueryExceptions
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [QueryExceptions] -&gt; ShowS
+$cshowList :: [QueryExceptions] -&gt; ShowS
+show :: QueryExceptions -&gt; FilePath
+$cshow :: QueryExceptions -&gt; FilePath
+showsPrec :: Int -&gt; QueryExceptions -&gt; ShowS
+$cshowsPrec :: Int -&gt; QueryExceptions -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></a></span></span></span></span><span>
+</span><span id="line-68"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">anyclass</span></span><span>  </span><span id="local-6989586621679327213"><span id="local-6989586621679327215"><span id="local-6989586621679327217"><span class="annot"><span class="annottext">Show QueryExceptions
+Typeable QueryExceptions
+Typeable QueryExceptions
+-&gt; Show QueryExceptions
+-&gt; (QueryExceptions -&gt; SomeException)
+-&gt; (SomeException -&gt; Maybe QueryExceptions)
+-&gt; (QueryExceptions -&gt; FilePath)
+-&gt; Exception QueryExceptions
+SomeException -&gt; Maybe QueryExceptions
+QueryExceptions -&gt; FilePath
+QueryExceptions -&gt; SomeException
+forall e.
+Typeable e
+-&gt; Show e
+-&gt; (e -&gt; SomeException)
+-&gt; (SomeException -&gt; Maybe e)
+-&gt; (e -&gt; FilePath)
+-&gt; Exception e
+displayException :: QueryExceptions -&gt; FilePath
+$cdisplayException :: QueryExceptions -&gt; FilePath
+fromException :: SomeException -&gt; Maybe QueryExceptions
+$cfromException :: SomeException -&gt; Maybe QueryExceptions
+toException :: QueryExceptions -&gt; SomeException
+$ctoException :: QueryExceptions -&gt; SomeException
+$cp2Exception :: Show QueryExceptions
+$cp1Exception :: Typeable QueryExceptions
+</span><a href="../../../../ghc/html/libraries/base-4.14.3.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Exception</span></a></span></span></span></span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span id="sidechainEnvIndexers"><span id="sidechainEnvHttpSettings"><span class="hs-identifier">makeLenses</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">SidechainEnv</span></span></span><span>
+</span><span id="line-71"></span><span id="sidechainEpochStateIndexer"><span id="sidechainAddressUtxoIndexer"><span class="hs-identifier">makeLenses</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">SidechainIndexers</span></span></span><span>
+</span><span id="line-72"></span><span id="addressUtxoIndexerEnvTargetAddresses"><span id="addressUtxoIndexerEnvIndexer"><span class="hs-identifier">makeLenses</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">AddressUtxoIndexerEnv</span></span></span><span>
+</span><span id="line-73"></span><span id="epochStateIndexerEnvIndexer"><span class="hs-identifier">makeLenses</span><span> </span><span class="hs-special">''</span><span class="hs-identifier">EpochStateIndexerEnv</span></span><span>
+</span><span id="line-74"></span></pre></body></html>
