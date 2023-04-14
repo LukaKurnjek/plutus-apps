@@ -17,6 +17,6 @@ The off chain code is used for transaction construction. In this case we constru
 
 ### Where can I learn about Plutus scripts in more detail?
 
-Our education director, Lars Brünjes, has an excellent series of [tutorials](https://youtube.com/playlist?list=PLNEK_Ejlx3x2nLM4fAck2JS6KhFQlXq2N) on youtube. Further relevant Plutus documentation can be found [here](https://docs.cardano.org/plutus/learn-about-plutus).
+Our education director, Lars Brünjes, has an excellent series of [tutorials](https://www.youtube.com/@iogacademy/playlists?view=50&sort=dd&shelf_id=2) on youtube. You can also check out the GitHub page of the [Plutus Pioneer Program](https://github.com/input-output-hk/plutus-pioneer-program/). Further relevant Plutus documentation can be found [here](https://docs.cardano.org/plutus/learn-about-plutus).
 
 
